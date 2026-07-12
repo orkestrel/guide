@@ -23,4 +23,9 @@ export const MANIFEST: string = 'By concept'
  * with one of these prefixes (or a bare `#` anchor, handled separately in
  * `isExternalLink`) is never resolved against the filesystem.
  */
-export const EXTERNAL_SCHEMES: readonly string[] = Object.freeze(['http:', 'https:', 'mailto:', 'tel:'])
+export const EXTERNAL_SCHEMES: readonly string[] = Object.freeze([
+	'http:',
+	'https:',
+	'mailto:',
+	'tel:',
+])

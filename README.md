@@ -36,8 +36,9 @@ import { fileURLToPath } from 'node:url'
 import { createGuide, createSource, missingSymbols, parseManifest } from '@orkestrel/guide'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
-const files: Record<string, string> = { /* root-relative path → file text */ }
-const readText = (relative: string) => files[relative] ?? readFileSync(new URL(relative, ROOT), 'utf8')
+const files: Record<string, string> = {/* root-relative path → file text */}
+const readText = (relative: string) =>
+	files[relative] ?? readFileSync(new URL(relative, ROOT), 'utf8')
 const manifest = parseManifest(readText('guides/README.md'), 'guides')
 
 for (const entry of manifest) {

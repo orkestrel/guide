@@ -49,7 +49,7 @@ for (const entry of manifest) {
 	const guide = createGuide(readText(entry.spec))
 	const source = createSource({ files, module: entry.source })
 
-	describe(entry.concept, () => {
+	describe(`${entry.concept}`, () => {
 		it('extracts a non-empty documented surface', () => {
 			expect(guide.surface().length).toBeGreaterThan(0)
 		})
@@ -63,7 +63,7 @@ for (const entry of manifest) {
 		for (const group of guide.methods()) {
 			const members = source.methods(group.interface)
 			const entity = group.interface.replace(/Interface$/, '')
-			describe(group.interface, () => {
+			describe(`${group.interface}`, () => {
 				it('documents at least one method', () => {
 					expect(group.methods.length).toBeGreaterThan(0)
 				})
@@ -73,11 +73,11 @@ for (const entry of manifest) {
 				it('documents no phantom method', () => {
 					expect(findMissing(group.methods, members)).toEqual([])
 				})
-				if (entity !== group.interface) {
-					it(`${entity} exposes no undocumented method`, () => {
-						expect(findMissing(source.methods(entity), group.methods)).toEqual([])
-					})
-				}
+				it(`${entity} exposes no undocumented method`, () => {
+					const extra =
+						entity === group.interface ? [] : findMissing(source.methods(entity), group.methods)
+					expect(extra).toEqual([])
+				})
 			})
 		}
 

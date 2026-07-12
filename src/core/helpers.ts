@@ -34,7 +34,10 @@ export function moduleDirs(module: GuideModule): readonly string[] {
  * moduleKeys({ 'src/core/Guide.ts': '', 'src/core/index.ts': '' }, 'src/core') // ['src/core/Guide.ts']
  * ```
  */
-export function moduleKeys(files: Readonly<Record<string, string>>, module: GuideModule): readonly string[] {
+export function moduleKeys(
+	files: Readonly<Record<string, string>>,
+	module: GuideModule,
+): readonly string[] {
 	const dirs = moduleDirs(module)
 	const keys: string[] = []
 
@@ -81,7 +84,10 @@ export function symbolKey(symbol: SurfaceSymbol): string {
  * findMissing(['a', 'b'], ['a']) // ['b']
  * ```
  */
-export function findMissing(names: readonly string[], source: readonly string[]): readonly string[] {
+export function findMissing(
+	names: readonly string[],
+	source: readonly string[],
+): readonly string[] {
 	const existing = new Set(source)
 	return names.filter((name) => !existing.has(name))
 }
@@ -220,7 +226,10 @@ export function identifierOf(code: string): string {
 export function kindIndex(table: TableNode): number | undefined {
 	for (let index = 0; index < table.header.length; index += 1) {
 		const cell = table.header[index]
-		if (cell !== undefined && flattenText({ element: 'paragraph', children: cell }).trim() === 'Kind') {
+		if (
+			cell !== undefined &&
+			flattenText({ element: 'paragraph', children: cell }).trim() === 'Kind'
+		) {
 			return index
 		}
 	}

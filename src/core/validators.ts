@@ -20,7 +20,13 @@ import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/cont
  * isExportKind('enum')  // false
  * ```
  */
-export const isExportKind: Guard<ExportKind> = literalOf('type', 'interface', 'const', 'function', 'class')
+export const isExportKind: Guard<ExportKind> = literalOf(
+	'type',
+	'interface',
+	'const',
+	'function',
+	'class',
+)
 
 /**
  * Whether `value` is a well-formed {@link SurfaceSymbol} — a `name` string

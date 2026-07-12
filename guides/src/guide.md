@@ -25,66 +25,66 @@ iterates to run this check once per documented concept.
 
 The manifest/extraction shapes every check is built from, from [`types.ts`](../../src/core/types.ts).
 
-| Name              | Kind      | Shape                                                                                                                                             |
-| ------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExportKind`       | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the declaration kind half of a symbol's bijection key.                               |
-| `SurfaceSymbol`    | interface | `{ name, kind }` — one documented / exported symbol.                                                                                               |
-| `GuideModule`      | type      | `string \| readonly string[]` — one source directory, or several for a layer guide spanning multiple directories.                                  |
-| `ManifestEntry`    | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                          |
-| `MethodGroup`      | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                              |
-| `GuideInterface`   | interface | `{ sections, surface, methods, links, tests }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                    |
-| `SourceInterface`  | interface | `{ exports, methods, exists }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods).                    |
-| `SourceOptions`    | interface | `{ files, module }` — the construction input for a `Source`: a consumer-supplied file inventory plus the module scope to reflect.                  |
-| `DeclarationHead`  | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`.             |
+| Name              | Kind      | Shape                                                                                                                                   |
+| ----------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExportKind`      | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the declaration kind half of a symbol's bijection key.                    |
+| `SurfaceSymbol`   | interface | `{ name, kind }` — one documented / exported symbol.                                                                                    |
+| `GuideModule`     | type      | `string \| readonly string[]` — one source directory, or several for a layer guide spanning multiple directories.                       |
+| `ManifestEntry`   | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                              |
+| `MethodGroup`     | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                    |
+| `GuideInterface`  | interface | `{ sections, surface, methods, links, tests }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).         |
+| `SourceInterface` | interface | `{ exports, methods, exists }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods).         |
+| `SourceOptions`   | interface | `{ files, module }` — the construction input for a `Source`: a consumer-supplied file inventory plus the module scope to reflect.       |
+| `DeclarationHead` | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`. |
 
 ### Constants
 
 The section-heading keys and external-link schemes every extractor and link check is keyed
 on, from [`constants.ts`](../../src/core/constants.ts).
 
-| Name                 | Kind  | Behavior                                                                                                                    |
-| --------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `SURFACE`             | const | `'Surface'` — the `## Surface` heading text.                                                                                |
-| `METHODS`             | const | `'Methods'` — the `## Methods` heading text.                                                                                |
-| `TESTS`               | const | `'Tests'` — the `## Tests` heading text.                                                                                    |
-| `MANIFEST`            | const | `'By concept'` — the `## By concept` manifest heading text.                                                                 |
-| `EXTERNAL_SCHEMES`    | const | `readonly string[]` — `['http:', 'https:', 'mailto:', 'tel:']`; a link with one of these prefixes is never filesystem-resolved. |
+| Name               | Kind  | Behavior                                                                                                                        |
+| ------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `SURFACE`          | const | `'Surface'` — the `## Surface` heading text.                                                                                    |
+| `METHODS`          | const | `'Methods'` — the `## Methods` heading text.                                                                                    |
+| `TESTS`            | const | `'Tests'` — the `## Tests` heading text.                                                                                        |
+| `MANIFEST`         | const | `'By concept'` — the `## By concept` manifest heading text.                                                                     |
+| `EXTERNAL_SCHEMES` | const | `readonly string[]` — `['http:', 'https:', 'mailto:', 'tel:']`; a link with one of these prefixes is never filesystem-resolved. |
 
 ### Helpers
 
 Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the building blocks
 `parsers.ts`'s extractors and a consumer's parity test both reach for directly.
 
-| Name              | Kind     | Signature                                                                             | Behavior                                                                                                                              |
-| ------------------ | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `moduleDirs`       | function | `(module: GuideModule) => readonly string[]`                                             | Normalizes a `GuideModule` scope to its directory list — a single string becomes a one-element list.                                    |
-| `moduleKeys`       | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`    | The file inventory's keys belonging to a `GuideModule` scope: `.ts` files under a scope directory, excluding that directory's `index.ts` and `*.test.ts`; sorted. |
-| `symbolKey`        | function | `(symbol: SurfaceSymbol) => string`                                                      | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.          |
-| `findMissing`      | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`             | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                |
-| `missingSymbols`   | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]` | The `symbolKey` set-difference between two symbol lists.                                                                             |
-| `isExternalLink`   | function | `(href: string) => boolean`                                                              | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.    |
-| `resolveLink`      | function | `(from: string, target: string) => string`                                               | Resolves a relative link `target` against `from` and normalizes the result, purely (no `node:path`).                                    |
-| `firstCode`        | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                  | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                         |
-| `identifierOf`     | function | `(code: string) => string`                                                               | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).             |
-| `kindIndex`        | function | `(table: TableNode) => number \| undefined`                                              | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                        |
+| Name             | Kind     | Signature                                                                                    | Behavior                                                                                                                                                          |
+| ---------------- | -------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `moduleDirs`     | function | `(module: GuideModule) => readonly string[]`                                                 | Normalizes a `GuideModule` scope to its directory list — a single string becomes a one-element list.                                                              |
+| `moduleKeys`     | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`        | The file inventory's keys belonging to a `GuideModule` scope: `.ts` files under a scope directory, excluding that directory's `index.ts` and `*.test.ts`; sorted. |
+| `symbolKey`      | function | `(symbol: SurfaceSymbol) => string`                                                          | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.                                    |
+| `findMissing`    | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`                 | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                                          |
+| `missingSymbols` | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]` | The `symbolKey` set-difference between two symbol lists.                                                                                                          |
+| `isExternalLink` | function | `(href: string) => boolean`                                                                  | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.                              |
+| `resolveLink`    | function | `(from: string, target: string) => string`                                                   | Resolves a relative link `target` against `from` and normalizes the result, purely (no `node:path`).                                                              |
+| `firstCode`      | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                      | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                                                   |
+| `identifierOf`   | function | `(code: string) => string`                                                                   | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                       |
+| `kindIndex`      | function | `(table: TableNode) => number \| undefined`                                                  | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                  |
 
 ### Parsers
 
 The guide/manifest extraction pipeline, from [`parsers.ts`](../../src/core/parsers.ts) —
 the orchestration `Guide` composes out of `helpers.ts`'s leaves.
 
-| Name                 | Kind     | Signature                                                                                    | Behavior                                                                                                                       |
-| --------------------- | -------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `exportsFrom`         | function | `(source: string) => readonly SurfaceSymbol[]`                                                   | The module-scope exports declared in one file's source text, deduped by (kind, name); a generator export scans as `function`.  |
-| `joinHead`            | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`                      | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.      |
-| `declarationBody`     | function | `(source: string, keyword: 'class' \| 'interface', name: string) => readonly string[]`           | The body lines of the named `export class` / `export interface` declaration in one file's source text.                          |
-| `memberMethods`       | function | `(lines: readonly string[]) => readonly string[]`                                                | The declared callable-member names in a declaration body — plain / `async` / generator / optional; getters, setters, `static`, `#` privates never count. |
-| `sectionBlocks`       | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                          | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                      |
-| `extractSurface`      | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                                       | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `symbolKey`.               |
-| `extractMethods`      | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                                         | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods. |
-| `extractLinks`        | function | `(document: MarkdownDocument) => readonly string[]`                                              | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                    |
-| `extractTests`        | function | `(document: MarkdownDocument) => readonly string[]`                                              | The relative test links declared under `## Tests`.                                                                              |
-| `parseManifest`       | function | `(markdown: string, base: string) => readonly ManifestEntry[]`                                   | Parses a `## By concept` manifest table into `ManifestEntry` rows, resolving Spec / Source / Tests links against `base`.         |
+| Name              | Kind     | Signature                                                                              | Behavior                                                                                                                                                 |
+| ----------------- | -------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exportsFrom`     | function | `(source: string) => readonly SurfaceSymbol[]`                                         | The module-scope exports declared in one file's source text, deduped by (kind, name); a generator export scans as `function`.                            |
+| `joinHead`        | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`            | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.                               |
+| `declarationBody` | function | `(source: string, keyword: 'class' \| 'interface', name: string) => readonly string[]` | The body lines of the named `export class` / `export interface` declaration in one file's source text.                                                   |
+| `memberMethods`   | function | `(lines: readonly string[]) => readonly string[]`                                      | The declared callable-member names in a declaration body — plain / `async` / generator / optional; getters, setters, `static`, `#` privates never count. |
+| `sectionBlocks`   | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                                               |
+| `extractSurface`  | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                             | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `symbolKey`.                                       |
+| `extractMethods`  | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                               | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods.       |
+| `extractLinks`    | function | `(document: MarkdownDocument) => readonly string[]`                                    | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                                             |
+| `extractTests`    | function | `(document: MarkdownDocument) => readonly string[]`                                    | The relative test links declared under `## Tests`.                                                                                                       |
+| `parseManifest`   | function | `(markdown: string, base: string) => readonly ManifestEntry[]`                         | Parses a `## By concept` manifest table into `ManifestEntry` rows, resolving Spec / Source / Tests links against `base`.                                 |
 
 ### Shapers
 
@@ -92,35 +92,35 @@ Declarative `ContractShape` values (from `@orkestrel/contract`) from
 [`shapers.ts`](../../src/core/shapers.ts) — every documented data type here is
 non-recursive, so each shapes directly.
 
-| Name                  | Kind  | Builds                                                                              |
-| ----------------------- | ----- | ---------------------------------------------------------------------------------- |
-| `surfaceSymbolShape`    | const | The shape of a `SurfaceSymbol` — `{ name: string, kind: ExportKind }`.              |
-| `methodGroupShape`      | const | The shape of a `MethodGroup` — `{ interface: string, methods: readonly string[] }`. |
-| `manifestEntryShape`    | const | The shape of a `ManifestEntry` — `source` accepting a single directory or several.   |
+| Name                 | Kind  | Builds                                                                              |
+| -------------------- | ----- | ----------------------------------------------------------------------------------- |
+| `surfaceSymbolShape` | const | The shape of a `SurfaceSymbol` — `{ name: string, kind: ExportKind }`.              |
+| `methodGroupShape`   | const | The shape of a `MethodGroup` — `{ interface: string, methods: readonly string[] }`. |
+| `manifestEntryShape` | const | The shape of a `ManifestEntry` — `source` accepting a single directory or several.  |
 
 ### Validators
 
 Total from-unknown guards composed from `@orkestrel/contract` combinators, from
 [`validators.ts`](../../src/core/validators.ts).
 
-| Name                | Kind  | Narrows to / Tests   | Behavior                                                                                    |
-| --------------------- | ----- | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `isExportKind`        | const | `value: unknown`         | `true` when `value` is one of the five documented `ExportKind` literals.                       |
-| `isSurfaceSymbol`     | const | `value: unknown`         | `true` when `value` is a well-formed `SurfaceSymbol`.                                          |
-| `isMethodGroup`       | const | `value: unknown`         | `true` when `value` is a well-formed `MethodGroup`.                                            |
-| `isManifestEntry`     | const | `value: unknown`         | `true` when `value` is a well-formed `ManifestEntry`.                                          |
+| Name              | Kind  | Narrows to / Tests | Behavior                                                                 |
+| ----------------- | ----- | ------------------ | ------------------------------------------------------------------------ |
+| `isExportKind`    | const | `value: unknown`   | `true` when `value` is one of the five documented `ExportKind` literals. |
+| `isSurfaceSymbol` | const | `value: unknown`   | `true` when `value` is a well-formed `SurfaceSymbol`.                    |
+| `isMethodGroup`   | const | `value: unknown`   | `true` when `value` is a well-formed `MethodGroup`.                      |
+| `isManifestEntry` | const | `value: unknown`   | `true` when `value` is a well-formed `ManifestEntry`.                    |
 
 ### Factories
 
 From [`factories.ts`](../../src/core/factories.ts).
 
-| Name                             | Kind     | Signature                                                | Behavior                                                                                    |
-| ---------------------------------- | -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `createGuide`                      | function | `(source: string) => GuideInterface`                          | Creates a structured `GuideInterface` view over one guide's markdown source.                     |
-| `createSource`                     | function | `(options: SourceOptions) => SourceInterface`                 | Creates a pure `SourceInterface` over a consumer-supplied file inventory.                        |
-| `createSurfaceSymbolContract`      | function | `() => ContractInterface<SurfaceSymbol>`                      | Compiles `surfaceSymbolShape` into a guard / parser / schema / generator bundle.                 |
-| `createMethodGroupContract`        | function | `() => ContractInterface<MethodGroup>`                        | Compiles `methodGroupShape` into a guard / parser / schema / generator bundle.                   |
-| `createManifestEntryContract`      | function | `() => ContractInterface<ManifestEntry>`                      | Compiles `manifestEntryShape` into a guard / parser / schema / generator bundle.                 |
+| Name                          | Kind     | Signature                                     | Behavior                                                                         |
+| ----------------------------- | -------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `createGuide`                 | function | `(source: string) => GuideInterface`          | Creates a structured `GuideInterface` view over one guide's markdown source.     |
+| `createSource`                | function | `(options: SourceOptions) => SourceInterface` | Creates a pure `SourceInterface` over a consumer-supplied file inventory.        |
+| `createSurfaceSymbolContract` | function | `() => ContractInterface<SurfaceSymbol>`      | Compiles `surfaceSymbolShape` into a guard / parser / schema / generator bundle. |
+| `createMethodGroupContract`   | function | `() => ContractInterface<MethodGroup>`        | Compiles `methodGroupShape` into a guard / parser / schema / generator bundle.   |
+| `createManifestEntryContract` | function | `() => ContractInterface<ManifestEntry>`      | Compiles `manifestEntryShape` into a guard / parser / schema / generator bundle. |
 
 ### `Guide`
 
@@ -149,21 +149,21 @@ backticked name (AGENTS §22).
 
 #### `GuideInterface`
 
-| Method     | Returns                    | Behavior                                                                                            |
-| ----------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `sections`  | `readonly string[]`         | The `##` heading names, in document order — the non-vacuousness guard for section presence.          |
-| `surface`   | `readonly SurfaceSymbol[]`  | Every `## Surface` identifier + kind — table rows union backticked entity headings.                  |
-| `methods`   | `readonly MethodGroup[]`    | One `MethodGroup` per documented behavioral interface in `## Methods`.                                |
-| `links`     | `readonly string[]`         | Every link href in the guide, including table cells.                                                  |
-| `tests`     | `readonly string[]`         | The relative test links declared under `## Tests`.                                                    |
+| Method     | Returns                    | Behavior                                                                                    |
+| ---------- | -------------------------- | ------------------------------------------------------------------------------------------- |
+| `sections` | `readonly string[]`        | The `##` heading names, in document order — the non-vacuousness guard for section presence. |
+| `surface`  | `readonly SurfaceSymbol[]` | Every `## Surface` identifier + kind — table rows union backticked entity headings.         |
+| `methods`  | `readonly MethodGroup[]`   | One `MethodGroup` per documented behavioral interface in `## Methods`.                      |
+| `links`    | `readonly string[]`        | Every link href in the guide, including table cells.                                        |
+| `tests`    | `readonly string[]`        | The relative test links declared under `## Tests`.                                          |
 
 #### `SourceInterface`
 
-| Method     | Returns               | Behavior                                                                                  |
-| ----------- | ----------------------- | -------------------------------------------------------------------------------------------- |
-| `exports`   | `readonly SurfaceSymbol[]` | Every module-scope export, including type-only, by (name, kind).                        |
-| `methods`   | `readonly string[]`     | The call-signature members of the `class` / `interface` named `name`.                        |
-| `exists`    | `boolean`                | Whether a workspace-root-relative path exists in the inventory.                              |
+| Method    | Returns                    | Behavior                                                              |
+| --------- | -------------------------- | --------------------------------------------------------------------- |
+| `exports` | `readonly SurfaceSymbol[]` | Every module-scope export, including type-only, by (name, kind).      |
+| `methods` | `readonly string[]`        | The call-signature members of the `class` / `interface` named `name`. |
+| `exists`  | `boolean`                  | Whether a workspace-root-relative path exists in the inventory.       |
 
 ## The extraction model
 
@@ -258,7 +258,10 @@ source.exists('src/core/Guide.ts') // true
 import { createGuide, createSource, missingSymbols } from '@src/core'
 
 const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Guide` | class |')
-const source = createSource({ files: { 'src/core/Guide.ts': 'export class Guide {}\n' }, module: 'src/core' })
+const source = createSource({
+	files: { 'src/core/Guide.ts': 'export class Guide {}\n' },
+	module: 'src/core',
+})
 
 // Every check collapses to an empty-array assertion, both directions.
 missingSymbols(source.exports(), guide.surface()) // [] — every export is documented

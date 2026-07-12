@@ -23,7 +23,13 @@ describe('surfaceSymbolShape', () => {
 		expect(contract.schema.required).toEqual(['name', 'kind'])
 		expect(contract.schema.additionalProperties).toBe(false)
 		expect(contract.schema.properties?.name?.type).toBe('string')
-		expect(contract.schema.properties?.kind?.enum).toEqual(['type', 'interface', 'const', 'function', 'class'])
+		expect(contract.schema.properties?.kind?.enum).toEqual([
+			'type',
+			'interface',
+			'const',
+			'function',
+			'class',
+		])
 	})
 
 	it('generate: round-trips through is and parse', () => {
@@ -81,12 +87,19 @@ describe('manifestEntryShape', () => {
 	const contract = createContract(manifestEntryShape)
 
 	it('is: accepts a single-string source', () => {
-		expect(contract.is({ concept: 'X', spec: 'x.md', source: 'src/core', tests: 'tests/src/core' })).toBe(true)
+		expect(
+			contract.is({ concept: 'X', spec: 'x.md', source: 'src/core', tests: 'tests/src/core' }),
+		).toBe(true)
 	})
 
 	it('is: accepts a multi-directory source array', () => {
 		expect(
-			contract.is({ concept: 'X', spec: 'x.md', source: ['src/core', 'src/browser'], tests: 'tests/src/core' }),
+			contract.is({
+				concept: 'X',
+				spec: 'x.md',
+				source: ['src/core', 'src/browser'],
+				tests: 'tests/src/core',
+			}),
 		).toBe(true)
 	})
 
@@ -98,7 +111,9 @@ describe('manifestEntryShape', () => {
 		expect(contract.schema.type).toBe('object')
 		expect(contract.schema.required).toEqual(['concept', 'spec', 'source', 'tests'])
 		expect(contract.schema.additionalProperties).toBe(false)
-		expect(contract.schema.properties?.source?.anyOf ?? contract.schema.properties?.source?.oneOf).toBeDefined()
+		expect(
+			contract.schema.properties?.source?.anyOf ?? contract.schema.properties?.source?.oneOf,
+		).toBeDefined()
 	})
 
 	it('generate: the GuideModule union produces either a string or an array, and is() holds either way', () => {

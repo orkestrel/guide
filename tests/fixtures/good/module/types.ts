@@ -3,12 +3,10 @@
 // members, getters, statics, `#` privates, constructor). See guides/src/widget.md
 // for the bijection-perfect guide documenting this module.
 
-export interface WidgetInterface<
-	T = Record<string, unknown>,
-> {
+export interface WidgetInterface<T = Record<string, unknown>> {
 	readonly count: number
 	inspect(): string
-	render(label: string): string
+	render(label: string, data?: T): string
 	reset(): void
 }
 

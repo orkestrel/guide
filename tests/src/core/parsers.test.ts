@@ -44,7 +44,7 @@ describe('sectionBlocks', () => {
 })
 
 describe('extractSurface', () => {
-	it('extracts the good fixture guide\'s exact 6-symbol surface', () => {
+	it("extracts the good fixture guide's exact 6-symbol surface", () => {
 		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toEqual([
@@ -85,8 +85,12 @@ describe('extractMethods', () => {
 	})
 
 	it('reflects a missing method row (missing-interface-method fixture)', () => {
-		const document = createMarkdown(readFixture('broken/missing-interface-method/widget.md')).document
-		expect(extractMethods(document)).toEqual([{ interface: 'WidgetInterface', methods: ['inspect', 'render'] }])
+		const document = createMarkdown(
+			readFixture('broken/missing-interface-method/widget.md'),
+		).document
+		expect(extractMethods(document)).toEqual([
+			{ interface: 'WidgetInterface', methods: ['inspect', 'render'] },
+		])
 	})
 
 	it('reflects a phantom method row (phantom-method fixture)', () => {
@@ -123,7 +127,7 @@ describe('extractLinks', () => {
 })
 
 describe('extractTests', () => {
-	it('extracts only the Tests section\'s links', () => {
+	it("extracts only the Tests section's links", () => {
 		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
 		expect(extractTests(document)).toEqual(['../../tests/widget.test.ts'])
 	})
@@ -140,7 +144,7 @@ describe('extractTests', () => {
 })
 
 describe('parseManifest', () => {
-	it('parses the good manifest\'s one row with normalized paths', () => {
+	it("parses the good manifest's one row with normalized paths", () => {
 		const entries = parseManifest(readFixture('good/guides/README.md'), 'guides')
 		expect(entries).toEqual([
 			{ concept: 'Widget', spec: 'guides/src/widget.md', source: 'module', tests: 'tests' },
@@ -152,22 +156,26 @@ describe('parseManifest', () => {
 	})
 
 	it('skips a row missing a concept', () => {
-		const markdown = '## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n|  | [s](s.md) | [m](m) | [t](t) |\n'
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n|  | [s](s.md) | [m](m) | [t](t) |\n'
 		expect(parseManifest(markdown, 'guides')).toEqual([])
 	})
 
 	it('skips a row missing a spec link', () => {
-		const markdown = '## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | no-link | [m](m) | [t](t) |\n'
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | no-link | [m](m) | [t](t) |\n'
 		expect(parseManifest(markdown, 'guides')).toEqual([])
 	})
 
 	it('skips a row missing a source link', () => {
-		const markdown = '## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | no-link | [t](t) |\n'
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | no-link | [t](t) |\n'
 		expect(parseManifest(markdown, 'guides')).toEqual([])
 	})
 
 	it('skips a row missing a tests link', () => {
-		const markdown = '## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | [m](m) | no-link |\n'
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | [m](m) | no-link |\n'
 		expect(parseManifest(markdown, 'guides')).toEqual([])
 	})
 
@@ -177,7 +185,8 @@ describe('parseManifest', () => {
 	})
 
 	it('collects multiple source links into an array', () => {
-		const markdown = '## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | [a](a) [b](b) | [t](t) |\n'
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](s.md) | [a](a) [b](b) | [t](t) |\n'
 		const entries = parseManifest(markdown, 'guides')
 		expect(entries[0]?.source).toEqual(['guides/a', 'guides/b'])
 	})
@@ -193,7 +202,8 @@ describe('exportsFrom', () => {
 	})
 
 	it('scans a plain function, an async function, a class, and a const', () => {
-		const source = 'export function a() {}\nexport async function b() {}\nexport class C {}\nexport const D = 1\n'
+		const source =
+			'export function a() {}\nexport async function b() {}\nexport class C {}\nexport const D = 1\n'
 		expect(exportsFrom(source)).toEqual([
 			{ name: 'a', kind: 'function' },
 			{ name: 'b', kind: 'function' },
@@ -203,7 +213,9 @@ describe('exportsFrom', () => {
 	})
 
 	it('scans a generator function as kind function', () => {
-		expect(exportsFrom('export function* walk() {}\n')).toEqual([{ name: 'walk', kind: 'function' }])
+		expect(exportsFrom('export function* walk() {}\n')).toEqual([
+			{ name: 'walk', kind: 'function' },
+		])
 	})
 
 	it('dedupes a repeated (kind, name) pair', () => {
@@ -223,11 +235,37 @@ describe('joinHead', () => {
 		expect(joinHead(lines, 0)).toEqual({ text: 'export class X {', end: 0 })
 	})
 
-	it('joins an oxfmt-wrapped multi-line head from the fixture types.ts text', () => {
+	it('joins an oxfmt-wrapped multi-line head', () => {
+		const lines = [
+			'export interface WidgetInterface<',
+			'\tT = Record<string, unknown>,',
+			'> {',
+			'\treadonly count: number',
+			'}',
+		]
+		const head = joinHead(lines, 0)
+		expect(head?.text).toBe('export interface WidgetInterface< T = Record<string, unknown>, > {')
+	})
+
+	it('joins a wrapped head with nested generics', () => {
+		const lines = [
+			'export interface BoxInterface<',
+			'\tT = Record<string, Map<string, unknown>>,',
+			'> {',
+			'\treadonly count: number',
+			'}',
+		]
+		const head = joinHead(lines, 0)
+		expect(head?.text).toBe(
+			'export interface BoxInterface< T = Record<string, Map<string, unknown>>, > {',
+		)
+	})
+
+	it('joins the single-line head from the fixture types.ts text', () => {
 		const lines = readFixture('good/module/types.ts').split(/\r?\n/)
 		const start = lines.findIndex((line) => line.startsWith('export interface WidgetInterface'))
 		const head = joinHead(lines, start)
-		expect(head?.text).toBe('export interface WidgetInterface< T = Record<string, unknown>, > {')
+		expect(head?.text).toBe('export interface WidgetInterface<T = Record<string, unknown>> {')
 	})
 
 	it('returns undefined when no line opens a body', () => {
@@ -247,12 +285,16 @@ describe('declarationBody', () => {
 		expect(declarationBody(source, 'class', 'X')).toEqual(['\twalk(): void {}'])
 	})
 
-	it('extracts a body from a wrapped head with nested generics', () => {
-		const body = declarationBody(readFixture('good/module/types.ts'), 'interface', 'WidgetInterface')
+	it('extracts a body from the fixture types.ts text', () => {
+		const body = declarationBody(
+			readFixture('good/module/types.ts'),
+			'interface',
+			'WidgetInterface',
+		)
 		expect(body).toEqual([
 			'\treadonly count: number',
 			'\tinspect(): string',
-			'\trender(label: string): string',
+			'\trender(label: string, data?: T): string',
 			'\treset(): void',
 		])
 	})
@@ -304,11 +346,18 @@ describe('memberMethods', () => {
 	})
 
 	it('dedupes and sorts the results', () => {
-		expect(memberMethods(['\tzeta(): void', '\talpha(): void', '\tzeta(): void'])).toEqual(['alpha', 'zeta'])
+		expect(memberMethods(['\tzeta(): void', '\talpha(): void', '\tzeta(): void'])).toEqual([
+			'alpha',
+			'zeta',
+		])
 	})
 
-	it('reproduces the good fixture Widget class\'s exact three methods (excluding the trap members)', () => {
+	it("reproduces the good fixture Widget class's exact three methods (excluding the trap members)", () => {
 		const body = declarationBody(readFixture('good/module/Widget.ts'), 'class', 'Widget')
-		expect(memberMethods(body).filter((method) => method !== 'constructor')).toEqual(['inspect', 'render', 'reset'])
+		expect(memberMethods(body).filter((method) => method !== 'constructor')).toEqual([
+			'inspect',
+			'render',
+			'reset',
+		])
 	})
 })

@@ -8,18 +8,18 @@
 
 ### Types
 
-| Name | Kind |
-| --- | --- |
+| Name              | Kind      |
+| ----------------- | --------- |
 | `WidgetInterface` | interface |
-| `WidgetKind` | type |
+| `WidgetKind`      | type      |
 
 ### Helpers
 
-| Name | Kind |
-| --- | --- |
-| `createLabel` | function |
-| `loadWidget` | function |
-| `DEFAULT_COUNT` | const |
+| Name            | Kind     |
+| --------------- | -------- |
+| `createLabel`   | function |
+| `loadWidget`    | function |
+| `DEFAULT_COUNT` | const    |
 
 ### `Widget`
 
@@ -27,12 +27,12 @@
 
 #### `WidgetInterface`
 
-| Method | Description |
-| --- | --- |
+| Method    | Description          |
+| --------- | -------------------- |
 | `inspect` | Describe the widget. |
-| `render` | Render a label. |
-| `reset` | Reset the widget. |
-| `destroy` | Does not exist. |
+| `render`  | Render a label.      |
+| `reset`   | Reset the widget.    |
+| `destroy` | Does not exist.      |
 
 ## Tests
 

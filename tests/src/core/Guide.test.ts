@@ -36,7 +36,7 @@ describe('Guide', () => {
 		expect(guide.links()).toEqual(['../../tests/widget.test.ts'])
 	})
 
-	it('extracts the Tests section\'s links from the good fixture guide', () => {
+	it("extracts the Tests section's links from the good fixture guide", () => {
 		const guide = new Guide(readFixture('good/guides/src/widget.md'))
 		expect(guide.tests()).toEqual(['../../tests/widget.test.ts'])
 	})
@@ -50,14 +50,16 @@ describe('Guide', () => {
 		expect(guide.tests()).toBe(guide.tests())
 	})
 
-	it('extracts empty surface when the Surface heading was renamed (the NV guard\'s red path)', () => {
+	it("extracts empty surface when the Surface heading was renamed (the NV guard's red path)", () => {
 		const guide = new Guide(readFixture('broken/renamed-surface/widget.md'))
 		expect(guide.surface()).toEqual([])
 	})
 
 	it('reflects a missing method row (missing-interface-method fixture)', () => {
 		const guide = new Guide(readFixture('broken/missing-interface-method/widget.md'))
-		expect(guide.methods()).toEqual([{ interface: 'WidgetInterface', methods: ['inspect', 'render'] }])
+		expect(guide.methods()).toEqual([
+			{ interface: 'WidgetInterface', methods: ['inspect', 'render'] },
+		])
 	})
 
 	it('reflects a phantom method row (phantom-method fixture)', () => {
@@ -82,7 +84,9 @@ describe('bijection matrix', () => {
 		source: readonly { readonly name: string; readonly kind: string }[],
 	): readonly string[] {
 		const existing = new Set(source.map((symbol) => `${symbol.kind} ${symbol.name}`))
-		return symbols.map((symbol) => `${symbol.kind} ${symbol.name}`).filter((key) => !existing.has(key))
+		return symbols
+			.map((symbol) => `${symbol.kind} ${symbol.name}`)
+			.filter((key) => !existing.has(key))
 	}
 
 	it('good: documents every source export and vice versa (both directions empty)', () => {
@@ -100,17 +104,23 @@ describe('bijection matrix', () => {
 
 	it('undocumented-export: source has DEFAULT_COUNT the guide does not document', () => {
 		const guide = new Guide(readFixture('broken/undocumented-export/widget.md'))
-		expect(missingSymbolKeys(goodSource.exports(), guide.surface())).toEqual(['const DEFAULT_COUNT'])
+		expect(missingSymbolKeys(goodSource.exports(), guide.surface())).toEqual([
+			'const DEFAULT_COUNT',
+		])
 	})
 
 	it('phantom-row: guide documents missingExport, which the source does not export', () => {
 		const guide = new Guide(readFixture('broken/phantom-row/widget.md'))
-		expect(missingSymbolKeys(guide.surface(), goodSource.exports())).toEqual(['function missingExport'])
+		expect(missingSymbolKeys(guide.surface(), goodSource.exports())).toEqual([
+			'function missingExport',
+		])
 	})
 
 	it('wrong-kind: createLabel drifts kind in both directions', () => {
 		const guide = new Guide(readFixture('broken/wrong-kind/widget.md'))
-		expect(missingSymbolKeys(goodSource.exports(), guide.surface())).toEqual(['function createLabel'])
+		expect(missingSymbolKeys(goodSource.exports(), guide.surface())).toEqual([
+			'function createLabel',
+		])
 		expect(missingSymbolKeys(guide.surface(), goodSource.exports())).toEqual(['const createLabel'])
 	})
 
@@ -131,10 +141,15 @@ describe('bijection matrix', () => {
 	})
 
 	it('class-extra-method: the class has an extra method the interface does not document', () => {
-		const extraSource = createSource({ files: fixtureFiles('broken/class-extra-method'), module: 'module' })
+		const extraSource = createSource({
+			files: fixtureFiles('broken/class-extra-method'),
+			module: 'module',
+		})
 		const guide = new Guide(readFixture('broken/class-extra-method/widget.md'))
 		const [group] = guide.methods()
-		const extra = extraSource.methods('Widget').filter((method) => !(group?.methods ?? []).includes(method))
+		const extra = extraSource
+			.methods('Widget')
+			.filter((method) => !(group?.methods ?? []).includes(method))
 		expect(extra).toEqual(['extra'])
 	})
 

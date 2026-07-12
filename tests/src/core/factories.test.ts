@@ -61,7 +61,12 @@ describe('createManifestEntryContract', () => {
 	it('compiles a working ManifestEntry contract', () => {
 		const contract = createManifestEntryContract()
 		expect(
-			contract.is({ concept: 'Widget', spec: 'guides/src/widget.md', source: 'module', tests: 'tests' }),
+			contract.is({
+				concept: 'Widget',
+				spec: 'guides/src/widget.md',
+				source: 'module',
+				tests: 'tests',
+			}),
 		).toBe(true)
 		expect(contract.is({ concept: 1 })).toBe(false)
 

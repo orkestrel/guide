@@ -1,5 +1,12 @@
 import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkestrel/markdown'
-import { createMarkdown, flattenText, isHeadingNode, isLinkNode, isTableNode, walkNodes } from '@orkestrel/markdown'
+import {
+	createMarkdown,
+	flattenText,
+	isHeadingNode,
+	isLinkNode,
+	isTableNode,
+	walkNodes,
+} from '@orkestrel/markdown'
 import { isEmptyString, isNonEmptyArray, isNonEmptyString } from '@orkestrel/contract'
 import type { DeclarationHead, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
 import { MANIFEST, METHODS, SURFACE, TESTS } from './constants.js'
@@ -82,7 +89,11 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
  * declarationBody('export interface X {\n\twalk(): void\n}\n', 'interface', 'X') // ['\twalk(): void']
  * ```
  */
-export function declarationBody(source: string, keyword: 'class' | 'interface', name: string): readonly string[] {
+export function declarationBody(
+	source: string,
+	keyword: 'class' | 'interface',
+	name: string,
+): readonly string[] {
 	const opener = `export ${keyword} ${name}`
 	const declaration = new RegExp(`^export ${keyword} ${name}(?:<.*>)?(?: .*)? \\{$`)
 	const lines = source.split(/\r?\n/)
@@ -183,7 +194,8 @@ function tableSymbols(table: TableNode): readonly SurfaceSymbol[] {
 		if (name === undefined) continue
 
 		const kindCell = column === undefined ? undefined : row[column]
-		const kindText = kindCell === undefined ? '' : flattenText({ element: 'paragraph', children: kindCell }).trim()
+		const kindText =
+			kindCell === undefined ? '' : flattenText({ element: 'paragraph', children: kindCell }).trim()
 		if (!isExportKind(kindText)) continue
 
 		symbols.push({ name, kind: kindText })
@@ -360,7 +372,12 @@ export function parseManifest(markdown: string, base: string): readonly Manifest
 			const specCell = row[1]
 			const sourceCell = row[2]
 			const testsCell = row[3]
-			if (conceptCell === undefined || specCell === undefined || sourceCell === undefined || testsCell === undefined) {
+			if (
+				conceptCell === undefined ||
+				specCell === undefined ||
+				sourceCell === undefined ||
+				testsCell === undefined
+			) {
 				continue
 			}
 

@@ -4,15 +4,15 @@ A dual-axis index into this repository's guides — by concept, and by directory
 
 ## By concept
 
-| Concept | Spec                            | Source                          | Tests                                  |
-| ------- | -------------------------------- | ---------------------------------- | ----------------------------------------- |
-| Guide   | [`src/guide.md`](src/guide.md)   | [`src/core`](../src/core)          | [`tests/src/core`](../tests/src/core)     |
+| Concept | Spec                           | Source                    | Tests                                 |
+| ------- | ------------------------------ | ------------------------- | ------------------------------------- |
+| Guide   | [`src/guide.md`](src/guide.md) | [`src/core`](../src/core) | [`tests/src/core`](../tests/src/core) |
 
 ## By directory
 
-| Directory    | Guide                          |
-| ------------ | -------------------------------- |
-| `src/core`   | [`src/guide.md`](src/guide.md)   |
+| Directory  | Guide                          |
+| ---------- | ------------------------------ |
+| `src/core` | [`src/guide.md`](src/guide.md) |
 
 ## Dependency reference
 

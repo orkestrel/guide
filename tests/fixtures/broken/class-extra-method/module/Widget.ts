@@ -26,7 +26,7 @@ export class Widget implements WidgetInterface {
 	}
 
 	extra(): void {
-		this.#label = this.#label
+		this.#label = this.#label.trim()
 	}
 
 	get label(): string {

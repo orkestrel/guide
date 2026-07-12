@@ -38,18 +38,18 @@ The design is intentionally lean: **no `Checker`/`Runner` classes.** The "checks
 
 ### `src/core` (pure, `@orkestrel/guide`)
 
-| File            | Holds                                                                                                                                                                |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`      | source of truth — `SurfaceSymbol`, `ExportKind`, `GuideModule`, `ManifestEntry`, `MethodGroup`, `GuideInterface`, `SourceInterface`, `SourceOptions`, `DeclarationHead` |
-| `constants.ts`  | `EXTERNAL_SCHEMES`, `SURFACE`, `METHODS`, `TESTS`, `MANIFEST` heading literals                                                                                       |
-| `helpers.ts`    | pure leaves — `symbolKey`, `findMissing`, `missingSymbols`, `isExternalLink`, `resolveLink`, `firstCode`, `kindIndex`, `moduleDirs`, `moduleKeys`                     |
+| File            | Holds                                                                                                                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`      | source of truth — `SurfaceSymbol`, `ExportKind`, `GuideModule`, `ManifestEntry`, `MethodGroup`, `GuideInterface`, `SourceInterface`, `SourceOptions`, `DeclarationHead`                                                                                                  |
+| `constants.ts`  | `EXTERNAL_SCHEMES`, `SURFACE`, `METHODS`, `TESTS`, `MANIFEST` heading literals                                                                                                                                                                                           |
+| `helpers.ts`    | pure leaves — `symbolKey`, `findMissing`, `missingSymbols`, `isExternalLink`, `resolveLink`, `firstCode`, `kindIndex`, `moduleDirs`, `moduleKeys`                                                                                                                        |
 | `parsers.ts`    | guide/manifest extraction over the Markdown AST, plus the fs-free scanner grammar over source text — `extractSurface`, `extractMethods`, `extractLinks`, `extractTests`, `sectionBlocks`, `parseManifest`, `exportsFrom`, `joinHead`, `declarationBody`, `memberMethods` |
-| `validators.ts` | from-unknown guards over the parsed data types — `isSurfaceSymbol`, `isManifestEntry`, `isMethodGroup`, `isExportKind` (contract combinators)                       |
-| `shapers.ts`    | `ContractShape`s for the non-recursive data types — `surfaceSymbolShape`, `manifestEntryShape`, `methodGroupShape`                                                   |
-| `Guide.ts`      | the `Guide` class — a stateful structured view over one guide (extraction cached in the constructor)                                                                 |
-| `Source.ts`     | the `Source` class — implements `SourceInterface`: reflects exports/members/existence over a consumer-supplied file inventory via line scanners                     |
-| `factories.ts`  | `createGuide`, `createSource` + compiled-contract factories for the data-type shapes                                                                                 |
-| `index.ts`      | the sole barrel                                                                                                                                                      |
+| `validators.ts` | from-unknown guards over the parsed data types — `isSurfaceSymbol`, `isManifestEntry`, `isMethodGroup`, `isExportKind` (contract combinators)                                                                                                                            |
+| `shapers.ts`    | `ContractShape`s for the non-recursive data types — `surfaceSymbolShape`, `manifestEntryShape`, `methodGroupShape`                                                                                                                                                       |
+| `Guide.ts`      | the `Guide` class — a stateful structured view over one guide (extraction cached in the constructor)                                                                                                                                                                     |
+| `Source.ts`     | the `Source` class — implements `SourceInterface`: reflects exports/members/existence over a consumer-supplied file inventory via line scanners                                                                                                                          |
+| `factories.ts`  | `createGuide`, `createSource` + compiled-contract factories for the data-type shapes                                                                                                                                                                                     |
+| `index.ts`      | the sole barrel                                                                                                                                                                                                                                                          |
 
 ### Public API sketch
 
@@ -263,7 +263,7 @@ Add `test:guides` to the `prepublishOnly` gate chain after the existing test ste
 
 ## 7. Source-scanning fidelity
 
-`Source` reflects truth with **line scanners over source text**, not the TypeScript compiler API — a direct port of terrain's proven `setupGuides.ts` scanners, ported to be explicitly fs-free: every scanner takes source text (or a body's lines) as a plain argument, and it is the *consumer* who supplies that text — from a file inventory gathered however their environment allows. The scanning mechanics themselves are unchanged from the original disk-backed port.
+`Source` reflects truth with **line scanners over source text**, not the TypeScript compiler API — a direct port of terrain's proven `setupGuides.ts` scanners, ported to be explicitly fs-free: every scanner takes source text (or a body's lines) as a plain argument, and it is the _consumer_ who supplies that text — from a file inventory gathered however their environment allows. The scanning mechanics themselves are unchanged from the original disk-backed port.
 
 - **Exports.** Per module file's text, `exportsFrom` matches `^export (?:async )?(function|class|const|interface|type) (\w+)` → `{name, kind}`. The name is always on the first line even when oxfmt wraps the signature, so no join is needed here.
 - **Members.** `declarationBody(source, keyword, name)` finds the declaration head within one file's text, uses `joinHead` to fold an oxfmt-wrapped head (printWidth 100; nested generics like `<T = Record<string, unknown>>` still match) into one line ending in `{`, then collects lines to the column-0 `}`. `memberMethods` matches `^\t(?:async )?\*?(\w+)(<[^>]*>)?\??\(` — plain / `async` / generator / optional methods count; getters, setters, `static`, `#` privates, and data members never do (their shape breaks the `name(` match); `constructor` is filtered out.

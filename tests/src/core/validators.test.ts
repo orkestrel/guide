@@ -1,4 +1,11 @@
-import { extractMethods, extractSurface, isManifestEntry, isMethodGroup, isSurfaceSymbol, parseManifest } from '@src/core'
+import {
+	extractMethods,
+	extractSurface,
+	isManifestEntry,
+	isMethodGroup,
+	isSurfaceSymbol,
+	parseManifest,
+} from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
 import { readFixture } from '../../setup.js'
@@ -108,12 +115,19 @@ describe('isManifestEntry', () => {
 	})
 
 	it('accepts a well-formed entry with a single-string source', () => {
-		expect(isManifestEntry({ concept: 'X', spec: 'x.md', source: 'src/core', tests: 'tests/src/core' })).toBe(true)
+		expect(
+			isManifestEntry({ concept: 'X', spec: 'x.md', source: 'src/core', tests: 'tests/src/core' }),
+		).toBe(true)
 	})
 
 	it('accepts a well-formed entry with a multi-directory source', () => {
 		expect(
-			isManifestEntry({ concept: 'X', spec: 'x.md', source: ['src/core', 'src/browser'], tests: 'tests/src/core' }),
+			isManifestEntry({
+				concept: 'X',
+				spec: 'x.md',
+				source: ['src/core', 'src/browser'],
+				tests: 'tests/src/core',
+			}),
 		).toBe(true)
 	})
 

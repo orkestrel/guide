@@ -53,7 +53,10 @@ function collectFixtureFiles(root: string, base: string, files: Record<string, s
 			continue
 		}
 		if (!entry.isFile()) continue
-		const key = path.slice(base.length + 1).split('\\').join('/')
+		const key = path
+			.slice(base.length + 1)
+			.split('\\')
+			.join('/')
 		files[key] = readFileSync(path, 'utf8')
 	}
 }

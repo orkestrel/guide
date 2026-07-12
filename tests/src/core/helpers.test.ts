@@ -111,7 +111,9 @@ describe('resolveLink', () => {
 	})
 
 	it('resolves a ../ chain up through multiple directories', () => {
-		expect(resolveLink('guides/src/widget.md', '../../src/core/helpers.ts')).toBe('src/core/helpers.ts')
+		expect(resolveLink('guides/src/widget.md', '../../src/core/helpers.ts')).toBe(
+			'src/core/helpers.ts',
+		)
 	})
 
 	it('treats a from-path with no slash as a bare directory', () => {
@@ -222,7 +224,7 @@ describe('moduleKeys', () => {
 		expect(moduleKeys(files, 'src/core')).toEqual(['src/core/Guide.ts'])
 	})
 
-	it('excludes the scope directory\'s index.ts', () => {
+	it("excludes the scope directory's index.ts", () => {
 		const files = { 'src/core/Guide.ts': '', 'src/core/index.ts': '' }
 		expect(moduleKeys(files, 'src/core')).toEqual(['src/core/Guide.ts'])
 	})
@@ -234,7 +236,10 @@ describe('moduleKeys', () => {
 
 	it('unions keys across multiple scope directories', () => {
 		const files = { 'src/core/Guide.ts': '', 'src/browser/Widget.ts': '', 'src/other/X.ts': '' }
-		expect(moduleKeys(files, ['src/core', 'src/browser'])).toEqual(['src/browser/Widget.ts', 'src/core/Guide.ts'])
+		expect(moduleKeys(files, ['src/core', 'src/browser'])).toEqual([
+			'src/browser/Widget.ts',
+			'src/core/Guide.ts',
+		])
 	})
 
 	it('returns keys sorted', () => {

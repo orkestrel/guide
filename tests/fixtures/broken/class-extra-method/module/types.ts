@@ -2,12 +2,10 @@
 // because this mode's defect lives in Widget.ts and the module must be
 // self-contained for the class-no-extra check to target it in isolation.
 
-export interface WidgetInterface<
-	T = Record<string, unknown>,
-> {
+export interface WidgetInterface<T = Record<string, unknown>> {
 	readonly count: number
 	inspect(): string
-	render(label: string): string
+	render(label: string, data?: T): string
 	reset(): void
 }
 

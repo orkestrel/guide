@@ -9,17 +9,17 @@
 
 ### Types
 
-| Name | Kind |
-| --- | --- |
+| Name              | Kind      |
+| ----------------- | --------- |
 | `WidgetInterface` | interface |
-| `WidgetKind` | type |
+| `WidgetKind`      | type      |
 
 ### Helpers
 
-| Name | Kind |
-| --- | --- |
+| Name          | Kind     |
+| ------------- | -------- |
 | `createLabel` | function |
-| `loadWidget` | function |
+| `loadWidget`  | function |
 
 ### `Widget`
 
@@ -27,11 +27,11 @@
 
 #### `WidgetInterface`
 
-| Method | Description |
-| --- | --- |
+| Method    | Description          |
+| --------- | -------------------- |
 | `inspect` | Describe the widget. |
-| `render` | Render a label. |
-| `reset` | Reset the widget. |
+| `render`  | Render a label.      |
+| `reset`   | Reset the widget.    |
 
 ## Tests
 

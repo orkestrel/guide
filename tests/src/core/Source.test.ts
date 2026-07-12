@@ -8,7 +8,7 @@ import { fixtureFiles } from '../../setup.js'
 // fixture (the drop-in-catches-extras red path) (AGENTS §16).
 
 describe('Source', () => {
-	it('exports() returns the good fixture\'s exact 6 symbols, sorted by name', () => {
+	it("exports() returns the good fixture's exact 6 symbols, sorted by name", () => {
 		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
 		expect(source.exports()).toEqual([
 			{ name: 'DEFAULT_COUNT', kind: 'const' },
@@ -67,7 +67,10 @@ describe('Source', () => {
 	})
 
 	it('class-extra-method: methods(Widget) includes the extra method the interface does not document', () => {
-		const source = new Source({ files: fixtureFiles('broken/class-extra-method'), module: 'module' })
+		const source = new Source({
+			files: fixtureFiles('broken/class-extra-method'),
+			module: 'module',
+		})
 		expect(source.methods('Widget')).toContain('extra')
 		expect(source.methods('WidgetInterface')).not.toContain('extra')
 	})
@@ -76,7 +79,10 @@ describe('Source', () => {
 		const files = {
 			...fixtureFiles('good'),
 			...Object.fromEntries(
-				Object.entries(fixtureFiles('broken/class-extra-method')).map(([key, value]) => [`extra/${key}`, value]),
+				Object.entries(fixtureFiles('broken/class-extra-method')).map(([key, value]) => [
+					`extra/${key}`,
+					value,
+				]),
 			),
 		}
 		const source = new Source({ files, module: ['module', 'extra/module'] })

@@ -1,5 +1,12 @@
 import type { ContractInterface } from '@orkestrel/contract'
-import type { GuideInterface, ManifestEntry, MethodGroup, SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
+import type {
+	GuideInterface,
+	ManifestEntry,
+	MethodGroup,
+	SourceInterface,
+	SourceOptions,
+	SurfaceSymbol,
+} from './types.js'
 import { createContract } from '@orkestrel/contract'
 import { Guide } from './Guide.js'
 import { Source } from './Source.js'
