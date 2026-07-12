@@ -1,15 +1,15 @@
 import { defineConfig } from 'vite'
-import { srcCore, resolveWorkspacePath } from '../../vite.config'
+import { srcServer, resolveWorkspacePath } from '../../vite.config'
 
 export default defineConfig(
-	srcCore({
+	srcServer({
 		build: {
 			lib: {
-				entry: resolveWorkspacePath('src/core/index.ts'),
+				entry: resolveWorkspacePath('src/server/index.ts'),
 				formats: ['es'],
 				fileName: () => 'index.js',
 			},
-			outDir: 'dist/src/core',
+			outDir: 'dist/src/server',
 			rollupOptions: {
 				external: [/^node:/, /^@orkestrel\//],
 			},

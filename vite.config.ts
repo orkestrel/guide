@@ -35,9 +35,47 @@ export const srcCore = (config?: UserConfig): UserConfig =>
 		config ?? {},
 	)
 
+// src:server tests — node env, server-surface suite.
+export const srcServer = (config?: UserConfig): UserConfig =>
+	mergeConfig(
+		{
+			resolve,
+			build: {
+				emptyOutDir: true,
+				sourcemap: true,
+				minify: false,
+			},
+			test: {
+				name: { label: 'src:server', color: 'cyan' },
+				include: ['tests/src/server/**/*.test.ts'],
+				setupFiles: ['./tests/setup.ts'],
+				environment: 'node',
+				browser: { enabled: false },
+			},
+		},
+		config ?? {},
+	)
+
+// guides — dogfood guides-parity tests over this package's own guides.
+export const guides = (config?: UserConfig): UserConfig =>
+	mergeConfig(
+		{
+			resolve,
+			test: {
+				name: { label: 'guides', color: 'yellow' },
+				include: ['tests/guides/**/*.test.ts'],
+				exclude: ['tests/src/core/**/*.test.ts', 'tests/src/server/**/*.test.ts'],
+				setupFiles: ['./tests/setup.ts'],
+				environment: 'node',
+				browser: { enabled: false },
+			},
+		},
+		config ?? {},
+	)
+
 export default defineConfig({
 	resolve,
 	test: {
-		projects: [srcCore],
+		projects: [srcCore, srcServer, guides],
 	},
 })
