@@ -96,4 +96,25 @@ describe('Source', () => {
 		expect(source.exports()).toEqual([])
 		expect(source.exists('module/Widget.ts')).toBe(false)
 	})
+
+	it('hidden() is empty over the good fixture (§5-conformant, nothing hidden)', () => {
+		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
+		expect(source.hidden()).toEqual([])
+	})
+
+	it('hidden() caches the scan — repeated calls return the same array instance', () => {
+		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
+		expect(source.hidden()).toBe(source.hidden())
+	})
+
+	// hidden-declaration: the red path a surface bijection alone cannot see —
+	// secretHelper never appears as an export, so it never shows as a missing
+	// Surface row; hidden() is the only reflection that catches it.
+	it('hidden-declaration: hidden() reports the one non-exported function', () => {
+		const source = new Source({
+			files: fixtureFiles('broken/hidden-declaration'),
+			module: 'module',
+		})
+		expect(source.hidden()).toEqual([{ name: 'secretHelper', kind: 'function' }])
+	})
 })

@@ -5,6 +5,7 @@ import {
 	extractMethods,
 	extractSurface,
 	extractTests,
+	hiddenFrom,
 	joinHead,
 	memberMethods,
 	parseManifest,
@@ -226,6 +227,61 @@ describe('exportsFrom', () => {
 	it('ignores non-export lines', () => {
 		const source = 'const local = 1\nfunction helper() {}\nexport class Real {}\n'
 		expect(exportsFrom(source)).toEqual([{ name: 'Real', kind: 'class' }])
+	})
+})
+
+describe('hiddenFrom', () => {
+	it('detects a hidden function declaration', () => {
+		expect(hiddenFrom('function secretHelper() {}\n')).toEqual([
+			{ name: 'secretHelper', kind: 'function' },
+		])
+	})
+
+	it('detects a hidden async function declaration', () => {
+		expect(hiddenFrom('async function loadSecret() {}\n')).toEqual([
+			{ name: 'loadSecret', kind: 'function' },
+		])
+	})
+
+	it('detects a hidden generator declaration as kind function', () => {
+		expect(hiddenFrom('function* walkSecret() {}\n')).toEqual([
+			{ name: 'walkSecret', kind: 'function' },
+		])
+	})
+
+	it('detects a hidden class declaration', () => {
+		expect(hiddenFrom('class Secret {}\n')).toEqual([{ name: 'Secret', kind: 'class' }])
+	})
+
+	it('detects a hidden const declaration', () => {
+		expect(hiddenFrom('const SECRET = 1\n')).toEqual([{ name: 'SECRET', kind: 'const' }])
+	})
+
+	it('detects a hidden interface declaration', () => {
+		expect(hiddenFrom('interface Secret {}\n')).toEqual([{ name: 'Secret', kind: 'interface' }])
+	})
+
+	it('detects a hidden type declaration', () => {
+		expect(hiddenFrom('type Secret = string\n')).toEqual([{ name: 'Secret', kind: 'type' }])
+	})
+
+	it('ignores exported lines', () => {
+		const source = 'export function a() {}\nexport class C {}\nexport const D = 1\n'
+		expect(hiddenFrom(source)).toEqual([])
+	})
+
+	it('ignores an indented declaration inside a body (column-0 anchor)', () => {
+		const source = 'export class X {\n\tfunction inner() {}\n}\n'
+		expect(hiddenFrom(source)).toEqual([])
+	})
+
+	it('returns empty for the good fixture types.ts (fully exported)', () => {
+		expect(hiddenFrom(readFixture('good/module/types.ts'))).toEqual([])
+	})
+
+	it('finds the hidden-declaration fixture Widget.ts secretHelper', () => {
+		const symbols = hiddenFrom(readFixture('broken/hidden-declaration/module/Widget.ts'))
+		expect(symbols).toEqual([{ name: 'secretHelper', kind: 'function' }])
 	})
 })
 

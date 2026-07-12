@@ -1,6 +1,6 @@
 import type { GuideModule, SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
 import { moduleKeys, symbolKey } from './helpers.js'
-import { declarationBody, exportsFrom, memberMethods } from './parsers.js'
+import { declarationBody, exportsFrom, hiddenFrom, memberMethods } from './parsers.js'
 
 /**
  * A pure `SourceInterface` — reflects a module scope's exports and member
@@ -30,6 +30,7 @@ export class Source implements SourceInterface {
 	readonly #files: Readonly<Record<string, string>>
 	readonly #module: GuideModule
 	#exports: readonly SurfaceSymbol[] | undefined
+	#hidden: readonly SurfaceSymbol[] | undefined
 
 	constructor(options: SourceOptions) {
 		this.#files = options.files
@@ -39,7 +40,7 @@ export class Source implements SourceInterface {
 	// The module's exports are computed once on first access and cached —
 	// every subsequent call reuses the same scan of an immutable inventory.
 	exports(): readonly SurfaceSymbol[] {
-		if (this.#exports === undefined) this.#exports = this.#scanExports()
+		if (this.#exports === undefined) this.#exports = this.#scanSymbols(exportsFrom)
 		return this.#exports
 	}
 
@@ -56,10 +57,18 @@ export class Source implements SourceInterface {
 		return keys.some((key) => key === relative || key.startsWith(`${relative}/`))
 	}
 
-	// The pure union-and-dedupe-and-sort composition behind `exports()` — kept
-	// as a private method because it orchestrates `exportsFrom` across every
-	// file of the module scope rather than being a self-contained leaf.
-	#scanExports(): readonly SurfaceSymbol[] {
+	// The module's hidden declarations are computed once on first access and
+	// cached — mirrors `exports()`'s caching.
+	hidden(): readonly SurfaceSymbol[] {
+		if (this.#hidden === undefined) this.#hidden = this.#scanSymbols(hiddenFrom)
+		return this.#hidden
+	}
+
+	// The pure union-and-dedupe-and-sort composition behind `exports()` and
+	// `hidden()` — kept as a private method because it orchestrates a scanner
+	// across every file of the module scope rather than being a self-contained
+	// leaf.
+	#scanSymbols(scan: (source: string) => readonly SurfaceSymbol[]): readonly SurfaceSymbol[] {
 		const symbols: SurfaceSymbol[] = []
 		const seen = new Set<string>()
 
@@ -67,7 +76,7 @@ export class Source implements SourceInterface {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			for (const symbol of exportsFrom(text)) {
+			for (const symbol of scan(text)) {
 				const identity = symbolKey(symbol)
 				if (seen.has(identity)) continue
 				seen.add(identity)

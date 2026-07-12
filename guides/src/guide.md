@@ -33,7 +33,7 @@ The manifest/extraction shapes every check is built from, from [`types.ts`](../.
 | `ManifestEntry`   | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                              |
 | `MethodGroup`     | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                    |
 | `GuideInterface`  | interface | `{ sections, surface, methods, links, tests }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).         |
-| `SourceInterface` | interface | `{ exports, methods, exists }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods).         |
+| `SourceInterface` | interface | `{ exports, methods, exists, hidden }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods). |
 | `SourceOptions`   | interface | `{ files, module }` — the construction input for a `Source`: a consumer-supplied file inventory plus the module scope to reflect.       |
 | `DeclarationHead` | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`. |
 
@@ -77,6 +77,7 @@ the orchestration `Guide` composes out of `helpers.ts`'s leaves.
 | Name              | Kind     | Signature                                                                              | Behavior                                                                                                                                                 |
 | ----------------- | -------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `exportsFrom`     | function | `(source: string) => readonly SurfaceSymbol[]`                                         | The module-scope exports declared in one file's source text, deduped by (kind, name); a generator export scans as `function`.                            |
+| `hiddenFrom`      | function | `(source: string) => readonly SurfaceSymbol[]`                                         | The module-scope declarations LACKING the `export` keyword — the export-discipline (AGENTS §5) mirror of `exportsFrom`, same five-kind grammar.          |
 | `joinHead`        | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`            | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.                               |
 | `declarationBody` | function | `(source: string, keyword: 'class' \| 'interface', name: string) => readonly string[]` | The body lines of the named `export class` / `export interface` declaration in one file's source text.                                                   |
 | `memberMethods`   | function | `(lines: readonly string[]) => readonly string[]`                                      | The declared callable-member names in a declaration body — plain / `async` / generator / optional; getters, setters, `static`, `#` privates never count. |
@@ -165,6 +166,7 @@ backticked name (AGENTS §22).
 | `exports` | `readonly SurfaceSymbol[]` | Every module-scope export, including type-only, by (name, kind).      |
 | `methods` | `readonly string[]`        | The call-signature members of the `class` / `interface` named `name`. |
 | `exists`  | `boolean`                  | Whether a workspace-root-relative path exists in the inventory.       |
+| `hidden`  | `readonly SurfaceSymbol[]` | Every module-scope declaration LACKING `export` (AGENTS §5).          |
 
 ## The extraction model
 
@@ -192,7 +194,11 @@ body lines to the column-0 `}`. `memberMethods` matches
 generator / optional methods count; getters, setters, `static` members, and `#` privates
 never match (their keyword or sigil breaks the `name(` shape), and `constructor` is filtered
 out of `Source.methods`. `moduleKeys` scopes the inventory to one `GuideModule`'s `.ts`
-files, excluding each scope directory's own `index.ts` and any `*.test.ts` file.
+files, excluding each scope directory's own `index.ts` and any `*.test.ts` file. `hiddenFrom`
+runs the mirror-image scan — the same five-kind grammar, but only lines LACKING the `export`
+keyword — so `Source.hidden()` mechanically asserts AGENTS §5's export-discipline rule and
+catches a hidden declaration the surface bijection alone would never see (it never appears as
+an export, so it never shows up as a missing Surface row either).
 
 ## The check catalog
 

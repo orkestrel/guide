@@ -75,6 +75,11 @@ export interface SourceInterface {
 	methods(name: string): readonly string[]
 	/** Whether a workspace-root-relative path exists in the inventory. */
 	exists(relative: string): boolean
+	/**
+	 * Every module-scope declaration LACKING the `export` keyword (AGENTS §5's
+	 * export-discipline reflection) — empty on a conforming module.
+	 */
+	hidden(): readonly SurfaceSymbol[]
 }
 
 /**

@@ -49,6 +49,46 @@ export function exportsFrom(source: string): readonly SurfaceSymbol[] {
 }
 
 /**
+ * The module-scope declarations LACKING the `export` keyword in one file's
+ * source text — the mirror image of {@link exportsFrom}'s grammar, anchored
+ * the same way (column 0, so an indented inner declaration never matches).
+ * Scans only the five {@link ExportKind} keywords (`function` / `class` /
+ * `const` / `interface` / `type`) — a module-scope `let` or `var` is a
+ * different violation class (AGENTS §1 bans `var`; a bare `let` is not a
+ * declaration kind this scanner's five-kind grammar covers) and is out of
+ * this check's contract.
+ *
+ * @param source - The file's source text
+ * @returns The file's hidden (non-exported) symbols, in file order
+ *
+ * @example
+ * ```ts
+ * hiddenFrom('function secretHelper() {}\n') // [{ name: 'secretHelper', kind: 'function' }]
+ * hiddenFrom('export class X {}\n') // []
+ * ```
+ */
+export function hiddenFrom(source: string): readonly SurfaceSymbol[] {
+	const symbols: SurfaceSymbol[] = []
+	const seen = new Set<string>()
+
+	for (const line of source.split(/\r?\n/)) {
+		if (line.startsWith('export ')) continue
+		const match = line.match(/^(?:async )?(function\*?|class|const|interface|type) (\w+)/)
+		const rawKind = match?.[1]
+		const name = match?.[2]
+		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
+		if (!isNonEmptyString(kind) || !isNonEmptyString(name) || !isExportKind(kind)) continue
+
+		const key = `${kind} ${name}`
+		if (seen.has(key)) continue
+		seen.add(key)
+		symbols.push({ name, kind })
+	}
+
+	return symbols
+}
+
+/**
  * Join the declaration head starting at `start` into one space-separated
  * line, consuming lines until the first that ends with `{`.
  *

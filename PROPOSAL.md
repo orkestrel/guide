@@ -43,7 +43,7 @@ The design is intentionally lean: **no `Checker`/`Runner` classes.** The "checks
 | `types.ts`      | source of truth — `SurfaceSymbol`, `ExportKind`, `GuideModule`, `ManifestEntry`, `MethodGroup`, `GuideInterface`, `SourceInterface`, `SourceOptions`, `DeclarationHead`                                                                                                  |
 | `constants.ts`  | `EXTERNAL_SCHEMES`, `SURFACE`, `METHODS`, `TESTS`, `MANIFEST` heading literals                                                                                                                                                                                           |
 | `helpers.ts`    | pure leaves — `symbolKey`, `findMissing`, `missingSymbols`, `isExternalLink`, `resolveLink`, `firstCode`, `kindIndex`, `moduleDirs`, `moduleKeys`                                                                                                                        |
-| `parsers.ts`    | guide/manifest extraction over the Markdown AST, plus the fs-free scanner grammar over source text — `extractSurface`, `extractMethods`, `extractLinks`, `extractTests`, `sectionBlocks`, `parseManifest`, `exportsFrom`, `joinHead`, `declarationBody`, `memberMethods` |
+| `parsers.ts`    | guide/manifest extraction over the Markdown AST, plus the fs-free scanner grammar over source text — `extractSurface`, `extractMethods`, `extractLinks`, `extractTests`, `sectionBlocks`, `parseManifest`, `exportsFrom`, `hiddenFrom`, `joinHead`, `declarationBody`, `memberMethods` |
 | `validators.ts` | from-unknown guards over the parsed data types — `isSurfaceSymbol`, `isManifestEntry`, `isMethodGroup`, `isExportKind` (contract combinators)                                                                                                                            |
 | `shapers.ts`    | `ContractShape`s for the non-recursive data types — `surfaceSymbolShape`, `manifestEntryShape`, `methodGroupShape`                                                                                                                                                       |
 | `Guide.ts`      | the `Guide` class — a stateful structured view over one guide (extraction cached in the constructor)                                                                                                                                                                     |
@@ -87,6 +87,7 @@ interface SourceInterface {
 	exports(): readonly SurfaceSymbol[] // every module-scope export incl. type-only, by (name, kind)
 	methods(name: string): readonly string[] // the call-signature members of `class`/`interface` `name`
 	exists(relative: string): boolean // whether a workspace-root-relative path is in the inventory
+	hidden(): readonly SurfaceSymbol[] // every module-scope declaration LACKING `export` (AGENTS §5)
 }
 interface SourceOptions {
 	readonly files: Readonly<Record<string, string>> // root-relative path → file text
@@ -120,6 +121,8 @@ Each check is a pure comparison that a passing run reduces to `expect([]).toEqua
 **TE — Tests-link existence.** _Inputs:_ `guide.tests()` (the `## Tests` bullet links). _Algorithm:_ `resolveLink` + `source.exists`; keep the missing. _Failing diff:_ `[ 'tests/src/core/missing.test.ts' ]`.
 
 **NV — Non-vacuousness (the minimal structure guard).** Not a body of anatomy rules — just the assertions that keep every other check honest: `parseManifest` yields ≥1 entry (an empty manifest must not pass a whole empty suite), `guide.surface()` is non-empty, and each `MethodGroup` is non-empty. A guide whose `## Surface` or `## Methods` heading was renamed extracts an empty set and **fails here**, rather than passing vacuously. Full anatomy linting, backtick-prose resolution, and pattern typechecking are deferred (§10).
+
+**XD — Export discipline.** _Inputs:_ `source.hidden()` — every module-scope declaration in the scanned module LACKING the `export` keyword, scanned with `hiddenFrom` (the mirror image of `exportsFrom`'s five-kind grammar, same column-0 anchor). _Algorithm:_ a single assertion, `expect(source.hidden().map(symbolKey)).toEqual([])` — no set comparison against the guide is needed, since AGENTS §5 requires every module-scope declaration to be exported unconditionally. _Guard:_ none needed — the check IS the assertion; a scanner bug that always returns `[]` is caught the same way any other silently-vacuous extractor would be, by the fixture red path. _Failing diff:_ `[ 'function secretHelper' ]`. This check mechanizes AGENTS §5's export-discipline rule directly and also hardens SB (§5 above): a hidden declaration never appears in `source.exports()`, so it never surfaces as a missing Surface row — XD is the only reflection that catches it.
 
 ## 6. The drop-in
 

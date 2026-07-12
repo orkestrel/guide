@@ -13,6 +13,7 @@ import {
 	missingSymbols,
 	parseManifest,
 	resolveLink,
+	symbolKey,
 } from '@src/core'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
@@ -58,6 +59,10 @@ for (const entry of manifest) {
 		})
 		it('documents only real exports', () => {
 			expect(missingSymbols(guide.surface(), source.exports())).toEqual([])
+		})
+
+		it('exposes no hidden module-scope declarations', () => {
+			expect(source.hidden().map(symbolKey)).toEqual([])
 		})
 
 		for (const group of guide.methods()) {
