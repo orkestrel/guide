@@ -25,15 +25,16 @@ The helpers assume the guide anatomy both existing repos already share; no confi
 ## 3. Package identity & dependencies
 
 - **Name** `@orkestrel/guide` · **repo** `orkestrel/guide` · ESM-only · `node >=24` · house layout, `core` + `server` surfaces, **no `bin/`**.
-- **Runtime dependency — exactly one:** `@orkestrel/markdown`. `createMarkdown` / the `MarkdownInterface` (`walk` / `find` / `filter`), the `is*Node` guards, `walkNodes`, and `flattenText` are the entire engine the extraction layer needs. Pure and core-safe.
-- **`@orkestrel/contract` — deliberately NOT a direct dependency.** The v1 proposal used contract to compile a `Finding`/`Report`/`Summary` model. This redesign drops that model entirely (§4): findings are `readonly string[]` diffs asserted with `expect(diff).toEqual([])`, which yields a better vitest failure diff than any custom report and costs zero dependencies (AGENTS §1: no unsolicited deps). `contract` remains only a _documented_ dependency-reference in the markdown guide, not a code import.
+- **Runtime dependencies — two:** `@orkestrel/markdown` and `@orkestrel/contract`, both pure and core-safe.
+  - `@orkestrel/markdown` is the parsing engine: `createMarkdown` / the `MarkdownInterface` (`walk` / `find` / `filter`), the `is*Node` guards, `walkNodes`, and `flattenText` are everything the extraction layer needs.
+  - `@orkestrel/contract` powers the internals exactly as it does in the markdown package: from-unknown guards for the data types this package parses out of untrusted markdown (`isSurfaceSymbol` / `isManifestEntry` / `isMethodGroup`, composed from `recordOf` / `literalOf` / `arrayOf` / `unionOf`), `parseEnum` coercion of `Kind` cells against the five-kind literal set, emptiness guards at line level, and `ContractShape`s + compiled contracts for the non-recursive data types (seeded generators powering test fixtures). One deliberate boundary remains from the v1 rethink: **findings stay plain `readonly string[]` diffs** asserted with `expect(diff).toEqual([])` — vitest's native diff beats any compiled report model for failure output — so contract backs validation and fixtures, not a `Finding`/`Report`/`Summary` object model.
 - **No peer `typescript`.** Source truth is read with line scanners (§7), not the compiler API — so there is no peer compiler to bind, no version-skew surface, and type-only exports are read directly from source text.
 
 ## 4. Architecture & public API
 
 Two surfaces, split by the strict-core rule. `core` is pure ECMAScript: it parses guide markdown and runs the pure comparison leaves. `server` owns all I/O — `node:fs` directory walking and file reads. Dependency direction: server imports core; core never imports server. `Source` (server) implements `SourceInterface` (declared in core `types.ts`), the dependency-inversion seam that lets the pure comparison helpers depend only on the interface.
 
-The design is intentionally lean: **no `validators.ts`, no `shapers.ts`, no `Checker`/`Runner` classes.** The "checks" are pure set-difference helpers the drop-in test composes directly, so there is no orchestration entity to own.
+The design is intentionally lean: **no `Checker`/`Runner` classes.** The "checks" are pure set-difference helpers the drop-in test composes directly, so there is no orchestration entity to own. `validators.ts` and `shapers.ts` exist for the contract-backed layer — from-unknown guards over the parsed data types and shapes/compiled contracts for fixtures — not for a report model.
 
 ### `src/core` (pure, `@orkestrel/guide/core`)
 
@@ -43,8 +44,10 @@ The design is intentionally lean: **no `validators.ts`, no `shapers.ts`, no `Che
 | `constants.ts` | `EXTERNAL_SCHEMES`, `SURFACE`, `METHODS`, `TESTS`, `MANIFEST` heading literals                                                                         |
 | `helpers.ts`   | pure leaves — `symbolKey`, `findMissing`, `missingSymbols`, `isExternalLink`, `resolveLink`, `resolvePath`, `firstCode`, `kindIndex`                   |
 | `parsers.ts`   | guide/manifest extraction over the Markdown AST — `extractSurface`, `extractMethods`, `extractLinks`, `extractTests`, `sectionBlocks`, `parseManifest` |
+| `validators.ts` | from-unknown guards over the parsed data types — `isSurfaceSymbol`, `isManifestEntry`, `isMethodGroup`, `isExportKind` (contract combinators)         |
+| `shapers.ts`   | `ContractShape`s for the non-recursive data types — `surfaceSymbolShape`, `manifestEntryShape`, `methodGroupShape`                                     |
 | `Guide.ts`     | the `Guide` class — a stateful structured view over one guide (extraction cached in the constructor)                                                   |
-| `factories.ts` | `createGuide`                                                                                                                                          |
+| `factories.ts` | `createGuide` + compiled-contract factories for the data-type shapes                                                                                   |
 | `index.ts`     | the sole core barrel                                                                                                                                   |
 
 ### `src/server` (node, `@orkestrel/guide`)
