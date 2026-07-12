@@ -1,7 +1,56 @@
 import type { InlineNode, TableNode } from '@orkestrel/markdown'
 import { flattenText, isCodeSpanNode, isEmphasisNode, isLinkNode } from '@orkestrel/markdown'
-import type { SurfaceSymbol } from './types.js'
+import type { GuideModule, SurfaceSymbol } from './types.js'
 import { EXTERNAL_SCHEMES } from './constants.js'
+
+/**
+ * A module scope normalized to its directory list — a single directory
+ * becomes a one-element list so every scanner walks the same shape.
+ *
+ * @param module - The module scope to normalize
+ * @returns The directory list `module` denotes
+ *
+ * @example
+ * ```ts
+ * moduleDirs('src/core')                       // ['src/core']
+ * moduleDirs(['src/core', 'src/browser'])       // ['src/core', 'src/browser']
+ * ```
+ */
+export function moduleDirs(module: GuideModule): readonly string[] {
+	return typeof module === 'string' ? [module] : module
+}
+
+/**
+ * The file inventory's keys belonging to a {@link GuideModule} scope, sorted —
+ * a key belongs when it starts with one of the scope's directories, ends in
+ * `.ts`, and is neither that directory's `index.ts` nor a `.test.ts` file.
+ *
+ * @param files - The workspace file inventory, root-relative path → file text
+ * @param module - The module scope to filter to
+ * @returns The scope's file keys, root-relative and sorted
+ *
+ * @example
+ * ```ts
+ * moduleKeys({ 'src/core/Guide.ts': '', 'src/core/index.ts': '' }, 'src/core') // ['src/core/Guide.ts']
+ * ```
+ */
+export function moduleKeys(files: Readonly<Record<string, string>>, module: GuideModule): readonly string[] {
+	const dirs = moduleDirs(module)
+	const keys: string[] = []
+
+	for (const key of Object.keys(files)) {
+		if (!key.endsWith('.ts')) continue
+		if (key.endsWith('.test.ts')) continue
+
+		const dir = dirs.find((candidate) => key.startsWith(`${candidate}/`))
+		if (dir === undefined) continue
+		if (key === `${dir}/index.ts`) continue
+
+		keys.push(key)
+	}
+
+	return keys.sort()
+}
 
 /**
  * The bijection key for a surface symbol — its kind and name combined — so a
@@ -133,6 +182,27 @@ export function firstCode(nodes: readonly InlineNode[]): string | undefined {
 		}
 	}
 	return undefined
+}
+
+/**
+ * The identifier prefix of a code-span text — everything before its first `<`,
+ * trimmed. Guide cells and headings may annotate a generic-parameterized name
+ * (`MarkdownHandler<TNode, T>`) for readability, but the bijection key is the
+ * bare identifier the source scanner captures, so both sides must normalize
+ * the same way.
+ *
+ * @param code - A code span's literal text
+ * @returns The identifier prefix, or an empty string when `code` is empty
+ *
+ * @example
+ * ```ts
+ * identifierOf('MarkdownHandler<TNode, T>') // 'MarkdownHandler'
+ * identifierOf('fold')                      // 'fold'
+ * ```
+ */
+export function identifierOf(code: string): string {
+	const index = code.indexOf('<')
+	return (index < 0 ? code : code.slice(0, index)).trim()
 }
 
 /**

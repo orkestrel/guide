@@ -26,17 +26,23 @@ npm install -D @orkestrel/guide
 The entire consumer-side footprint is one short test file. An excerpt of the
 drop-in pattern (`tests/guides/src/parity.test.ts`):
 
+The consumer supplies the file inventory `Source` reflects over — gathered
+with `node:fs` in a Node test file, or `import.meta.glob` under a browser
+vitest project. This excerpt uses a Node `readFileSync`-backed inventory:
+
 ```ts
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { createGuide, missingSymbols, parseManifest } from '@orkestrel/guide/core'
-import { createSource, readText } from '@orkestrel/guide'
+import { createGuide, createSource, missingSymbols, parseManifest } from '@orkestrel/guide'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
-const manifest = parseManifest(readText(ROOT, 'guides/README.md'), 'guides')
+const files: Record<string, string> = { /* root-relative path → file text */ }
+const readText = (relative: string) => files[relative] ?? readFileSync(new URL(relative, ROOT), 'utf8')
+const manifest = parseManifest(readText('guides/README.md'), 'guides')
 
 for (const entry of manifest) {
-	const guide = createGuide(readText(ROOT, entry.spec))
-	const source = createSource({ root: ROOT, module: entry.source })
+	const guide = createGuide(readText(entry.spec))
+	const source = createSource({ files, module: entry.source })
 
 	it('documents every source export', () => {
 		expect(missingSymbols(source.exports(), guide.surface())).toEqual([])
@@ -66,15 +72,15 @@ coverage with zero test edits.
 
 - `createGuide(source)` — parses one guide's markdown into a structured,
   cached view (`surface()`, `methods()`, `links()`, `tests()`).
-- `createSource(options)` — reflects real exports/members/existence off disk
-  for one or more source directories.
+- `createSource(options)` — reflects real exports/members/existence over a
+  consumer-supplied file inventory (`options.files`), for one or more source
+  directories.
 - `parseManifest(markdown, base)` — extracts the `## By concept` rows from a
   `guides/README.md` manifest.
 - `missingSymbols(symbols, source)` — the `(name, kind)` set difference
   driving surface bijection.
 - `findMissing(names, source)` — the plain set difference driving methods
   bijection and link/test checks.
-- `readText(root, relative)` — reads a workspace-root-relative file.
 - `isExternalLink(href)` — true for `http`/`https`/`mailto`/`tel`/`#` links.
 - `resolveLink(from, target)` — resolves a guide-relative link against the
   guide's own directory.
@@ -88,8 +94,9 @@ rationale, see [`PROPOSAL.md`](./PROPOSAL.md). For the guide index, see
 
 ## Package
 
-Published as two typed entry points — `@orkestrel/guide` (server) and
-`@orkestrel/guide/core` (pure) — per the `exports` field in `package.json`.
+Published as a single pure, typed entry point — `@orkestrel/guide` — per the
+`exports` field in `package.json`. No filesystem or network access; the
+consumer supplies the file inventory `Source` reflects over.
 
 ## License
 

@@ -1,10 +1,135 @@
 import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkestrel/markdown'
 import { createMarkdown, flattenText, isHeadingNode, isLinkNode, isTableNode, walkNodes } from '@orkestrel/markdown'
-import { isEmptyString, isNonEmptyArray } from '@orkestrel/contract'
-import type { ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
+import { isEmptyString, isNonEmptyArray, isNonEmptyString } from '@orkestrel/contract'
+import type { DeclarationHead, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
 import { MANIFEST, METHODS, SURFACE, TESTS } from './constants.js'
-import { firstCode, kindIndex, resolveLink, symbolKey } from './helpers.js'
+import { firstCode, identifierOf, kindIndex, resolveLink, symbolKey } from './helpers.js'
 import { isExportKind } from './validators.js'
+
+/**
+ * The module-scope exports declared in one file's source text — matches
+ * `export (async)? (function(\*)?|class|const|interface|type) Name`, deduped
+ * by (kind, name). A generator export (`export function* walk`) scans as kind
+ * `function` — its trailing `*` is stripped before the {@link ExportKind} check.
+ *
+ * @param source - The file's source text
+ * @returns The file's exported symbols, in file order
+ *
+ * @example
+ * ```ts
+ * exportsFrom('export class Markdown {}\n') // [{ name: 'Markdown', kind: 'class' }]
+ * exportsFrom('export function* walk() {}\n') // [{ name: 'walk', kind: 'function' }]
+ * ```
+ */
+export function exportsFrom(source: string): readonly SurfaceSymbol[] {
+	const symbols: SurfaceSymbol[] = []
+	const seen = new Set<string>()
+
+	for (const line of source.split(/\r?\n/)) {
+		const match = line.match(/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/)
+		const rawKind = match?.[1]
+		const name = match?.[2]
+		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
+		if (!isNonEmptyString(kind) || !isNonEmptyString(name) || !isExportKind(kind)) continue
+
+		const key = `${kind} ${name}`
+		if (seen.has(key)) continue
+		seen.add(key)
+		symbols.push({ name, kind })
+	}
+
+	return symbols
+}
+
+/**
+ * Join the declaration head starting at `start` into one space-separated
+ * line, consuming lines until the first that ends with `{`.
+ *
+ * @param lines - The file's source lines
+ * @param start - The index of the head's first line
+ * @returns The joined head, or `undefined` when no line opens a body
+ *
+ * @example
+ * ```ts
+ * joinHead(['export class X {'], 0) // { text: 'export class X {', end: 0 }
+ * ```
+ */
+export function joinHead(lines: readonly string[], start: number): DeclarationHead | undefined {
+	const parts: string[] = []
+
+	for (let index = start; index < lines.length; index += 1) {
+		const line = lines[index]
+		if (line === undefined) break
+		parts.push(index === start ? line.trimEnd() : line.trim())
+		if (line.trimEnd().endsWith('{')) return { text: parts.join(' '), end: index }
+	}
+
+	return undefined
+}
+
+/**
+ * The body lines of the named `export class` / `export interface` declaration
+ * within one file's source text — everything between the head's opening `{`
+ * and the column-0 closing `}`.
+ *
+ * @param source - The file's source text to search
+ * @param keyword - Whether to look for a `class` or an `interface`
+ * @param name - The declaration's identifier
+ * @returns The declaration's body lines, or an empty array when `source` does not declare it
+ *
+ * @example
+ * ```ts
+ * declarationBody('export interface X {\n\twalk(): void\n}\n', 'interface', 'X') // ['\twalk(): void']
+ * ```
+ */
+export function declarationBody(source: string, keyword: 'class' | 'interface', name: string): readonly string[] {
+	const opener = `export ${keyword} ${name}`
+	const declaration = new RegExp(`^export ${keyword} ${name}(?:<.*>)?(?: .*)? \\{$`)
+	const lines = source.split(/\r?\n/)
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index]
+		if (line === undefined || !line.startsWith(opener)) continue
+
+		const head = joinHead(lines, index)
+		if (head === undefined || !declaration.test(head.text)) continue
+
+		const body: string[] = []
+		for (const member of lines.slice(head.end + 1)) {
+			if (member === '}') return body
+			body.push(member)
+		}
+
+		// Unterminated body — keep scanning in case a later match succeeds.
+	}
+
+	return []
+}
+
+/**
+ * The member lines declaring a callable member: plain, `async`, generator
+ * (`*`), and optional (`records?(`) methods all count; getters, setters,
+ * `static` members, and `#` privates never do (their keyword or `#` breaks
+ * the `name(` shape).
+ *
+ * @param lines - A declaration's body lines
+ * @returns The declared method names, deduped and sorted
+ *
+ * @example
+ * ```ts
+ * memberMethods(['\tmap(): void', '\tfilter(): void']) // ['filter', 'map']
+ * ```
+ */
+export function memberMethods(lines: readonly string[]): readonly string[] {
+	const methods: string[] = []
+
+	for (const line of lines) {
+		const method = line.match(/^\t(?:async )?\*?(\w+)(<[^>]*>)?\??\(/)
+		if (method?.[1] !== undefined) methods.push(method[1])
+	}
+
+	return Array.from(new Set(methods)).sort()
+}
 
 /**
  * The block nodes under the named `##` heading, up to the next `##`-or-higher
@@ -53,7 +178,8 @@ function tableSymbols(table: TableNode): readonly SurfaceSymbol[] {
 
 	for (const row of table.rows) {
 		const nameCell = row[0]
-		const name = nameCell === undefined ? undefined : firstCode(nameCell)
+		const rawName = nameCell === undefined ? undefined : firstCode(nameCell)
+		const name = rawName === undefined ? undefined : identifierOf(rawName)
 		if (name === undefined) continue
 
 		const kindCell = column === undefined ? undefined : row[column]
@@ -95,7 +221,8 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 		}
 
 		if (isHeadingNode(block) && block.level === 3) {
-			const name = firstCode(block.children)
+			const rawName = firstCode(block.children)
+			const name = rawName === undefined ? undefined : identifierOf(rawName)
 			if (name === undefined) continue
 			const symbol: SurfaceSymbol = { name, kind: 'class' }
 			const key = symbolKey(symbol)
@@ -127,7 +254,8 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 
 	for (const block of sectionBlocks(document, METHODS)) {
 		if (isHeadingNode(block) && block.level === 4) {
-			current = firstCode(block.children)
+			const rawInterface = firstCode(block.children)
+			current = rawInterface === undefined ? undefined : identifierOf(rawInterface)
 			continue
 		}
 
@@ -135,7 +263,8 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 			const methods: string[] = []
 			for (const row of block.rows) {
 				const cell = row[0]
-				const name = cell === undefined ? undefined : firstCode(cell)
+				const rawName = cell === undefined ? undefined : firstCode(cell)
+				const name = rawName === undefined ? undefined : identifierOf(rawName)
 				if (name !== undefined) methods.push(name)
 			}
 			groups.push({ interface: current, methods })

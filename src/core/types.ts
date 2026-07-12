@@ -66,13 +66,39 @@ export interface GuideInterface {
 
 /**
  * The reflected source truth a guide's documented surface is checked against —
- * implemented over disk reflection in `server`.
+ * a pure view over a consumer-supplied file inventory (see {@link Source}).
  */
 export interface SourceInterface {
 	/** Every module-scope export, including type-only, by (name, kind). */
 	exports(): readonly SurfaceSymbol[]
 	/** The call-signature members of the `class` / `interface` named `name`. */
 	methods(name: string): readonly string[]
-	/** Whether a workspace-root-relative path exists on disk. */
+	/** Whether a workspace-root-relative path exists in the inventory. */
 	exists(relative: string): boolean
+}
+
+/**
+ * The construction input for a {@link Source} — a consumer-supplied file
+ * inventory (root-relative path → file text) plus the module scope to
+ * reflect. The consumer gathers `files` however their environment allows
+ * (`node:fs` in a Node script, `import.meta.glob` in a browser/vitest run) —
+ * `Source` itself never touches disk.
+ */
+export interface SourceOptions {
+	/** The workspace's file inventory, root-relative path → file text. */
+	readonly files: Readonly<Record<string, string>>
+	/** The source directory (or directories) this guide documents, root-relative. */
+	readonly module: GuideModule
+}
+
+/**
+ * A declaration head joined into a single line, plus the index of the line
+ * carrying its opening `{` — how a head that oxfmt wrapped across lines
+ * (printWidth 100) is matched as if it were written on one.
+ */
+export interface DeclarationHead {
+	/** The joined, space-separated head text. */
+	readonly text: string
+	/** The index (within the source `lines`) of the line ending in `{`. */
+	readonly end: number
 }

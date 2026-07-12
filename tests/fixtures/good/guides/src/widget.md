@@ -8,7 +8,7 @@
 
 | Name | Kind |
 | --- | --- |
-| `WidgetInterface` | interface |
+| `WidgetInterface<T>` | interface |
 | `WidgetKind` | type |
 
 ### Helpers

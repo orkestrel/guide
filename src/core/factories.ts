@@ -1,7 +1,8 @@
 import type { ContractInterface } from '@orkestrel/contract'
-import type { GuideInterface, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
+import type { GuideInterface, ManifestEntry, MethodGroup, SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
 import { createContract } from '@orkestrel/contract'
 import { Guide } from './Guide.js'
+import { Source } from './Source.js'
 import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shapers.js'
 
 /**
@@ -14,7 +15,7 @@ import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shap
  *
  * @example
  * ```ts
- * import { createGuide } from '@orkestrel/guide/core'
+ * import { createGuide } from '@orkestrel/guide'
  *
  * const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
  * guide.surface() // [{ name: 'X', kind: 'class' }]
@@ -22,6 +23,28 @@ import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shap
  */
 export function createGuide(source: string): GuideInterface {
 	return new Guide(source)
+}
+
+/**
+ * Create a pure {@link SourceInterface} over a consumer-supplied file
+ * inventory — see {@link Source}.
+ *
+ * @param options - The file inventory and module scope to reflect
+ * @returns A `SourceInterface` reflecting the given module scope
+ *
+ * @example
+ * ```ts
+ * import { createSource } from '@orkestrel/guide'
+ *
+ * const source = createSource({
+ * 	files: { 'src/core/Guide.ts': 'export class Guide {}\n' },
+ * 	module: 'src/core',
+ * })
+ * source.exports() // [{ name: 'Guide', kind: 'class' }]
+ * ```
+ */
+export function createSource(options: SourceOptions): SourceInterface {
+	return new Source(options)
 }
 
 /**
