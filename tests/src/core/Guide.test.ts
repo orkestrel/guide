@@ -48,6 +48,19 @@ describe('Guide', () => {
 		expect(guide.sections()).toBe(guide.sections())
 		expect(guide.links()).toBe(guide.links())
 		expect(guide.tests()).toBe(guide.tests())
+		expect(guide.patterns()).toBe(guide.patterns())
+	})
+
+	it('extracts an empty patterns() array from the good fixture guide (no ts fence)', () => {
+		const guide = new Guide(readFixture('good/guides/src/widget.md'))
+		expect(guide.patterns()).toEqual([])
+	})
+
+	it("extracts the missing-example fixture guide's one Patterns fence", () => {
+		const guide = new Guide(readFixture('broken/missing-example/guides/src/widget.md'))
+		expect(guide.patterns()).toEqual([
+			"import { greet } from '../module/helpers.js'\n\ngreet('world')",
+		])
 	})
 
 	it("extracts empty surface when the Surface heading was renamed (the NV guard's red path)", () => {

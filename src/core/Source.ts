@@ -1,6 +1,13 @@
 import type { GuideModule, SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
 import { moduleKeys, symbolKey } from './helpers.js'
-import { declarationBody, exportsFrom, hiddenFrom, memberMethods } from './parsers.js'
+import {
+	declarationBody,
+	exampleMethods,
+	examplesFrom,
+	exportsFrom,
+	hiddenFrom,
+	memberMethods,
+} from './parsers.js'
 
 /**
  * A pure `SourceInterface` — reflects a module scope's exports and member
@@ -31,6 +38,7 @@ export class Source implements SourceInterface {
 	readonly #module: GuideModule
 	#exports: readonly SurfaceSymbol[] | undefined
 	#hidden: readonly SurfaceSymbol[] | undefined
+	#examples: readonly string[] | undefined
 
 	constructor(options: SourceOptions) {
 		this.#files = options.files
@@ -62,6 +70,51 @@ export class Source implements SourceInterface {
 	hidden(): readonly SurfaceSymbol[] {
 		if (this.#hidden === undefined) this.#hidden = this.#scanSymbols(hiddenFrom)
 		return this.#hidden
+	}
+
+	examples(): readonly string[]
+	examples(name: string): readonly string[]
+	examples(name?: string): readonly string[] {
+		if (name === undefined) {
+			if (this.#examples === undefined) this.#examples = this.#scanExamples()
+			return this.#examples
+		}
+
+		return this.#exampleMembers(name)
+	}
+
+	// The union of exported-function `@example` names across the module's
+	// files, deduped in first-seen order — mirrors `#scanSymbols`, but over a
+	// plain string scanner (`examplesFrom`) rather than a `SurfaceSymbol` one.
+	#scanExamples(): readonly string[] {
+		const names: string[] = []
+		const seen = new Set<string>()
+
+		for (const key of moduleKeys(this.#files, this.#module)) {
+			const text = this.#files[key]
+			if (text === undefined) continue
+
+			for (const name of examplesFrom(text)) {
+				if (seen.has(name)) continue
+				seen.add(name)
+				names.push(name)
+			}
+		}
+
+		return names
+	}
+
+	// The `@example`-carrying members of the interface-or-class declaration
+	// body named `name`, unioning both shapes (an implementer may carry its
+	// own `@example` a documented interface member does not, or vice versa).
+	#exampleMembers(name: string): readonly string[] {
+		const interfaceBody = this.#declarationBody('interface', name)
+		const classBody = this.#declarationBody('class', name)
+		const members = new Set<string>([
+			...exampleMethods(interfaceBody),
+			...exampleMethods(classBody),
+		])
+		return Array.from(members).sort()
 	}
 
 	// The pure union-and-dedupe-and-sort composition behind `exports()` and

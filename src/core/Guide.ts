@@ -1,6 +1,12 @@
 import { createMarkdown, flattenText, isHeadingNode } from '@orkestrel/markdown'
 import type { GuideInterface, MethodGroup, SurfaceSymbol } from './types.js'
-import { extractLinks, extractMethods, extractSurface, extractTests } from './parsers.js'
+import {
+	extractLinks,
+	extractMethods,
+	extractPatterns,
+	extractSurface,
+	extractTests,
+} from './parsers.js'
 
 /**
  * A stateful, structured view over one parsed guide — the five documented
@@ -27,6 +33,7 @@ export class Guide implements GuideInterface {
 	readonly #methods: readonly MethodGroup[]
 	readonly #links: readonly string[]
 	readonly #tests: readonly string[]
+	readonly #patterns: readonly string[]
 
 	constructor(source: string) {
 		const document = createMarkdown(source).document
@@ -39,6 +46,7 @@ export class Guide implements GuideInterface {
 		this.#methods = extractMethods(document)
 		this.#links = extractLinks(document)
 		this.#tests = extractTests(document)
+		this.#patterns = extractPatterns(document)
 	}
 
 	sections(): readonly string[] {
@@ -59,5 +67,9 @@ export class Guide implements GuideInterface {
 
 	tests(): readonly string[] {
 		return this.#tests
+	}
+
+	patterns(): readonly string[] {
+		return this.#patterns
 	}
 }

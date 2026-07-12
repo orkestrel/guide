@@ -120,6 +120,78 @@ export function missingSymbols(
 }
 
 /**
+ * The names in `names` that have no example — a fence containing the name at a
+ * word boundary in `fences`, or a membership in `examples`, both count as
+ * "has an example"; presence-only, fence and JSDoc content are never checked.
+ *
+ * @param names - The candidate symbol/member names to check
+ * @param fences - The guide's ```ts Patterns fence bodies to search
+ * @param examples - The names already known to carry an `@example` JSDoc block
+ * @returns The names in `names` with no fence mention and no `@example`
+ *
+ * @example
+ * ```ts
+ * findUnexampled(['walk', 'fold'], ['walk()'], []) // ['fold']
+ * findUnexampled(['walk'], [], ['walk']) // []
+ * ```
+ */
+export function findUnexampled(
+	names: readonly string[],
+	fences: readonly string[],
+	examples: readonly string[],
+): readonly string[] {
+	const exampled = new Set(examples)
+	return names.filter((name) => {
+		if (exampled.has(name)) return false
+		const boundary = new RegExp(`\\b${name}\\b`)
+		return !fences.some((fence) => boundary.test(fence))
+	})
+}
+
+/**
+ * Parse a fence's `import` statements into per-specifier imported identifier
+ * names — handles `import type`, mixed multiline braces, and `x as y` aliases
+ * (resolved to the local name `x`... the ORIGINAL exported name, since it is
+ * the export that must exist in `source.exports()`).
+ *
+ * @param fence - A ```ts Patterns fence's verbatim body text
+ * @returns One entry per `import ... from 'specifier'` statement, in fence order
+ *
+ * @example
+ * ```ts
+ * fenceImports("import { a, b as c } from 'x'\n") // [{ specifier: 'x', names: ['a', 'b'] }]
+ * ```
+ */
+export function fenceImports(
+	fence: string,
+): readonly { specifier: string; names: readonly string[] }[] {
+	const results: { specifier: string; names: readonly string[] }[] = []
+	const pattern = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gs
+
+	let match: RegExpExecArray | null
+	while ((match = pattern.exec(fence)) !== null) {
+		const body = match[1]
+		const specifier = match[2]
+		if (body === undefined || specifier === undefined) continue
+
+		const names = body
+			.split(',')
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0)
+			.map((part) => part.replace(/^type\s+/, ''))
+			.map((part) => {
+				const asMatch = part.match(/^(\w+)\s+as\s+\w+$/)
+				return asMatch?.[1] ?? part
+			})
+			.filter((part) => /^\w+$/.test(part))
+
+		results.push({ specifier, names })
+	}
+
+	return results
+}
+
+/**
  * Whether a link `href` should be skipped by the guides-parity link checks — an
  * external scheme ({@link EXTERNAL_SCHEMES}) or a bare in-document `#` anchor.
  *

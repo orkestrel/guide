@@ -1,7 +1,9 @@
 import type { SurfaceSymbol } from '@src/core'
 import {
 	cellLinks,
+	fenceImports,
 	findMissing,
+	findUnexampled,
 	firstCode,
 	identifierOf,
 	isExternalLink,
@@ -287,5 +289,76 @@ describe('moduleKeys', () => {
 	it('ignores non-.ts files and non-matching directories', () => {
 		const files = { 'src/core/Guide.ts': '', 'src/core/README.md': '', 'other/X.ts': '' }
 		expect(moduleKeys(files, 'src/core')).toEqual(['src/core/Guide.ts'])
+	})
+})
+
+describe('findUnexampled', () => {
+	it('keeps a name absent from both fences and examples', () => {
+		expect(findUnexampled(['walk', 'fold'], ['walk()'], [])).toEqual(['fold'])
+	})
+
+	it('drops a name present in examples even with no fence mention', () => {
+		expect(findUnexampled(['walk'], [], ['walk'])).toEqual([])
+	})
+
+	it('drops a name found in a fence at a word boundary', () => {
+		expect(findUnexampled(['walk'], ["import { walk } from 'x'"], [])).toEqual([])
+	})
+
+	it("does not match a name that is only a substring of a longer identifier ('walk' vs 'walkNodes')", () => {
+		expect(findUnexampled(['walk'], ['walkNodes()'], [])).toEqual(['walk'])
+	})
+
+	it('checks every fence, not just the first', () => {
+		expect(findUnexampled(['walk'], ['no match here', 'walk()'], [])).toEqual([])
+	})
+
+	it('returns an empty array when every name is exampled', () => {
+		expect(findUnexampled(['a', 'b'], [], ['a', 'b'])).toEqual([])
+	})
+})
+
+describe('fenceImports', () => {
+	it('parses a single named import', () => {
+		expect(fenceImports("import { a } from 'x'\n")).toEqual([{ specifier: 'x', names: ['a'] }])
+	})
+
+	it('parses multiple names from one specifier', () => {
+		expect(fenceImports("import { a, b } from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['a', 'b'] },
+		])
+	})
+
+	it('strips the type keyword from a mixed import', () => {
+		expect(fenceImports("import { type A, b } from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['A', 'b'] },
+		])
+	})
+
+	it('resolves import type { ... } to the plain names', () => {
+		expect(fenceImports("import type { A, B } from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['A', 'B'] },
+		])
+	})
+
+	it('resolves an aliased import to its original exported name', () => {
+		expect(fenceImports("import { a as c } from 'x'\n")).toEqual([{ specifier: 'x', names: ['a'] }])
+	})
+
+	it('parses a multiline import statement', () => {
+		expect(fenceImports("import {\n\ta,\n\tb,\n} from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['a', 'b'] },
+		])
+	})
+
+	it('returns one entry per specifier across multiple import statements', () => {
+		expect(fenceImports("import { a } from 'x'\nimport { b } from 'y'\n")).toEqual([
+			{ specifier: 'x', names: ['a'] },
+			{ specifier: 'y', names: ['b'] },
+		])
+	})
+
+	it('returns an empty array for a fence with no imports', () => {
+		expect(fenceImports('const x = 1\n')).toEqual([])
 	})
 })

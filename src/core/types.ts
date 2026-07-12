@@ -58,10 +58,33 @@ export interface GuideInterface {
 	surface(): readonly SurfaceSymbol[]
 	/** One {@link MethodGroup} per documented behavioral interface in `## Methods`. */
 	methods(): readonly MethodGroup[]
-	/** Every link href in the guide, including table cells. */
+	/**
+	 * Every link href in the guide, including table cells.
+	 *
+	 * @example
+	 * ```ts
+	 * guide.links() // ['../../src/core/helpers.ts']
+	 * ```
+	 */
 	links(): readonly string[]
-	/** The relative test links declared under `## Tests`. */
+	/**
+	 * The relative test links declared under `## Tests`.
+	 *
+	 * @example
+	 * ```ts
+	 * guide.tests() // ['../../tests/src/core/Guide.test.ts']
+	 * ```
+	 */
 	tests(): readonly string[]
+	/**
+	 * Every fenced `ts` code block's body text, whole document.
+	 *
+	 * @example
+	 * ```ts
+	 * guide.patterns() // ["import { createGuide } from '@orkestrel/guide'"]
+	 * ```
+	 */
+	patterns(): readonly string[]
 }
 
 /**
@@ -78,8 +101,32 @@ export interface SourceInterface {
 	/**
 	 * Every module-scope declaration LACKING the `export` keyword (AGENTS §5's
 	 * export-discipline reflection) — empty on a conforming module.
+	 *
+	 * @example
+	 * ```ts
+	 * source.hidden() // []
+	 * ```
 	 */
 	hidden(): readonly SurfaceSymbol[]
+	/**
+	 * The names of every exported function whose preceding JSDoc carries `@example`.
+	 *
+	 * @example
+	 * ```ts
+	 * source.examples() // ['createGuide', 'createSource']
+	 * ```
+	 */
+	examples(): readonly string[]
+	/**
+	 * The members of the `class` / `interface` named `name` whose preceding JSDoc,
+	 * within the declaration body, carries `@example`.
+	 *
+	 * @example
+	 * ```ts
+	 * source.examples('GuideInterface') // ['links', 'tests', 'patterns']
+	 * ```
+	 */
+	examples(name: string): readonly string[]
 }
 
 /**

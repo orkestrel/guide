@@ -2,6 +2,7 @@ import type { BlockNode, MarkdownDocument } from '@orkestrel/markdown'
 import {
 	createMarkdown,
 	flattenText,
+	isCodeBlockNode,
 	isHeadingNode,
 	isLinkNode,
 	isTableNode,
@@ -354,6 +355,139 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 		}
 	}
 	return links
+}
+
+/**
+ * The exported functions in one file's source text whose immediately preceding
+ * JSDoc block carries `@example` — walked line by line, tracking the current
+ * comment block; the block resets on any non-comment, non-export line so an
+ * `@example` never attaches to a declaration it does not directly precede.
+ *
+ * @param source - The file's source text
+ * @returns The exported function names with an `@example`, in file order
+ *
+ * @example
+ * ```ts
+ * const block = ['/**', ' * @example', ' *' + '/', 'export function walk() {}', ''].join('\n')
+ * examplesFrom(block) // ['walk']
+ * examplesFrom('export function walk() {}\n') // []
+ * ```
+ */
+export function examplesFrom(source: string): readonly string[] {
+	const names: string[] = []
+	const seen = new Set<string>()
+	let inBlock = false
+	let blockHasExample = false
+	let pending = false
+
+	for (const line of source.split(/\r?\n/)) {
+		const trimmed = line.trim()
+
+		if (!inBlock && trimmed.startsWith('/**')) {
+			inBlock = true
+			blockHasExample = trimmed.includes('@example')
+			pending = false
+			if (trimmed.length > 3 && trimmed.endsWith('*/')) {
+				inBlock = false
+				pending = blockHasExample
+			}
+			continue
+		}
+
+		if (inBlock) {
+			if (trimmed.includes('@example')) blockHasExample = true
+			if (trimmed.endsWith('*/')) {
+				inBlock = false
+				pending = blockHasExample
+			}
+			continue
+		}
+
+		const match = line.match(/^export (?:async )?function\*? (\w+)/)
+		const name = match?.[1]
+		if (pending && isNonEmptyString(name) && !seen.has(name)) {
+			seen.add(name)
+			names.push(name)
+		}
+		pending = false
+	}
+
+	return names
+}
+
+/**
+ * The callable-member names in a declaration body (per {@link memberMethods}'
+ * grammar) whose immediately preceding JSDoc block, within the same body,
+ * carries `@example` — the member-level mirror of {@link examplesFrom}.
+ *
+ * @param lines - A declaration's body lines
+ * @returns The exemplified member names, deduped and sorted
+ *
+ * @example
+ * ```ts
+ * exampleMethods(['\t/**', '\t * @example', '\t *' + '/', '\twalk(): void']) // ['walk']
+ * ```
+ */
+export function exampleMethods(lines: readonly string[]): readonly string[] {
+	const methods: string[] = []
+	const seen = new Set<string>()
+	let inBlock = false
+	let blockHasExample = false
+	let pending = false
+
+	for (const line of lines) {
+		const trimmed = line.trim()
+
+		if (!inBlock && trimmed.startsWith('/**')) {
+			inBlock = true
+			blockHasExample = trimmed.includes('@example')
+			pending = false
+			if (trimmed.length > 3 && trimmed.endsWith('*/')) {
+				inBlock = false
+				pending = blockHasExample
+			}
+			continue
+		}
+
+		if (inBlock) {
+			if (trimmed.includes('@example')) blockHasExample = true
+			if (trimmed.endsWith('*/')) {
+				inBlock = false
+				pending = blockHasExample
+			}
+			continue
+		}
+
+		const method = line.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
+		const name = method?.[1]
+		if (pending && isNonEmptyString(name) && !seen.has(name)) {
+			seen.add(name)
+			methods.push(name)
+		}
+		pending = false
+	}
+
+	return Array.from(new Set(methods)).sort()
+}
+
+/**
+ * Every ```ts fenced code block's body text anywhere in the guide document —
+ * a full AST walk so a fence nested inside a blockquote or list still counts.
+ *
+ * @param document - The parsed guide document
+ * @returns Every `ts`-lang fence's verbatim code, in walk order
+ *
+ * @example
+ * ```ts
+ * extractPatterns(document) // ["import { X } from './x.js'\nX()"]
+ * ```
+ */
+export function extractPatterns(document: MarkdownDocument): readonly string[] {
+	const patterns: string[] = []
+	for (const node of walkNodes(document)) {
+		if (isCodeBlockNode(node) && node.lang === 'ts') patterns.push(node.code)
+	}
+	return patterns
 }
 
 /**

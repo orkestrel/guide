@@ -117,4 +117,69 @@ describe('Source', () => {
 		})
 		expect(source.hidden()).toEqual([{ name: 'secretHelper', kind: 'function' }])
 	})
+
+	it('examples() returns an empty array over the good fixture (no @example JSDoc)', () => {
+		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
+		expect(source.examples()).toEqual([])
+	})
+
+	it('examples() caches the scan — repeated calls return the same array instance', () => {
+		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
+		expect(source.examples()).toBe(source.examples())
+	})
+
+	it('examples(name) returns an empty array for the good fixture WidgetInterface (no @example JSDoc)', () => {
+		const source = new Source({ files: fixtureFiles('good'), module: 'module' })
+		expect(source.examples('WidgetInterface')).toEqual([])
+	})
+
+	it('missing-example: examples() reports only greet (the @example-carrying function)', () => {
+		const source = new Source({
+			files: fixtureFiles('broken/missing-example'),
+			module: 'module',
+		})
+		expect(source.examples()).toEqual(['greet'])
+	})
+
+	it("examples(name) reads only the interface body's @example members when no same-named class exists", () => {
+		const files = {
+			'src/core/types.ts': [
+				'export interface WidgetInterface {',
+				'\t/**',
+				'\t * @example',
+				'\t */',
+				'\twalk(): void',
+				'\tfold(): void',
+				'}',
+				'',
+			].join('\n'),
+		}
+		const source = new Source({ files, module: 'src/core' })
+		expect(source.examples('WidgetInterface')).toEqual(['walk'])
+	})
+
+	it("examples(name) reads the class body's @example members under the implementer's own name", () => {
+		const files = {
+			'src/core/types.ts': [
+				'export interface WidgetInterface {',
+				'\twalk(): void',
+				'\tfold(): void',
+				'}',
+				'',
+			].join('\n'),
+			'src/core/Widget.ts': [
+				"import type { WidgetInterface } from './types.js'",
+				'export class Widget implements WidgetInterface {',
+				'\twalk(): void {}',
+				'\t/**',
+				'\t * @example',
+				'\t */',
+				'\tfold(): void {}',
+				'}',
+				'',
+			].join('\n'),
+		}
+		const source = new Source({ files, module: 'src/core' })
+		expect(source.examples('Widget')).toEqual(['fold'])
+	})
 })

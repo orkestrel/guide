@@ -25,17 +25,17 @@ iterates to run this check once per documented concept.
 
 The manifest/extraction shapes every check is built from, from [`types.ts`](../../src/core/types.ts).
 
-| Name              | Kind      | Shape                                                                                                                                   |
-| ----------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExportKind`      | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the declaration kind half of a symbol's bijection key.                    |
-| `SurfaceSymbol`   | interface | `{ name, kind }` — one documented / exported symbol.                                                                                    |
-| `GuideModule`     | type      | `string \| readonly string[]` — one source directory, or several for a layer guide spanning multiple directories.                       |
-| `ManifestEntry`   | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                              |
-| `MethodGroup`     | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                    |
-| `GuideInterface`  | interface | `{ sections, surface, methods, links, tests }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).         |
-| `SourceInterface` | interface | `{ exports, methods, exists, hidden }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods). |
-| `SourceOptions`   | interface | `{ files, module }` — the construction input for a `Source`: a consumer-supplied file inventory plus the module scope to reflect.       |
-| `DeclarationHead` | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`. |
+| Name              | Kind      | Shape                                                                                                                                             |
+| ----------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExportKind`      | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the declaration kind half of a symbol's bijection key.                              |
+| `SurfaceSymbol`   | interface | `{ name, kind }` — one documented / exported symbol.                                                                                              |
+| `GuideModule`     | type      | `string \| readonly string[]` — one source directory, or several for a layer guide spanning multiple directories.                                 |
+| `ManifestEntry`   | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                        |
+| `MethodGroup`     | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                              |
+| `GuideInterface`  | interface | `{ sections, surface, methods, links, tests, patterns }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).         |
+| `SourceInterface` | interface | `{ exports, methods, exists, hidden, examples }` — the reflected source truth a guide's surface is checked against. See [`## Methods`](#methods). |
+| `SourceOptions`   | interface | `{ files, module }` — the construction input for a `Source`: a consumer-supplied file inventory plus the module scope to reflect.                 |
+| `DeclarationHead` | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`.           |
 
 ### Constants
 
@@ -55,19 +55,21 @@ on, from [`constants.ts`](../../src/core/constants.ts).
 Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the building blocks
 `parsers.ts`'s extractors and a consumer's parity test both reach for directly.
 
-| Name             | Kind     | Signature                                                                                    | Behavior                                                                                                                                                          |
-| ---------------- | -------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `moduleDirs`     | function | `(module: GuideModule) => readonly string[]`                                                 | Normalizes a `GuideModule` scope to its directory list — a single string becomes a one-element list.                                                              |
-| `moduleKeys`     | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`        | The file inventory's keys belonging to a `GuideModule` scope: `.ts` files under a scope directory, excluding that directory's `index.ts` and `*.test.ts`; sorted. |
-| `symbolKey`      | function | `(symbol: SurfaceSymbol) => string`                                                          | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.                                    |
-| `findMissing`    | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`                 | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                                          |
-| `missingSymbols` | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]` | The `symbolKey` set-difference between two symbol lists.                                                                                                          |
-| `isExternalLink` | function | `(href: string) => boolean`                                                                  | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.                              |
-| `resolveLink`    | function | `(from: string, target: string) => string`                                                   | Resolves a relative link `target` against `from` and normalizes the result, purely (no `node:path`).                                                              |
-| `firstCode`      | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                      | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                                                   |
-| `identifierOf`   | function | `(code: string) => string`                                                                   | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                       |
-| `kindIndex`      | function | `(table: TableNode) => number \| undefined`                                                  | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                  |
-| `cellLinks`      | function | `(cell: readonly InlineNode[]) => readonly string[]`                                         | The link hrefs found within one table cell's inline content, in walk order.                                                                                       |
+| Name             | Kind     | Signature                                                                                                 | Behavior                                                                                                                                                          |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `moduleDirs`     | function | `(module: GuideModule) => readonly string[]`                                                              | Normalizes a `GuideModule` scope to its directory list — a single string becomes a one-element list.                                                              |
+| `moduleKeys`     | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`                     | The file inventory's keys belonging to a `GuideModule` scope: `.ts` files under a scope directory, excluding that directory's `index.ts` and `*.test.ts`; sorted. |
+| `symbolKey`      | function | `(symbol: SurfaceSymbol) => string`                                                                       | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.                                    |
+| `findMissing`    | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`                              | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                                          |
+| `missingSymbols` | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]`              | The `symbolKey` set-difference between two symbol lists.                                                                                                          |
+| `isExternalLink` | function | `(href: string) => boolean`                                                                               | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.                              |
+| `resolveLink`    | function | `(from: string, target: string) => string`                                                                | Resolves a relative link `target` against `from` and normalizes the result, purely (no `node:path`).                                                              |
+| `firstCode`      | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                                   | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                                                   |
+| `identifierOf`   | function | `(code: string) => string`                                                                                | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                       |
+| `kindIndex`      | function | `(table: TableNode) => number \| undefined`                                                               | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                  |
+| `cellLinks`      | function | `(cell: readonly InlineNode[]) => readonly string[]`                                                      | The link hrefs found within one table cell's inline content, in walk order.                                                                                       |
+| `findUnexampled` | function | `(names: readonly string[], fences: readonly string[], examples: readonly string[]) => readonly string[]` | The names with no fence mention (word boundary) and no `@example` membership — the EX check's core comparison.                                                    |
+| `fenceImports`   | function | `(fence: string) => readonly { specifier: string, names: readonly string[] }[]`                           | Parses a fence's `import` statements into per-specifier imported identifier names — the FI check's core comparison.                                               |
 
 ### Parsers
 
@@ -86,6 +88,9 @@ the orchestration `Guide` composes out of `helpers.ts`'s leaves.
 | `extractMethods`  | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                               | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods.       |
 | `extractLinks`    | function | `(document: MarkdownDocument) => readonly string[]`                                    | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                                             |
 | `extractTests`    | function | `(document: MarkdownDocument) => readonly string[]`                                    | The relative test links declared under `## Tests`.                                                                                                       |
+| `examplesFrom`    | function | `(source: string) => readonly string[]`                                                | The exported functions in one file's source text whose immediately preceding JSDoc block carries `@example`.                                             |
+| `exampleMethods`  | function | `(lines: readonly string[]) => readonly string[]`                                      | The `exampleMethods`-flavored `memberMethods` — callable-member names in a declaration body whose preceding JSDoc carries `@example`.                    |
+| `extractPatterns` | function | `(document: MarkdownDocument) => readonly string[]`                                    | Every fenced `ts` code block's body text anywhere in the guide document — a full AST walk.                                                               |
 | `parseManifest`   | function | `(markdown: string, base: string) => readonly ManifestEntry[]`                         | Parses a `## By concept` manifest table into `ManifestEntry` rows, resolving Spec / Source / Tests links against `base`.                                 |
 
 ### Shapers
@@ -158,15 +163,17 @@ backticked name (AGENTS §22).
 | `methods`  | `readonly MethodGroup[]`   | One `MethodGroup` per documented behavioral interface in `## Methods`.                      |
 | `links`    | `readonly string[]`        | Every link href in the guide, including table cells.                                        |
 | `tests`    | `readonly string[]`        | The relative test links declared under `## Tests`.                                          |
+| `patterns` | `readonly string[]`        | Every fenced `ts` code block's body text, whole document.                                   |
 
 #### `SourceInterface`
 
-| Method    | Returns                    | Behavior                                                              |
-| --------- | -------------------------- | --------------------------------------------------------------------- |
-| `exports` | `readonly SurfaceSymbol[]` | Every module-scope export, including type-only, by (name, kind).      |
-| `methods` | `readonly string[]`        | The call-signature members of the `class` / `interface` named `name`. |
-| `exists`  | `boolean`                  | Whether a workspace-root-relative path exists in the inventory.       |
-| `hidden`  | `readonly SurfaceSymbol[]` | Every module-scope declaration LACKING `export` (AGENTS §5).          |
+| Method     | Returns                    | Behavior                                                                                                   |
+| ---------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `exports`  | `readonly SurfaceSymbol[]` | Every module-scope export, including type-only, by (name, kind).                                           |
+| `methods`  | `readonly string[]`        | The call-signature members of the `class` / `interface` named `name`.                                      |
+| `exists`   | `boolean`                  | Whether a workspace-root-relative path exists in the inventory.                                            |
+| `hidden`   | `readonly SurfaceSymbol[]` | Every module-scope declaration LACKING `export` (AGENTS §5).                                               |
+| `examples` | `readonly string[]`        | The exported functions (or, given `name`, the members of `name`) whose preceding JSDoc carries `@example`. |
 
 ## The extraction model
 
@@ -219,6 +226,16 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
   missing.
 - **NV — Non-vacuousness.** `parseManifest` yields at least one entry; each guide's
   `surface()` and every `MethodGroup` is non-empty — the guard behind every other check.
+- **EX — Examples presence.** A documented symbol "has an example" when its bare name
+  appears (word boundary) in any of `guide.patterns()`'s fence bodies, OR its source
+  JSDoc carries an `@example` block (`source.examples()` / `source.examples(name)`).
+  Applies to every `function`-kind `Surface` symbol and every `MethodGroup` member.
+  Presence-only — fence and JSDoc CONTENT are never checked. `findUnexampled` is the
+  comparison. Guard: the SB/MB extractions this check reuses already prove non-vacuous.
+- **FI — Fence-import reality.** Every `import { ... } from 'specifier'` in a
+  `guide.patterns()` fence, for a SELF specifier (this repo's own package name / path
+  alias), imports only names that exist in `source.exports()`. `fenceImports` parses the
+  statement; `findMissing` diffs the imported names against `source.exports()`'s names.
 
 ## The pure file-inventory model
 

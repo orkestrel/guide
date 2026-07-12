@@ -8,7 +8,9 @@ import { join } from 'node:path'
 import {
 	createGuide,
 	createSource,
+	fenceImports,
 	findMissing,
+	findUnexampled,
 	isExternalLink,
 	missingSymbols,
 	parseManifest,
@@ -18,6 +20,7 @@ import {
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const WALK_DIRS = ['src', 'guides', 'tests']
+const SELF_SPECIFIERS = ['@orkestrel/guide', '@src/core']
 
 function walk(dir: string, acc: Record<string, string>): void {
 	for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -85,6 +88,39 @@ for (const entry of manifest) {
 				})
 			})
 		}
+
+		it('documents an example for every Surface function', () => {
+			const fences = guide.patterns()
+			const names = guide
+				.surface()
+				.filter((symbol) => symbol.kind === 'function')
+				.map((symbol) => symbol.name)
+			expect(findUnexampled(names, fences, source.examples())).toEqual([])
+		})
+
+		for (const group of guide.methods()) {
+			const entity = group.interface.replace(/Interface$/, '')
+			describe(`${group.interface} examples`, () => {
+				it('documents an example for every method', () => {
+					const fences = guide.patterns()
+					const examples =
+						entity === group.interface
+							? source.examples(group.interface)
+							: source.examples(group.interface).concat(source.examples(entity))
+					expect(findUnexampled(group.methods, fences, examples)).toEqual([])
+				})
+			})
+		}
+
+		it('imports only real exports in every ```ts fence', () => {
+			const exportNames = source.exports().map((symbol) => symbol.name)
+			for (const fence of guide.patterns()) {
+				for (const { specifier, names } of fenceImports(fence)) {
+					if (!SELF_SPECIFIERS.includes(specifier)) continue
+					expect(findMissing(names, exportNames)).toEqual([])
+				}
+			}
+		})
 
 		it('resolves every relative link', () => {
 			const broken = guide

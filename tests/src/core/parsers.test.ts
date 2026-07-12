@@ -1,10 +1,15 @@
 import {
 	declarationBody,
+	exampleMethods,
+	examplesFrom,
 	exportsFrom,
 	extractLinks,
 	extractMethods,
+	extractPatterns,
 	extractSurface,
 	extractTests,
+	fenceImports,
+	findMissing,
 	hiddenFrom,
 	joinHead,
 	memberMethods,
@@ -419,5 +424,153 @@ describe('memberMethods', () => {
 			'render',
 			'reset',
 		])
+	})
+})
+
+describe('examplesFrom', () => {
+	it('collects a function immediately preceded by an @example JSDoc block', () => {
+		const source = ['/**', ' * @example', ' */', 'export function walk() {}', ''].join('\n')
+		expect(examplesFrom(source)).toEqual(['walk'])
+	})
+
+	it('skips a function with no preceding JSDoc block', () => {
+		expect(examplesFrom('export function walk() {}\n')).toEqual([])
+	})
+
+	it('skips a function whose JSDoc block has no @example tag', () => {
+		const source = ['/**', ' * Just a description.', ' */', 'export function walk() {}', ''].join(
+			'\n',
+		)
+		expect(examplesFrom(source)).toEqual([])
+	})
+
+	it('resets the pending block on a blank line between the JSDoc and the export', () => {
+		const source = ['/**', ' * @example', ' */', '', 'export function walk() {}', ''].join('\n')
+		expect(examplesFrom(source)).toEqual([])
+	})
+
+	it('collects an async function', () => {
+		const source = ['/**', ' * @example', ' */', 'export async function load() {}', ''].join('\n')
+		expect(examplesFrom(source)).toEqual(['load'])
+	})
+
+	it('collects a generator function', () => {
+		const source = ['/**', ' * @example', ' */', 'export function* walk() {}', ''].join('\n')
+		expect(examplesFrom(source)).toEqual(['walk'])
+	})
+
+	it('handles a single-line JSDoc comment', () => {
+		const source = '/** @example */\nexport function walk() {}\n'
+		expect(examplesFrom(source)).toEqual(['walk'])
+	})
+
+	it('dedupes a repeated export', () => {
+		const source = [
+			'/**',
+			' * @example',
+			' */',
+			'export function walk() {}',
+			'/**',
+			' * @example',
+			' */',
+			'export function walk() {}',
+			'',
+		].join('\n')
+		expect(examplesFrom(source)).toEqual(['walk'])
+	})
+})
+
+describe('exampleMethods', () => {
+	it('collects a method immediately preceded by an @example JSDoc block', () => {
+		const lines = ['\t/**', '\t * @example', '\t */', '\twalk(): void']
+		expect(exampleMethods(lines)).toEqual(['walk'])
+	})
+
+	it('skips a method with no preceding JSDoc block', () => {
+		expect(exampleMethods(['\twalk(): void'])).toEqual([])
+	})
+
+	it('dedupes and sorts the results', () => {
+		const lines = [
+			'\t/**',
+			'\t * @example',
+			'\t */',
+			'\tzeta(): void',
+			'\t/**',
+			'\t * @example',
+			'\t */',
+			'\talpha(): void',
+		]
+		expect(exampleMethods(lines)).toEqual(['alpha', 'zeta'])
+	})
+
+	it('handles a single-line JSDoc comment on an interface member', () => {
+		expect(exampleMethods(['\t/** @example */', '\twalk(): void'])).toEqual(['walk'])
+	})
+})
+
+describe('extractPatterns', () => {
+	it("extracts a ```ts fence's code body", () => {
+		const document = createMarkdown('## Patterns\n\n```ts\nwalk()\n```\n').document
+		expect(extractPatterns(document)).toEqual(['walk()'])
+	})
+
+	it('returns an empty array when the document has no ts fence', () => {
+		const document = createMarkdown('## Patterns\n\nno fences here\n').document
+		expect(extractPatterns(document)).toEqual([])
+	})
+
+	it('ignores a fence with a different lang tag', () => {
+		const document = createMarkdown('```json\n{}\n```\n').document
+		expect(extractPatterns(document)).toEqual([])
+	})
+
+	it('collects every ts fence in the document, in walk order', () => {
+		const document = createMarkdown('```ts\na()\n```\n\n```ts\nb()\n```\n').document
+		expect(extractPatterns(document)).toEqual(['a()', 'b()'])
+	})
+
+	it("extracts the good fixture guide's Patterns fence bodies", () => {
+		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		expect(extractPatterns(document)).toEqual([])
+	})
+})
+
+// ── EX / FI broken-fixture matrix ───────────────────────────────────────────
+
+describe('broken fixture: missing-example', () => {
+	it('finds farewell unexampled (has neither a fence mention nor an @example) while greet is clean', () => {
+		const guideDocument = createMarkdown(
+			readFixture('broken/missing-example/guides/src/widget.md'),
+		).document
+		const fences = extractPatterns(guideDocument)
+		const surfaceNames = ['greet', 'farewell']
+		const examples = examplesFrom(readFixture('broken/missing-example/module/helpers.ts'))
+
+		const unexampled = surfaceNames.filter((name) => {
+			if (examples.includes(name)) return false
+			const boundary = new RegExp(`\\b${name}\\b`)
+			return !fences.some((fence) => boundary.test(fence))
+		})
+		expect(unexampled).toEqual(['farewell'])
+	})
+})
+
+describe('broken fixture: phantom-import', () => {
+	it("finds ghost as a phantom import (real exists, ghost doesn't)", () => {
+		const guideDocument = createMarkdown(
+			readFixture('broken/phantom-import/guides/src/widget.md'),
+		).document
+		const fences = extractPatterns(guideDocument)
+		const exportNames = exportsFrom(readFixture('broken/phantom-import/module/helpers.ts')).map(
+			(symbol) => symbol.name,
+		)
+
+		const phantom = fences.flatMap((fence) =>
+			fenceImports(fence)
+				.filter((entry) => entry.specifier === '@src/core')
+				.flatMap((entry) => findMissing(entry.names, exportNames)),
+		)
+		expect(phantom).toEqual(['ghost'])
 	})
 })
