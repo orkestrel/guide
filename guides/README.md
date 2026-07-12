@@ -4,26 +4,27 @@ A dual-axis index into this repository's guides — by concept, and by directory
 
 ## By concept
 
-| Concept  | Spec                                 | Source                    | Tests                                 |
-| -------- | ------------------------------------ | ------------------------- | ------------------------------------- |
-| Markdown | [`src/markdown.md`](src/markdown.md) | [`src/core`](../src/core) | [`tests/src/core`](../tests/src/core) |
+| Concept | Spec                            | Source                                                        | Tests                       |
+| ------- | -------------------------------- | ---------------------------------------------------------------- | ---------------------------- |
+| Guide   | [`src/guide.md`](src/guide.md)   | [`src/core`](../src/core) <br> [`src/server`](../src/server)     | [`tests/src`](../tests/src)  |
 
 ## By directory
 
-| Directory  | Guide                                |
-| ---------- | ------------------------------------ |
-| `src/core` | [`src/markdown.md`](src/markdown.md) |
+| Directory    | Guide                          |
+| ------------ | -------------------------------- |
+| `src/core`   | [`src/guide.md`](src/guide.md)   |
+| `src/server` | [`src/guide.md`](src/guide.md)   |
 
 ## Dependency reference
 
-[`src/contract.md`](src/contract.md) is a byte-identical mirror of the guide for
-`@orkestrel/contract` — this package's sole runtime dependency. It documents
-**that package's** surface (guards, combinators, parsers, and the shape DSL), not
-anything sourced in this repo; it is kept here so a reader of the markdown AST
-guards, leaf-node shapes, and compiled contracts (`isMarkdownNode`,
-`createTextContract`, …) can see the primitives they are built from without
-leaving this guide set.
+[`src/markdown.md`](src/markdown.md) is a byte-identical mirror of the guide for
+`@orkestrel/markdown` — this package's sole runtime dependency. It documents
+**that package's** surface (the AST shape, the two-phase parse, GFM tables, and the
+contract-backed leaf shapes), not anything sourced in this repo; it is kept here so a
+reader of the extraction layer (`createGuide`, `parseManifest`, `resolveLink`, …) can
+see the primitives they are built from without leaving this guide set.
 
 ## See also
 
 - [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
+- [`PROPOSAL.md`](../PROPOSAL.md) — the design proposal this package implements.
