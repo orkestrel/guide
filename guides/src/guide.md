@@ -67,6 +67,7 @@ Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the buildi
 | `firstCode`      | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                      | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                                                   |
 | `identifierOf`   | function | `(code: string) => string`                                                                   | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                       |
 | `kindIndex`      | function | `(table: TableNode) => number \| undefined`                                                  | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                  |
+| `cellLinks`      | function | `(cell: readonly InlineNode[]) => readonly string[]`                                         | The link hrefs found within one table cell's inline content, in walk order.                                                                                       |
 
 ### Parsers
 
@@ -228,7 +229,7 @@ consumer's own test.
 ### Construct a `Guide` from markdown text
 
 ```ts
-import { createGuide } from '@src/core'
+import { createGuide } from '@orkestrel/guide'
 
 const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
 guide.surface() // [{ name: 'X', kind: 'class' }]
@@ -238,7 +239,7 @@ guide.sections() // ['Surface']
 ### Construct a `Source` from an inline files record
 
 ```ts
-import { createSource } from '@src/core'
+import { createSource } from '@orkestrel/guide'
 
 const source = createSource({
 	files: {
@@ -255,7 +256,7 @@ source.exists('src/core/Guide.ts') // true
 ### The bijection assertion shape
 
 ```ts
-import { createGuide, createSource, missingSymbols } from '@src/core'
+import { createGuide, createSource, missingSymbols } from '@orkestrel/guide'
 
 const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Guide` | class |')
 const source = createSource({

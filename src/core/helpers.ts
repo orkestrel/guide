@@ -1,5 +1,11 @@
 import type { InlineNode, TableNode } from '@orkestrel/markdown'
-import { flattenText, isCodeSpanNode, isEmphasisNode, isLinkNode } from '@orkestrel/markdown'
+import {
+	flattenText,
+	isCodeSpanNode,
+	isEmphasisNode,
+	isLinkNode,
+	walkNodes,
+} from '@orkestrel/markdown'
 import type { GuideModule, SurfaceSymbol } from './types.js'
 import { EXTERNAL_SCHEMES } from './constants.js'
 
@@ -191,6 +197,25 @@ export function firstCode(nodes: readonly InlineNode[]): string | undefined {
 }
 
 /**
+ * The link hrefs found within one table cell's inline content.
+ *
+ * @param cell - The cell's inline nodes
+ * @returns The cell's link hrefs, in walk order
+ *
+ * @example
+ * ```ts
+ * cellLinks([{ element: 'link', href: 'x.ts', children: [] }]) // ['x.ts']
+ * ```
+ */
+export function cellLinks(cell: readonly InlineNode[]): readonly string[] {
+	const links: string[] = []
+	for (const node of walkNodes({ element: 'paragraph', children: cell })) {
+		if (isLinkNode(node)) links.push(node.href)
+	}
+	return links
+}
+
+/**
  * The identifier prefix of a code-span text — everything before its first `<`,
  * trimmed. Guide cells and headings may annotate a generic-parameterized name
  * (`MarkdownHandler<TNode, T>`) for readability, but the bijection key is the
@@ -213,7 +238,8 @@ export function identifierOf(code: string): string {
 
 /**
  * The index of a table's `Kind` column, found by its header text so it survives
- * column reordering.
+ * column reordering. The match is exact and case-sensitive (`'Kind'`) — a table
+ * without that exact header contributes no symbols to the surface it feeds.
  *
  * @param table - The table to inspect
  * @returns The `Kind` column's index, or `undefined` when the table has no `Kind` header

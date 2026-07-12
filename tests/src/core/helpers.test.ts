@@ -1,5 +1,6 @@
 import type { SurfaceSymbol } from '@src/core'
 import {
+	cellLinks,
 	findMissing,
 	firstCode,
 	identifierOf,
@@ -205,6 +206,42 @@ describe('firstCode', () => {
 
 	it('returns undefined when no code span is present', () => {
 		expect(firstCode([{ element: 'text', value: 'Widget' }])).toBeUndefined()
+	})
+})
+
+describe('cellLinks', () => {
+	it('returns a plain link cell href', () => {
+		expect(
+			cellLinks([{ element: 'link', href: 'x.ts', children: [{ element: 'text', value: 'x' }] }]),
+		).toEqual(['x.ts'])
+	})
+
+	it('returns multiple link hrefs in order', () => {
+		expect(
+			cellLinks([
+				{ element: 'link', href: 'a.ts', children: [{ element: 'text', value: 'a' }] },
+				{ element: 'text', value: ' ' },
+				{ element: 'link', href: 'b.ts', children: [{ element: 'text', value: 'b' }] },
+			]),
+		).toEqual(['a.ts', 'b.ts'])
+	})
+
+	it('returns an empty array when the cell has no links', () => {
+		expect(cellLinks([{ element: 'text', value: 'plain' }])).toEqual([])
+	})
+
+	it('finds a link nested inside emphasis', () => {
+		expect(
+			cellLinks([
+				{
+					element: 'emphasis',
+					strong: false,
+					children: [
+						{ element: 'link', href: 'x.ts', children: [{ element: 'text', value: 'x' }] },
+					],
+				},
+			]),
+		).toEqual(['x.ts'])
 	})
 })
 

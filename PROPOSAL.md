@@ -228,6 +228,16 @@ for (const entry of manifest) {
 }
 ```
 
+The `walk` helper above recurses from the workspace root (`.`) with no exclusions besides the
+`.ts` / `.md` extension filter — a consumer's own inventory walk should scope to the directories
+its checks actually touch (`src/`, `guides/`, `tests/`) or otherwise explicitly exclude
+`node_modules/` and `.git/`; the dogfood's own walk (below) is the model to follow, not this
+minimal sketch.
+
+`parseManifest`'s `base` argument is a single directory name relative to the workspace root (e.g.
+`'guides'`) — `resolveLink`'s arithmetic resolves against that one path segment, so a deeper or
+nested base (`'guides/src'`) is not supported.
+
 **`vite.config.ts`** — add a `guides` project extending the repo's existing single `srcCore` config (Node env, its own include glob), and register it. Adapted from terrain's pattern to markdown/contract's shape:
 
 ```ts

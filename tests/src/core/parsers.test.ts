@@ -321,6 +321,10 @@ describe('memberMethods', () => {
 		expect(memberMethods(['\trecords?(): void'])).toEqual(['records'])
 	})
 
+	it('counts a method whose type params nest generics', () => {
+		expect(memberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual(['fold'])
+	})
+
 	it('excludes a getter', () => {
 		expect(memberMethods(['\tget label(): string'])).toEqual([])
 	})

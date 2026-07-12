@@ -1,4 +1,4 @@
-import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkestrel/markdown'
+import type { BlockNode, MarkdownDocument } from '@orkestrel/markdown'
 import {
 	createMarkdown,
 	flattenText,
@@ -10,7 +10,7 @@ import {
 import { isEmptyString, isNonEmptyArray, isNonEmptyString } from '@orkestrel/contract'
 import type { DeclarationHead, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
 import { MANIFEST, METHODS, SURFACE, TESTS } from './constants.js'
-import { firstCode, identifierOf, kindIndex, resolveLink, symbolKey } from './helpers.js'
+import { cellLinks, firstCode, identifierOf, kindIndex, resolveLink, symbolKey } from './helpers.js'
 import { isExportKind } from './validators.js'
 
 /**
@@ -135,7 +135,7 @@ export function memberMethods(lines: readonly string[]): readonly string[] {
 	const methods: string[] = []
 
 	for (const line of lines) {
-		const method = line.match(/^\t(?:async )?\*?(\w+)(<[^>]*>)?\??\(/)
+		const method = line.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
 		if (method?.[1] !== undefined) methods.push(method[1])
 	}
 
@@ -176,38 +176,11 @@ export function sectionBlocks(document: MarkdownDocument, heading: string): read
 }
 
 /**
- * The (name, kind) symbols a `## Surface` table documents — column 0's code span
- * is the name, the `Kind` column (located by header text) is the kind. A row with
+ * Every `## Surface` identifier the guide documents — each table row's column 0
+ * code span (the name) paired with its `Kind` column (located by header text)
+ * UNION every backticked H3 entity heading in the section
+ * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link symbolKey}. A row with
  * no code-span name, or an unrecognized `Kind` text, is skipped.
- *
- * @param table - The Surface table to read
- * @returns The table's documented symbols, in row order
- */
-function tableSymbols(table: TableNode): readonly SurfaceSymbol[] {
-	const column = kindIndex(table)
-	const symbols: SurfaceSymbol[] = []
-
-	for (const row of table.rows) {
-		const nameCell = row[0]
-		const rawName = nameCell === undefined ? undefined : firstCode(nameCell)
-		const name = rawName === undefined ? undefined : identifierOf(rawName)
-		if (name === undefined) continue
-
-		const kindCell = column === undefined ? undefined : row[column]
-		const kindText =
-			kindCell === undefined ? '' : flattenText({ element: 'paragraph', children: kindCell }).trim()
-		if (!isExportKind(kindText)) continue
-
-		symbols.push({ name, kind: kindText })
-	}
-
-	return symbols
-}
-
-/**
- * Every `## Surface` identifier the guide documents — each table's rows (via
- * {@link tableSymbols}) UNION every backticked H3 entity heading in the section
- * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link symbolKey}.
  *
  * @param document - The parsed guide document
  * @returns The documented surface, in encounter order
@@ -223,7 +196,21 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 
 	for (const block of sectionBlocks(document, SURFACE)) {
 		if (isTableNode(block)) {
-			for (const symbol of tableSymbols(block)) {
+			const column = kindIndex(block)
+			for (const row of block.rows) {
+				const nameCell = row[0]
+				const rawName = nameCell === undefined ? undefined : firstCode(nameCell)
+				const name = rawName === undefined ? undefined : identifierOf(rawName)
+				if (name === undefined) continue
+
+				const kindCell = column === undefined ? undefined : row[column]
+				const kindText =
+					kindCell === undefined
+						? ''
+						: flattenText({ element: 'paragraph', children: kindCell }).trim()
+				if (!isExportKind(kindText)) continue
+
+				const symbol: SurfaceSymbol = { name, kind: kindText }
 				const key = symbolKey(symbol)
 				if (seen.has(key)) continue
 				seen.add(key)
@@ -330,20 +317,6 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 }
 
 /**
- * The link hrefs found within one table cell's inline content.
- *
- * @param cell - The cell's inline nodes
- * @returns The cell's link hrefs, in walk order
- */
-function cellLinks(cell: readonly InlineNode[]): readonly string[] {
-	const links: string[] = []
-	for (const node of walkNodes({ element: 'paragraph', children: cell })) {
-		if (isLinkNode(node)) links.push(node.href)
-	}
-	return links
-}
-
-/**
  * Parse a `## By concept` manifest table into its {@link ManifestEntry} rows —
  * each row's Concept cell (flattened text), Spec / Tests cells (a single link
  * href, resolved against `base`), and Source cell (every link href, resolved
@@ -352,7 +325,9 @@ function cellLinks(cell: readonly InlineNode[]): readonly string[] {
  * source link is skipped as malformed.
  *
  * @param markdown - The manifest markdown source (e.g. `guides/README.md`'s content)
- * @param base - The directory the manifest's links are resolved against
+ * @param base - A single directory name relative to the workspace root that the manifest's
+ *   links are resolved against (e.g. `'guides'`) — {@link resolveLink}'s arithmetic supports
+ *   only one path segment, so a deeper or nested base is not supported
  * @returns The manifest's entries, in row order
  *
  * @example
