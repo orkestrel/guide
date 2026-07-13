@@ -35,21 +35,20 @@ export const srcCore = (config?: UserConfig): UserConfig =>
 		config ?? {},
 	)
 
-// guides — dogfood guides-parity tests over this package's own guides.
+// Extends srcCore: the guides-parity suite. Node env — it reads the real
+// guides/*.md and the documented source modules off disk — but resolves like core tests.
 export const guides = (config?: UserConfig): UserConfig =>
-	mergeConfig(
-		{
-			resolve,
-			test: {
-				name: { label: 'guides', color: 'yellow' },
-				include: ['tests/guides/**/*.test.ts'],
-				exclude: ['tests/src/core/**/*.test.ts'],
-				setupFiles: ['./tests/setup.ts'],
-				environment: 'node',
-				browser: { enabled: false },
+	srcCore(
+		mergeConfig(
+			{
+				test: {
+					name: { label: 'guides', color: 'green' },
+					include: ['tests/guides/**/*.test.ts'],
+					exclude: ['tests/src/**/*.test.ts', 'tests/setup.test.ts'],
+				},
 			},
-		},
-		config ?? {},
+			config ?? {},
+		),
 	)
 
 export default defineConfig({

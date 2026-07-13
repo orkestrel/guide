@@ -16,8 +16,15 @@ A dual-axis index into this repository's guides — by concept, and by directory
 
 ## Dependency reference
 
+[`src/contract.md`](src/contract.md) is a byte-identical mirror of the guide for
+`@orkestrel/contract` — one of this package's runtime dependencies. It documents
+**that package's** surface (guards, combinators, parsers, and the shape DSL), not
+anything sourced in this repo; it is kept here so a reader of the extraction layer
+(`createGuide`, `parseManifest`, `resolveLink`, …) can see the primitives it is built
+from without leaving this guide set.
+
 [`src/markdown.md`](src/markdown.md) is a byte-identical mirror of the guide for
-`@orkestrel/markdown` — this package's sole runtime dependency. It documents
+`@orkestrel/markdown` — this package's other runtime dependency. It documents
 **that package's** surface (the AST shape, the two-phase parse, GFM tables, and the
 contract-backed leaf shapes), not anything sourced in this repo; it is kept here so a
 reader of the extraction layer (`createGuide`, `parseManifest`, `resolveLink`, …) can
@@ -26,4 +33,3 @@ see the primitives they are built from without leaving this guide set.
 ## See also
 
 - [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
-- [`PROPOSAL.md`](../PROPOSAL.md) — the design proposal this package implements.
