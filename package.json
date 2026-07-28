@@ -67,7 +67,7 @@
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.8",
-		"@orkestrel/markdown": "^0.0.5"
+		"@orkestrel/markdown": "^0.0.6"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.12",
