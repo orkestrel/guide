@@ -82,3 +82,9 @@ export function fixtureFiles(prefix: string): Record<string, string> {
 	collectFixtureFiles(base, base, files)
 	return files
 }
+
+/** Whether a repository-relative Vue SFC path belongs to the private browser application. */
+export function isBrowserVuePath(path: string): boolean {
+	const normalized = path.replaceAll('\\', '/')
+	return normalized.startsWith('app/browser/')
+}
