@@ -206,6 +206,18 @@ describe('firstCode', () => {
 		).toBe('Widget')
 	})
 
+	it('finds a code span nested inside an image', () => {
+		expect(
+			firstCode([
+				{
+					element: 'image',
+					src: 'widget.png',
+					children: [{ element: 'codeSpan', value: 'Widget' }],
+				},
+			]),
+		).toBe('Widget')
+	})
+
 	it('returns undefined when no code span is present', () => {
 		expect(firstCode([{ element: 'text', value: 'Widget' }])).toBeUndefined()
 	})

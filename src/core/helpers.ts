@@ -3,6 +3,7 @@ import {
 	flattenText,
 	isCodeSpanNode,
 	isEmphasisNode,
+	isImageNode,
 	isLinkNode,
 	walkNodes,
 } from '@orkestrel/markdown'
@@ -246,8 +247,8 @@ export function resolveLink(from: string, target: string): string {
 
 /**
  * The first code-span value found by descending an inline node list, following
- * into `emphasis` / `link` children — the extraction rule behind a Surface or
- * Methods table row's first-column identifier.
+ * into `emphasis` / `link` / `image` children — the extraction rule behind a
+ * Surface or Methods table row's first-column identifier.
  *
  * @param nodes - The inline nodes to search
  * @returns The first code span's literal text, or `undefined` when none is found
@@ -260,7 +261,7 @@ export function resolveLink(from: string, target: string): string {
 export function firstCode(nodes: readonly InlineNode[]): string | undefined {
 	for (const node of nodes) {
 		if (isCodeSpanNode(node)) return node.value
-		if (isEmphasisNode(node) || isLinkNode(node)) {
+		if (isEmphasisNode(node) || isLinkNode(node) || isImageNode(node)) {
 			const value = firstCode(node.children)
 			if (value !== undefined) return value
 		}
