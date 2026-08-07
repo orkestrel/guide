@@ -18,6 +18,7 @@ export const CENTRAL_SOURCE_FILES: readonly string[] = Object.freeze([
 	'middlewares.ts',
 	'parsers.ts',
 	'relations.ts',
+	'routes.ts',
 	'schemas.ts',
 	'seeders.ts',
 	'shapers.ts',
@@ -39,6 +40,7 @@ export const FUNCTION_SOURCE_FILES: readonly string[] = Object.freeze([
 	'middlewares.ts',
 	'parsers.ts',
 	'relations.ts',
+	'routes.ts',
 	'schemas.ts',
 	'seeders.ts',
 	'shapers.ts',
@@ -51,6 +53,7 @@ export const DATA_SOURCE_FILES: readonly string[] = Object.freeze([
 	'constants.ts',
 	'contracts.ts',
 	'relations.ts',
+	'routes.ts',
 	'schemas.ts',
 	'shapers.ts',
 	'templates.ts',
@@ -90,6 +93,22 @@ export const WORKER_SCOPE_VALUE_GLOBALS: readonly string[] = Object.freeze([
 	'removeEventListener',
 ])
 
+/** Source extensions inspected by the repository coding-law sweep. */
+export const CODING_SOURCE_EXTENSIONS: readonly string[] = Object.freeze([
+	'cjs',
+	'cts',
+	'js',
+	'jsx',
+	'mjs',
+	'mts',
+	'ts',
+	'tsx',
+	'vue',
+])
+
+/** Production-source glob derived from the complete inspected extension vocabulary. */
+export const CODING_SOURCE_GLOB = `{app,src}/**/*.{${CODING_SOURCE_EXTENSIONS.join(',')}}`
+
 /** Virtual source text used while binding one policy-inspected module. */
 export const POLICY_SOURCE_TEXTS: Map<string, string> = new Map()
 
@@ -107,6 +126,17 @@ export interface VueScriptExtractorInterface {
 /** Normalize platform separators and duplicate glob segments for stable diagnostics. */
 export function normalizePolicyPath(path: string): string {
 	return path.replaceAll('\\', '/').replace(/\/+/gu, '/')
+}
+
+/** Whether a path belongs to the production-source coding-law corpus. */
+export function isCodingSourcePath(path: string): boolean {
+	const normalized = normalizePolicyPath(path)
+	const extension = normalized.split('.').pop()
+	return (
+		(normalized.startsWith('app/') || normalized.startsWith('src/')) &&
+		extension !== undefined &&
+		CODING_SOURCE_EXTENSIONS.includes(extension)
+	)
 }
 
 /** Whether a declaration carries an explicit export modifier. */
@@ -240,7 +270,7 @@ export function isSelfContained(source: ts.SourceFile): boolean {
 			const clause = statement.importClause
 			const named = clause?.namedBindings
 			const erased =
-				clause?.isTypeOnly === true ||
+				clause?.phaseModifier === ts.SyntaxKind.TypeKeyword ||
 				(clause !== undefined &&
 					clause.name === undefined &&
 					named !== undefined &&
@@ -248,8 +278,9 @@ export function isSelfContained(source: ts.SourceFile): boolean {
 					named.elements.length > 0 &&
 					named.elements.every((element) => element.isTypeOnly))
 			if (erased) continue
-			if (!ts.isStringLiteral(statement.moduleSpecifier)) return false
-			const specifier = statement.moduleSpecifier.text
+			const moduleSpecifier = statement.moduleSpecifier
+			if (!ts.isStringLiteral(moduleSpecifier)) return false
+			const specifier = moduleSpecifier.text
 			if (!specifier.startsWith('node:') || !isBuiltin(specifier)) return false
 			builtin = true
 		}
@@ -412,6 +443,22 @@ export function inspectVueCodingLaw(
 			...inspectCodingLaw(`${path}.script-${String(index)}.${extension}`, script.content),
 		)
 	}
+	return violations
+}
+
+/** Inspect one production source through the shared coding-law route. */
+export function inspectCodingSource(
+	path: string,
+	content: string,
+	vueScripts?: VueScriptExtractorInterface,
+): readonly string[] {
+	const normalizedPath = normalizePolicyPath(path)
+	if (!normalizedPath.endsWith('.vue')) return inspectCodingLaw(normalizedPath, content)
+	const violations: string[] = []
+	if (!normalizedPath.startsWith('app/browser/')) {
+		violations.push(`${normalizedPath} Vue components belong in app/browser`)
+	}
+	violations.push(...inspectVueCodingLaw(normalizedPath, vueScripts?.(normalizedPath, content)))
 	return violations
 }
 
@@ -626,25 +673,17 @@ export function inspectCodingLaw(path: string, content: string): readonly string
 	return violations
 }
 
-/** Inspect every production TypeScript module under one workspace. */
+/** Inspect every production source under one workspace. */
 export function inspectCodingWorkspace(
 	root: string,
 	vueScripts?: VueScriptExtractorInterface,
 ): readonly string[] {
 	const violations: string[] = []
-	for (const path of globSync('{app,src}/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx,vue}', {
+	for (const path of globSync(CODING_SOURCE_GLOB, {
 		cwd: root,
 	})) {
 		const content = readFileSync(join(root, path), 'utf8')
-		const normalizedPath = normalizePolicyPath(path)
-		if (path.endsWith('.vue') && !normalizedPath.startsWith('app/browser/')) {
-			violations.push(`${normalizedPath} Vue components belong in app/browser`)
-		}
-		violations.push(
-			...(path.endsWith('.vue')
-				? inspectVueCodingLaw(normalizedPath, vueScripts?.(normalizedPath, content))
-				: inspectCodingLaw(normalizedPath, content)),
-		)
+		violations.push(...inspectCodingSource(path, content, vueScripts))
 	}
 	return violations
 }

@@ -67,11 +67,41 @@ than aspirational:
 - `app/browser` reaches server behavior only through shared `app/core` contracts and transports,
   never through a server implementation import.
 
-A generated `app/server` owns strict `APP_HOST`, `APP_PORT`, and `APP_START_TIMEOUT` parsing, a
-repeat-safe HTTP lifecycle, bounded connection behavior, and process signal cleanup. Its exported
+A generated `app/server` owns strict grouped `server.host`, `server.port`, and `server.timeout`
+options plus the `APP_HOST`, `APP_PORT`, and `APP_START_TIMEOUT` environment boundaries. It
+composes the installed router, server, and boundary/security/deadline middleware substrates around
+a fresh `GET /health` dispatcher from `createApplicationDispatcher`, supports repeated start/stop
+cycles and terminal destroy of both the server and its owned dispatcher, and writes exactly one
+`[READY] <name> <url>` diagnostic after process-owned readiness. The process runner owns an emitter
+whose `ApplicationServerRunnerEventMap` publishes `ready(url)` and `fail(error)`; initial
+`ApplicationServerRunnerOptions.on` hooks run before the runner's own announcement and reporting
+listeners; a synchronous fail hook sees an otherwise-unset `process.exitCode` as `undefined` before
+the default reporter sets it to `1`. Concurrent stops join one substrate shutdown. In-process tests park on those events,
+while child-process tests still observe the readiness line across the process boundary. Its exported
 `reportApplicationServerError` handler writes only a stable configuration, lifecycle, or unknown
-failure code; process-owned diagnostics never serialize a rejected value, nested cause, stack, or
-other error context.
+failure code; process-owned failures never serialize a rejected value, nested cause, stack,
+secret, or other error context. `ApplicationState` extends middleware's `IdentifierState` and adds
+only the connection fact. `ApplicationServer.url` is `undefined` until a real port is bound and
+again after stop or destroy; the redundant `listening` projection is not part of the generated
+interface. The runner narrows the post-start URL before writing `[READY]`, so it never announces a
+stale or unbound address, and it stops the server as part of failing that narrowing rather than
+leaving a bound listener without a shutdown owner. It also serializes every start and stop on one
+lifecycle queue, so a stop waits for the startup it aborted to settle before closing the server,
+and a restart issued during that shutdown is honoured after it rather than lost.
+
+The health contract belongs to whichever layer both hosts can reach. While the server alone reads
+it, `ApplicationRecord`, `APP_HEALTH_METHOD`, and `APP_HEALTH_PATH` stay declared in `app/server`.
+The moment a blueprint declares `app/browser` beside `app/server` — a combination that already
+requires `app/core` — those three declarations move to `app/core` and gain `APP_HEALTH_TIMEOUT`,
+the `isApplicationRecord` guard, and `readApplicationHealth`. That one asynchronous read is the
+whole browser/server boundary: it fetches the running server's health route, reads the body as
+`unknown`, narrows it with the shared guard, and returns the shared `Application` identity or
+`undefined` for an unreachable, slow, or off-contract answer. Nothing is duplicated by the move —
+`app/server` imports the relocated contract from `@app/core`, and `app/browser` still never imports
+a server module. The generated browser entry then mounts `mountBrowserApplication`, which performs
+that single read before mounting and falls back to the locally configured identity when the
+boundary yields `undefined`. A rejected mount reports the context-free
+`[ERROR] Browser application failed`, the browser twin of that server-side discipline.
 
 Every environment barrel is an export-star barrel: `index.ts` contains only `export * from './x.js'`
 rows and nothing else. Named, default, namespace, and type-only barrel rows are absent by design,
@@ -186,16 +216,20 @@ is `'INVALID' | 'BLOCKED' | 'DESTROYED' | 'TARGET' | 'WRITE' | 'FETCH'`.
 environment contributes, its test-project label, and — on the `src` axis — its `exports` subpath
 and build formats, or — on the `app` axis — its optional runtime entry.
 
-`ViteMachinery` names the three host-specific pipelines a workspace's generated `vite.config.ts` may
-carry: `browser` for the CSS pipeline and the Playwright-backed browser test project, `vue` for the
+`ViteMachinery` names the four host-specific pipelines a workspace's generated `vite.config.ts` may
+carry: `browser` selects the shared root CSS-analysis and Playwright machinery, `vue` selects the
 single-file-component, HTML, and development-server machinery an application browser environment
-needs, and `output` for build-output containment. It never selects a boundary guarantee — those ship
-in every shape, as the compilers section sets out.
+needs, `output` selects build-output containment, and `showcase` selects the optional single-file
+application-browser projection. The root machinery selection never attaches a
+`css` property to a nonbrowser project: only the `srcBrowser` and `appBrowser` factories own
+`ENVIRONMENT_CSS`. It never selects a boundary guarantee — those ship in every shape, as the
+compilers section sets out.
 
 `ViteFacts` is the optional structural-fact slice shared by every root Vite compiler:
 `bin`, `integration`, and `service` each select their matching standalone project when `true`;
 `global` records the exact-case consumer-owned global-setup module and wires it into each eligible
-project.
+project; `showcase` records the exact-case consumer-owned showcase wrapper and selects only its
+generated browser machinery.
 
 `ViteProjectRegistration` carries one generated project factory identifier and its optional browser
 label. Root configuration renderers preserve that browser ownership as data through registration
@@ -220,6 +254,7 @@ interface Blueprint {
 	readonly integration: boolean
 	readonly service: boolean
 	readonly global: boolean
+	readonly showcase: boolean
 }
 ```
 
@@ -230,7 +265,7 @@ packages — a peer flagged `optional` also gets a `peerDependenciesMeta` entry.
 package-specific development dependencies merged over the generated baseline, and may carry any
 valid npm package name.
 
-`bin`, `integration`, `service`, and `global` are structural project facts. All four obey one law:
+`bin`, `integration`, `service`, `global`, and `showcase` are structural project facts. All five obey one law:
 each is `true` only when the workspace physically ships the directory or exact-case file that
 defines it — never because of the workspace's name, and never because a sibling fact is set.
 `deriveBlueprint` probes those paths, so a fresh compile and an audit of a mature repository agree
@@ -252,6 +287,11 @@ on what the workspace is.
   governing setup-presence fact. A declared `src/browser` project runs that consumer-owned module
   as `globalSetup`; integration runs it only when `bin` and `integration` are also true.
   Application-browser, styles, service, and unrelated proof projects never receive it.
+- **`showcase`** — the physical, exact-case regular file
+  `configs/app/vite.showcase.config.ts` exists. It is valid only with `app/browser` and turns on the
+  computed wrapper, the closed `appShowcase()` root factory, three opt-in scripts, and the
+  consumer-only `vite-plugin-singlefile` development dependency. A directory, link, wrong-case
+  name, absent wrapper, demo HTML, script, or installed dependency never implies this fact.
 
 A service workspace owes two companion files beside that directory, and derivation requires both
 physically present: `tests/setupService.ts` and `scripts/service.sh`. Either missing companion is a
@@ -288,7 +328,8 @@ the accumulated `questions`, one `CompileRecord` per stage, any `CompileFailure`
 `GuideSync`, `VersionSync`, and `SyncReport` are the freshness shapes. `GuideSync` carries the
 fetched `content`, its `freshness`, an optional `note` explaining a non-clean outcome, and an
 optional `baseline` — the SHA-256 of the observed local mirror, or the literal `absent`, present
-only on target-aware pulls. `VersionSync` compares a declared `range` to the registry `latest`.
+only on target-aware synchronization. `VersionSync` compares a declared `range` to the registry
+`latest`.
 `SyncReport` is `clean` only when nothing drifted and nothing failed. `CatalogEntry` is one fleet
 package row; its `description` is the flattened text of that package's own guide's first
 blockquote, and the empty string when that guide is missing, unreadable, or carries no blockquote.
@@ -317,6 +358,7 @@ From [`types.ts`](../../src/server/types.ts).
 | `CatalogAllowance`      | type      |
 | `SyncBase`              | type      |
 | `SyncBranch`            | type      |
+| `VersionLookup`         | type      |
 | `GuideWrite`            | interface |
 | `MaterializerInterface` | interface |
 | `SyncEventMap`          | type      |
@@ -344,7 +386,9 @@ identity, and `WriteDirectoryResult` pairs the final anchor with the subset a ca
 `CatalogAllowance` are one-cell `Float64Array` allowances: the former shares a byte budget across
 concurrent network readers, while the latter shares one entry budget across every fleet root and
 child visited by a catalog operation. `SyncBase` and `SyncBranch` are normalized strings returned
-only by their corresponding boundary parsers.
+only by their corresponding boundary parsers. `VersionLookup` is the bare-name registry result:
+a successful lookup carries `latest` with `freshness: 'behind'` because no declared range was
+supplied as a reference, while `missing` and `failed` carry a `note` and no invented version.
 
 `SyncOptions` groups the injectable endpoints under the entity they configure — `guides` with
 `base`, `branch`, and `timeout`; `registry` with `base` and `timeout` — alongside `concurrency`,
@@ -368,6 +412,7 @@ From [`constants.ts`](../../src/core/constants.ts).
 | `HOST_PATHS`                      | const |
 | `SERVICE_SCRIPT_PATH`             | const |
 | `GLOBAL_SETUP_PATH`               | const |
+| `SHOWCASE_CONFIG_PATH`            | const |
 | `NAME_PATTERN`                    | const |
 | `MAX_NAME_LENGTH`                 | const |
 | `MAX_DEPENDENCY_NAME_LENGTH`      | const |
@@ -401,7 +446,9 @@ From [`constants.ts`](../../src/core/constants.ts).
 | `SCAFFOLD_RANGE`                  | const |
 | `BASE_DEV_DEPENDENCIES`           | const |
 | `SOURCE_BROWSER_DEV_DEPENDENCIES` | const |
+| `APP_DEV_DEPENDENCIES`            | const |
 | `APP_BROWSER_DEV_DEPENDENCIES`    | const |
+| `APP_SERVER_DEV_DEPENDENCIES`     | const |
 | `CHECKOUT_ACTION_SHA`             | const |
 | `SETUP_NODE_ACTION_SHA`           | const |
 | `COMPILER_ID`                     | const |
@@ -419,7 +466,8 @@ host artifacts, and it is the staging manifest rather than the per-plan carried 
 `stageHost` vendors every path on it, while each plan carries the subset `selectHostPaths` selects
 for that one workspace. `SERVICE_SCRIPT_PATH` names the consumer-owned provisioner a service
 workspace's audit expects, and `GLOBAL_SETUP_PATH` names the consumer-owned Vitest global-setup
-module that independently selected projects can load.
+module that independently selected projects can load. `SHOWCASE_CONFIG_PATH` names the sole
+consumer-owned regular file whose exact physical presence enables the optional app showcase.
 
 The bounds are public because they are part of the contract, not implementation trivia.
 `MAX_ARTIFACT_BYTES` caps one artifact at 5 MiB and `MAX_TOTAL_ARTIFACT_BYTES` caps one blueprint,
@@ -448,8 +496,14 @@ form. `HEX_PATTERN` requires whole lowercase byte pairs, and `SYNC_BASELINE_PATT
 `MINIMUM_NODE_VERSION` is `22.12.0`, `DEFAULT_ENGINES` derives from it, and `DEFAULT_VERSION` is
 `0.0.1`. `BASE_DEV_DEPENDENCIES` is the host-neutral tooling baseline every generated workspace
 gets; `SOURCE_BROWSER_DEV_DEPENDENCIES` adds the real browser providers a published browser environment
-needs, and `APP_BROWSER_DEV_DEPENDENCIES` extends that with the Vue toolchain a private browser
-application needs. `SCAFFOLD_RANGE` is the range generated workspaces pin this package at.
+needs; `APP_DEV_DEPENDENCIES` is the baseline every private application environment gets;
+`APP_BROWSER_DEV_DEPENDENCIES` adds the Vue toolchain and `@orkestrel/html` start-tag parser a
+private browser application needs;
+and `APP_SERVER_DEV_DEPENDENCIES` adds the emitter, middleware, router, and server packages a private
+server application needs. Vite is minor-pinned at `~8.2.0`: the generated boundary consumes the reviewed
+8.2 `CSSOptions`, `preprocessCSS`, and `isCSSRequest` surface, while the selected
+`css.transformer` / `lightningcss` path is experimental and must not float into an unreviewed minor.
+`SCAFFOLD_RANGE` is the range generated workspaces pin this package at.
 `CHECKOUT_ACTION_SHA` and `SETUP_NODE_ACTION_SHA` pin the two official CI actions to immutable
 commits. `TYPESCRIPT_EXTENSIONS` is the module extension set every generated scoped check covers.
 `JSON_PRINT_WIDTH` and `JSON_TAB_WIDTH` mirror the formatter configuration, so computed JSON is
@@ -684,6 +738,7 @@ From [`parsers.ts`](../../src/server/parsers.ts).
 | Name                       | Kind     |
 | -------------------------- | -------- |
 | `parseSyncDependencies`    | function |
+| `parseSyncNames`           | function |
 | `parseFilesystemPaths`     | function |
 | `parsePortablePaths`       | function |
 | `parseWritePreconditions`  | function |
@@ -703,7 +758,9 @@ subset used in raw-guide URLs: it rejects overlong values, empty or dot-leading 
 `@{`, the single `@`, trailing dots, and `.lock` suffixes without regard to case.
 `parseSyncCurrent` snapshots only the declared guide references, enforcing both the per-file and
 cumulative byte allowance. The three array parsers return frozen copies read through property
-descriptors, so a caller-supplied array can never smuggle in a getter.
+descriptors, so a caller-supplied array can never smuggle in a getter. `parseSyncNames` snapshots a
+bounded dense array of unique npm package names and validates only the names; declaration ranges
+remain the responsibility of `parseSyncDependencies` and the blueprint gate.
 
 ### Shapers — core
 
@@ -766,6 +823,8 @@ From [`helpers.ts`](../../src/core/helpers.ts).
 | `pascalCase`                | function |
 | `escapeHtmlText`            | function |
 | `serializeTypeScriptString` | function |
+| `hasApplicationBoundary`    | function |
+| `hasApplicationShowcase`    | function |
 | `blueprintToMembers`        | function |
 | `catalogNames`              | function |
 | `alignTable`                | function |
@@ -802,6 +861,7 @@ From [`helpers.ts`](../../src/core/helpers.ts).
 | `renderArray`               | function |
 | `renderObject`              | function |
 | `renderValue`               | function |
+| `renderStringArray`         | function |
 | `formatJson`                | function |
 | `pinPlan`                   | function |
 
@@ -814,7 +874,9 @@ guard. `blueprint` fills the defaults: `version` and `engines` from their consta
 derives the entity name from a lowercase-hyphen package name, and `blueprintToMembers` derives the
 declared public `Member[]` — a full entity, options type, interface, and factory per published
 environment, plus the exact declaration inventory each selected application environment
-contributes.
+contributes. `hasApplicationBoundary` recognizes exactly app/core + app/browser + app/server,
+while `hasApplicationShowcase` requires showcase intent beside app/browser; plan assembly, tests,
+guides, and member inventory share those predicates.
 
 `escapeHtmlText` and `serializeTypeScriptString` are the two escaping leaves used when a
 caller-supplied name reaches generated HTML or generated TypeScript source; the latter preserves
@@ -866,7 +928,12 @@ id is already registered: an identical plan is idempotent, while a distinct payl
 `formatJson` and its leaves — `renderValue`,
 `renderArray`, `renderObject`, `computeColumnWidth`, and `fitsPrintWidth` — emit JSON that matches the fleet
 formatter byte for byte, collapsing a short array onto one line and breaking a long one, so
-computed configuration JSON is format-stable by construction.
+computed configuration JSON is format-stable by construction. `renderStringArray` applies the same
+inline-or-broken width rule to single-quoted TypeScript string-array literals — with a trailing
+comma on every broken line, matching `oxfmt`'s `trailingComma: "all"` for non-JSON files — so
+generated TypeScript configuration is format-stable too. It serializes every string element through
+`serializeTypeScriptString`, so quotes, backslashes, controls, and line separators remain inert in
+both layouts.
 
 ### Helpers — server
 
@@ -961,8 +1028,9 @@ omitting an absent path entirely. `readManifest` reads `package.json` text, and
 `deriveBlueprint` is the faithful inverse an audit needs: it reconstructs a blueprint from an
 existing workspace so a mature package is diffed against its own would-be scaffold rather than a
 dependency-less stand-in. Environments come from `src/<environment>/` and `app/<environment>/`, the
-three structural project facts from their directory probes, and `global` from the physical,
-exact-case `tests/setupGlobal.ts` file; the service companion law remains the one the blueprint
+three directory-shaped structural project facts from their directory probes, `global` from the
+physical exact-case `tests/setupGlobal.ts` file, and `showcase` from the physical exact-case regular
+file `configs/app/vite.showcase.config.ts`; the service companion law remains the one the blueprint
 section states — every fact is a reading of the filesystem, never of the name. Dependencies and peers come
 from the manifest's scoped entries, with an optional peer recovered from
 `peerDependenciesMeta`; and `extras` is every development dependency minus the complete set
@@ -1003,7 +1071,7 @@ error.
 
 `packageShortName` strips the canonical scope, `guideStub` renders the pointer written when a
 dependency guide is not vendored yet, `readGuideReferences` reads a target's existing local mirrors
-so a pull's verdicts are target-relative, and `syncReportOf` assembles one report from already
+for package names so synchronization verdicts are target-relative, and `syncReportOf` assembles one report from already
 ordered guide and version outcomes.
 
 ### Compilers — core
@@ -1026,6 +1094,7 @@ From [`compilers.ts`](../../src/core/compilers.ts).
 | `renderViteTest`           | function |
 | `viteHeader`               | function |
 | `policyViteProject`        | function |
+| `configViteProject`        | function |
 | `guidesViteProject`        | function |
 | `binViteProject`           | function |
 | `integrationViteProject`   | function |
@@ -1081,8 +1150,9 @@ streams, `URL`, `AbortController`, the text encoders, `crypto`, timers, `console
 is one declaration set for a host-independent module, not a host. `viteHeader` renders the shared
 header — the alias block
 derived from the tsconfig paths, plus the environment-boundary plugin — and `viteMachinery` is the
-one place the header's axes are derived, read by `rootViteConfig`, `singleSrcViteConfig`,
-`applicationViteConfig`, and `configArtifacts` alike so no caller can invent a fourth answer.
+one place the root header's axes are derived, read by `rootViteConfig`, `singleSrcViteConfig`, and
+`applicationViteConfig`; `configArtifacts` delegates to those roots rather than deriving another
+answer.
 
 **The boundary guarantees do not vary by blueprint.** Every generated `vite.config.ts` — a
 `core`-only library, an application of `app/core` alone, or the full six-environment workspace —
@@ -1095,12 +1165,12 @@ module graph never records — has no other enforcement point in workspace-owned
 and toolchain modules are outside that ownership boundary. Only host-specific pipelines vary,
 along the three `ViteMachinery` axes:
 
-| Machinery                                                         | Emitted when                         |
-| ----------------------------------------------------------------- | ------------------------------------ |
-| CSS pipeline (`ENVIRONMENT_CSS`, `preprocessCSS`, `isCSSRequest`) | a `src` or `app` browser environment |
-| Playwright provider and `hasChromium`                             | a `src` or `app` browser environment |
-| Vue plugin, HTML boundary, browser development server             | an `app` browser environment         |
-| Output containment (`outputBoundary`, `enforceOutputPath`)        | anything the workspace builds        |
+| Machinery                                                                | Emitted when                         |
+| ------------------------------------------------------------------------ | ------------------------------------ |
+| Shared CSS analysis (`ENVIRONMENT_CSS`, `preprocessCSS`, `isCSSRequest`) | a `src` or `app` browser environment |
+| Playwright provider and managed/system browser discovery                 | a `src` or `app` browser environment |
+| Vue plugin, HTML boundary, browser development server                    | an `app` browser environment         |
+| Output containment (`outputBoundary`, `enforceOutputPath`)               | anything the workspace builds        |
 
 An application of `app/core` alone is the sole shape that builds nothing, so it is the sole shape
 without output containment — and it still carries every boundary guarantee above.
@@ -1112,19 +1182,22 @@ formatter's 100-column fixed point: a complete registration-array line, includin
 its trailing comma, stays collapsed when it fits and expands one entry per line otherwise.
 `viteProjectRegistrations` is the one registration derivation every root shape consumes: it derives
 the selected source and application projects from the canonical environment order, then appends
-`policy`, `guides`, and the optional `srcBin`, `integration`, and `service` projects.
+`policy`, `config`, `guides`, and the optional `srcBin`, `integration`, and `service` projects.
 `viteProjectDefinitions` renders the standalone proof and structural-fact definitions in that same
 order with one blank line between declarations. Both consume `ViteFacts`, so each optional project
 is controlled only by its matching `bin`, `integration`, or `service` blueprint fact; the same
-slice carries `global` to integration and the source-browser compiler without adding another
-project.
+slice carries `global` to integration and the source-browser compiler, and `showcase` to the
+application-browser compiler, without adding another test project.
 
 `coreViteConfig`, `srcViteConfig`, `binViteConfig`, and `appViteConfig` emit the thin per-target
-wrappers, while `binTsconfig` emits the executable declaration scope; `rootViteConfig`,
+wrappers. `coreViteConfig()` is parameterless and never imports or attaches browser CSS machinery;
+the root `srcCore` factory and its wrapper stay host-independent even when the workspace also owns a
+browser target. `binTsconfig` emits the executable declaration scope; `rootViteConfig`,
 `singleSrcViteConfig`, and `applicationViteConfig` emit the root configuration for a library-only,
 single non-core `src` environment, and application-bearing workspace respectively; and
-`policyViteProject`, `guidesViteProject`, `integrationViteProject`, and `serviceViteProject` emit
-the standalone Node proof projects, with `binViteProject` the single executable-project emitter. A
+`policyViteProject`, `configViteProject`, `guidesViteProject`, `integrationViteProject`, and
+`serviceViteProject` emit the standalone Node proof projects, with `binViteProject` the single
+executable-project emitter. A
 proof project is structurally derived from the directory holding its tests and never wraps a source
 or application environment project. The guides project therefore uses only `tests/setup.ts`, never
 `setupServer.ts`, `setupBrowser.ts`, or `setupService.ts`; and its `tests/src/**/*.test.ts` and
@@ -1141,7 +1214,9 @@ that field.
 `configArtifacts`, `sourceArtifacts`, `applicationArtifacts`, `testArtifacts`, and `guideArtifacts`
 are the per-group drafters. When `bin` is selected, `configArtifacts` includes
 `configs/src/tsconfig.bin.json` and `configs/src/vite.bin.config.ts` beside the declared environment
-configuration pairs. `paritySpecifiers` computes the self-specifier and module map the
+configuration pairs. When `showcase` is selected, it includes the computed thin
+`configs/app/vite.showcase.config.ts` wrapper beside the ordinary application browser pair.
+`paritySpecifiers` computes the self-specifier and module map the
 generated parity suite resolves fence imports through. `guideMemberTable`, `guideUsage`,
 `guideMethods`, and `guideTests` render the generated guide's member tables, usage examples, method
 contract, and test inventory. `fillArtifact` fills one template entry into a `template`-origin
@@ -1282,16 +1357,19 @@ The interface also exposes the readonly `emitter`.
 
 #### `SyncInterface`
 
-| Method     | Returns                            |
-| ---------- | ---------------------------------- |
-| `guides`   | `Promise<readonly GuideSync[]>`    |
-| `versions` | `Promise<readonly VersionSync[]>`  |
-| `catalog`  | `Promise<readonly CatalogEntry[]>` |
-| `pull`     | `Promise<SyncReport>`              |
-| `write`    | `Promise<readonly string[]>`       |
-| `destroy`  | `void`                             |
+| Method     | Returns                             |
+| ---------- | ----------------------------------- |
+| `lookup`   | `Promise<readonly VersionLookup[]>` |
+| `guides`   | `Promise<readonly GuideSync[]>`     |
+| `versions` | `Promise<readonly VersionSync[]>`   |
+| `catalog`  | `Promise<readonly CatalogEntry[]>`  |
+| `pull`     | `Promise<SyncReport>`               |
+| `mirror`   | `Promise<SyncReport>`               |
+| `write`    | `Promise<readonly string[]>`        |
+| `destroy`  | `void`                              |
 
-`guides(deps, current?)` fetches each dependency's upstream guide. The optional `current` map is
+`lookup(names)` resolves registry versions from bare package names, with no declaration range
+required or synthesized. `guides(deps, current?)` fetches each dependency's upstream guide. The optional `current` map is
 keyed by dependency name: with it, a fetched guide byte-equal to its entry verdicts `current` and
 anything else verdicts `behind`; without it, every successful fetch verdicts `behind`, because no
 reference means it needs syncing. `versions(deps)` compares each declared range to the registry
@@ -1299,7 +1377,9 @@ latest. `catalog()` enumerates the fleet from the registry's exact organization 
 unreachable or malformed list is always a coded failure, since without it there is no catalog — then
 degrades gracefully per package. `pull(target, dependencies?)` builds the reference map from the
 target's own mirrors, so its verdicts are target-relative, and rejects a selection the target does
-not declare. `write(report, target)` commits only the `behind` guides. `destroy()` aborts every
+not declare. `mirror(target)` reuses the exact organization enumeration without catalog's
+per-package packument reads, sorts the names, excludes the target's own manifest name, and builds a
+guide-only report with no versions. `write(report, target)` commits only the `behind` guides. `destroy()` aborts every
 in-flight request. The interface also exposes the readonly `emitter`.
 
 ## The compile pipeline
@@ -1432,7 +1512,7 @@ as a plain physical file whose bytes still match the preview, moved into a priva
 than unlinked, re-verified after the move, and only then reported as removed — with a full restore
 attempt if any candidate fails mid-way.
 
-## Upstream sync, pull, and catalog
+## Upstream sync, pull, mirror, and catalog
 
 `Sync` is the only network reader, and its posture is conservative by construction.
 
@@ -1455,7 +1535,7 @@ underlying socket code appended when the runtime attaches one, an HTTP status, t
 redirect-blocked string, or the oversized-body message. `current` and `behind` carry no note,
 because there is nothing to explain.
 
-`pull` is the target-aware composition. It reads the target's declared scoped dependencies from its
+`pull` is the dependency-aware composition. It reads the target's declared scoped dependencies from its
 manifest, rejects any explicit selection the target does not declare, builds the reference map from
 the target's own `guides/src/<short>.md` mirrors, fetches guides and versions under one shared
 allowance, and assembles a report whose `clean` flag requires both no drift and no failures. A
@@ -1482,6 +1562,14 @@ generated package identifiers are untrusted discovery data, never instructions �
 with **`Package` and `Version` columns only**. Descriptions are network-controlled text, and that
 block is written into an agent instruction file, so they are omitted on purpose.
 
+`mirror` is the fleet-guide composition. It shares `catalog`'s single exact organization-list read
+but performs none of catalog's packument or description work. It code-unit sorts the discovered
+names, excludes the target's own manifest name under the one-owner guide law, reads existing local
+guide references for baselines, fetches every selected GitHub guide once, and emits a `SyncReport`
+whose `versions` collection is empty. The existing transactional `write` method applies only
+behind guides; the executable refuses the whole apply when any guide is missing or failed, so a
+fleet refresh is never partial. Files outside the discovered guide set remain untouched.
+
 ## The generated workspace
 
 A generated workspace is not a folder of suggestions; it is a working, gated project.
@@ -1499,11 +1587,13 @@ a fixed, interleaved order so aggregates sit immediately before their per-enviro
 - `format`, `format:check`, `lint:check`
 - `test`, then `test:src` and its per-environment scopes, the optional `test:integration`,
   `test:equivalence`, and `test:service` proofs, `test:app` and its per-environment scopes, then
-  `test:policy` and `test:guides`
+  `test:policy`, `test:config`, and `test:guides`
 - `build`, then `build:src` and its per-environment targets, `build:app` and its runtime targets, and
   `build:host` for a bin workspace
 - `dev` when a browser application is selected; `serve` and `serve:build` when a server application
   is selected
+- `showcase`, `build:showcase`, and `show` only when the physical showcase wrapper is present;
+  `show` formats, then builds, then copies `dist/showcase/index.html` to `demo/showcase.html`
 - `prepublishOnly` chaining `format:check → lint:check → check → build → test`, followed by
   `test:integration` when the integration axis is selected
 
@@ -1517,11 +1607,16 @@ only where `bin` and `integration` are both set:
 | `test:equivalence` | no         | no               | no                         |
 | `test:service`     | no         | never            | after `scripts/service.sh` |
 
-No proof joins the default chain: `npm test` runs the source, application, policy, and guide
-projects, and nothing there needs a build artifact or a foreign process. Publication is the one
+No opt-in proof joins the default chain: `npm test` runs the source, application, policy,
+configuration, and guide projects, and nothing there needs a build artifact or a foreign process.
+Publication is the one
 asymmetry — `prepublishOnly` appends `test:integration`, because a package about to be published
 should prove itself against its own built output, while `test:service` is never in that chain.
 Neither default testing nor publication starts or requires a foreign process.
+The showcase is likewise outside `build`, `test`, and `prepublishOnly`; it is an explicit projection
+of `app/browser`, not an environment, test-project row, or source/demo artifact.
+Its copied `demo/showcase.html` is generated and minified, so the mirrored `.prettierignore` keeps it
+outside the whole-tree formatter while source and configuration files remain fully gated.
 
 When a prerequisite is absent the proof fails rather than skipping. `test:integration` reads the
 workspace's own built output, so it belongs after `build` — which is exactly where `prepublishOnly`
@@ -1586,10 +1681,16 @@ comments, text, raw blocks, attributes, adjacent tokens, casing, and user-author
 byte-stable. The trusted preparation hook owns the final pre-parse phase; inline proxy code is
 restored before module analysis, and the first normal post-parse hook restores the original HTML
 spelling. The browser entry begins with a generated, byte-stable security prologue: the doctype,
-document and head opening, and a `Content-Security-Policy` meta element are one required prefix.
-Preparation rejects a missing, moved, or changed prologue before Vite parses the document, and the
-final trusted post-hook verifies that Vite retained the policy. CRLF and LF files are both accepted;
-the prologue's markup and ordering are otherwise exact. Vite's `%ENV%` HTML substitution is rejected
+head opening, and `Content-Security-Policy` meta markup, ordering, and indentation are exact. The
+opening `html` start tag is parsed by `@orkestrel/html`'s fail-closed `parseStartTag` boundary,
+so ASCII case and well-formed attributes such as `lang`, `data-bs-theme`, and `data-bs-core`
+may vary without weakening the position of the following head and policy. A malformed, incomplete,
+duplicate-attribute, wrong-name, or syntactically slashed root still fails closed. Preparation owns
+that positional check while the document is still generated bytes; the final trusted post-hook
+checks only that the exact
+policy survived because Vite may legitimately inject into the head. CRLF and LF files are both
+accepted. Vite's
+`%ENV%` HTML substitution is rejected
 before parsing because Vite performs that expansion after every plugin pre-hook, where it could
 otherwise create a late control attribute. The guard walks the exact left-to-right `%(\S+?)%`
 tokens Vite recognizes instead of performing a substring search, and each preparation plugin owns
@@ -1637,6 +1738,33 @@ contract and is reported as computed-artifact drift by `scaffold audit`. The out
 still rejects public directories, browser asset inlining, and output path overrides in a
 post-factory composition as defense in depth; that narrow check is not a general extension seam.
 
+When the showcase fact is present, the generated root also exports closed
+`appShowcase(...config: never[])`; both factories reject every argument at runtime. The
+ordinary factory retains its strict
+`script-src 'self'` policy, external asset auditing, and `dist/app/browser` output. The showcase
+factory is a standalone configuration with `base: './'`, unlimited asset inlining, and
+`dist/showcase` output. It applies `viteSingleFile` with
+`removeViteModuleLoader: true` and `useRecommendedBuildConfig: true`, uses Oxc and Lightning CSS
+minification for an `esnext` build without source maps or module preload, and inserts a SHA-256
+`build-id` derived from the secured, fully inlined document. An unchanged document therefore keeps
+the same id, while any changed byte changes it. The showcase development CSP keeps scripts
+same-origin and permits Vue's injected inline styles. Its built CSP swaps that script permission to
+inline and admits only inline styles plus data images and fonts, while both policies retain
+`default-src 'none'`, `script-src-attr 'none'`, `object-src 'none'`, and `base-uri 'none'`.
+
+The showcase fact also emits its own entry pair, `app/browser/showcase.html` and
+`app/browser/showcase.ts`, beside the application's `index.html` and `main.ts`. Both HTML entries
+open with a generated security prologue: the application carries the ordinary strict policy and the
+showcase carries its development policy. The boundary plugins select and validate the matching
+prologue; the showcase build alone swaps in the self-contained policy before hashing and renames its
+single HTML output to `index.html`, which is what `show` copies to `demo/showcase.html`. The showcase entry
+mounts `mountShowcaseApplication`, and `app/browser/seeders.ts` exports exactly one seeder,
+`seedApplication`, returning a frozen identity of the same shape the shipped root view receives.
+The two mount factories differ in the seed expression alone. Both explicitly pass
+`{ name: seed.name }` to the same `createBrowserApplication` root: the showcase seed comes from
+`seedApplication()`, while the shipped application seed comes from `readApplicationHealth` with
+the configured identity as its fallback.
+
 The browser development server applies the same trust boundary before Vite's internal middleware.
 Its explicit filesystem allowlist contains only browser/core source roots, browser tests, their
 exact setup files, and installed dependencies. The pre-internal middleware decodes direct,
@@ -1671,10 +1799,13 @@ What it rejects is equally deliberate:
 Unsupported stylesheet `@import` or `url()` syntax is an error rather than a silently skipped
 dependency. **`publicDir` is disabled on every generated build target**: an asset that is not
 reachable through the module graph is not silently copied past the boundary. The output plugin
-fails during configuration when a caller attempts to enable `publicDir`; browser builds likewise
-reject a nonzero `assetsInlineLimit`, keeping asset bytes external and visible to output auditing
-before any output directory mutation. A caller-supplied Rolldown `output.dir` or `output.file` is
-also rejected during configuration; the exact generated `build.outDir` is the sole write root.
+fails during configuration when a caller attempts to enable `publicDir`. Published `srcBrowser`
+targets use Vite library mode, where assets are always inlined and `assetsInlineLimit` is ignored,
+so their generated shapes omit that ineffective option. The normal `appBrowser` build retains
+`assetsInlineLimit: 0`, and the output plugin rejects a nonzero limit only for that non-library
+browser build, keeping application asset bytes external and visible to output auditing before any
+output directory mutation. A caller-supplied Rolldown `output.dir` or `output.file` is also rejected
+during configuration; the exact generated `build.outDir` is the sole write root.
 
 **The policy suite.** [`tests/setupPolicy.ts`](../../tests/setupPolicy.ts) is a narrow structural
 policy pass built on the official TypeScript compiler. It exists for exactly the laws a linter
@@ -1695,15 +1826,36 @@ it is not a general-purpose source analyzer. Generated workspaces receive the sa
 module as a host-origin file and run it as a dedicated Node-only `policy` test project over
 `tests/policy.test.ts`.
 
-**Real browser capability.** Browser test projects are gated on the real executable: the generated
-configuration and the generated policy test both probe `existsSync(chromium.executablePath())`. A
-browser suite runs when a real Chromium is installed and is skipped honestly when it is not, rather
-than being faked. The gate is applied at registration, not inside the real browser project: without
-Chromium, each browser factory is replaced by a same-label Node/no-test placeholder, so generated
-`--project <label>` and `--project=<label>` filters still resolve while no browser code runs. The
-root permits an empty run only when every recognized exact project filter names one of those gated
-placeholders; an unreadable or mixed filter keeps the ordinary no-test failure semantics for its
-Node projects. One printed warning names every gated project label. A machine with a browser
+**The configuration suite.** Policy reads source, the `config` project exercises the root
+configuration, and integration builds for real. Every generated workspace therefore receives a
+universal Node-only
+`config` project over `tests/config/**/*.test.ts`. Its base cases execute the root module's physical
+workspace containment and environment-direction helpers; conditional cases exercise output
+containment when the workspace builds, managed/system browser discovery when a browser environment
+exists, and the HTML/CSP boundary only for an application browser. Those cases import the generated
+root `vite.config.ts` itself, so a failure is repaired in the generator rather than patched into a
+consumer. The generated-consumer integration matrix remains the fidelity boundary for real builds;
+the configuration suite supplies deterministic edge coverage without duplicating build orchestration.
+When scaffold changes a generated configuration invariant, an existing consumer's `vite.config.ts`
+is intentionally reported stale until that consumer accepts the regenerated configuration and its
+matching config test.
+
+**Real browser capability.** Browser test projects are gated on one centralized discovery chain:
+Playwright's pinned Chromium executable first, then a managed Chromium alias or cached revision,
+then stable system Chrome, then stable system Edge. Managed candidates must be executable regular
+files. System channels are selected only when their executable exists at Playwright's standard
+Linux, macOS, or Windows installation location; custom installations are not guessed. The generated
+configuration test consumes the same discovery helpers and accepts either an executable managed path or the
+stable `chrome` / `msedge` channel, so it does not maintain a second heuristic.
+
+A browser suite runs when any one of those real browser capabilities is available and is skipped
+honestly when none is, rather than being faked. The gate is applied at registration, not inside the
+real browser project: without a browser, each browser factory is replaced by a same-label
+Node/no-test placeholder, so generated `--project <label>` and `--project=<label>` filters still
+resolve while no browser code runs. The root permits an empty run only when every recognized exact
+project filter names one of those gated placeholders; an unreadable or mixed filter keeps the
+ordinary no-test failure semantics for its Node projects. One printed warning names every gated
+project label and says no Playwright Chromium, Chrome, or Edge was found. A machine with a browser
 registers and runs the real browser suites unchanged; a machine without one runs the remaining
 projects and says so.
 
@@ -1745,12 +1897,13 @@ each Codex agent's declared `sandbox_mode` is its mechanical permission floor, w
 ## The `scaffold` executable
 
 The bin is a thin command-line shell over the two library faces. It exports nothing, so it carries
-no module API of its own. Six verbs:
+no module API of its own. Seven verbs:
 
 | Verb      | Purpose                                                  |
 | --------- | -------------------------------------------------------- |
 | `new`     | scaffold a workspace into `./<name>`                     |
 | `pull`    | refresh vendored guides and versions, report drift       |
+| `mirror`  | refresh every published Orkestrel package guide          |
 | `audit`   | whole-plan conformance report                            |
 | `repair`  | restore host-owned files and optional generated canon    |
 | `fleet`   | audit or repair every workspace under the cwd's children |
@@ -1770,8 +1923,10 @@ extras so the workspace stays audit-clean.
 repeatable and points at a local template or catalog source instead of the bundled one.
 On `pull`, `--deps x,y` limits refresh to those declared Orkestrel dependencies; without it, every
 declared dependency mirror is considered.
+`mirror` accepts no dependency selection: its exact npm organization discovery is the operation's
+scope, and it fetches guides without registry version or packument requests.
 `--groups a,b` scopes an audit to artifact groups. `--live` adds an upstream freshness check to an
-audit. `--strict` makes a pull throw on a network fault. `--offline` restricts a catalog to local
+audit. `--strict` makes a pull or mirror throw on a network fault. `--offline` restricts a catalog to local
 sources. `--prune` opts a repair or fleet run into deleting unexpected files under the three prune
 directories. `--generated` opts a repair or fleet run into restoring generated canon except
 `package.json`; on `audit`, it is inherited if the interactive repair hand-off is accepted.
@@ -1829,7 +1984,10 @@ renderer behind the table and blockquote work; the template engine behind every 
 artifact; and, consumed only at the executable boundary, the terminal prompt toolkit and the console
 reporter. The core face uses the first four and stays pure; the server face adds only `node:*`
 builtins. Development dependencies are the shared tooling baseline plus the guide-parity toolkit
-that drives [`parity.test.ts`](../../tests/guides/src/parity.test.ts). The engines floor is Node
+that drives [`parity.test.ts`](../../tests/guides/src/parity.test.ts) and `@orkestrel/html`,
+which this package's real emitted-configuration tests execute. Generated manifests keep that HTML
+dependency scoped to `app/browser`; source-only, `app/core`, and `app/server` workspaces do not
+receive it. The engines floor is Node
 `>=22.12.0`, and the build emits ES and CJS for both library faces plus an ES executable.
 
 ## Patterns
@@ -2174,6 +2332,7 @@ import {
 	appViteConfig,
 	applicationViteConfig,
 	binViteProject,
+	configViteProject,
 	coreTsconfig,
 	coreViteConfig,
 	guidesViteProject,
@@ -2197,21 +2356,22 @@ coreTsconfig()
 srcTsconfig('server')
 appTsconfig('browser', true)
 
-viteMachinery(['core']) // { browser: false, vue: false, output: true }
-viteMachinery([], ['core', 'browser']) // { browser: true, vue: true, output: true }
+viteMachinery(['core']) // { browser: false, vue: false, output: true, showcase: false }
+viteMachinery([], ['core', 'browser']) // { browser: true, vue: true, output: true, showcase: false }
 renderViteTest([{ project: 'srcCore' }], false).includes('projects: [srcCore]') // true
 viteHeader(viteMachinery([], ['core', 'browser'])) // the shared header, with browser and Vue support
 coreViteConfig()
 srcViteConfig('browser')
 appViteConfig('server')
 policyViteProject()
+configViteProject()
 guidesViteProject()
 binViteProject()
 integrationViteProject({ bin: true, integration: true, global: true })
 serviceViteProject()
 viteProjectDefinitions({ integration: true }).includes('export const integration =') // true
 viteProjectRegistrations(['core'], [], { integration: true }).map(({ project }) => project)
-// ['srcCore', 'policy', 'guides', 'integration']
+// ['srcCore', 'policy', 'config', 'guides', 'integration']
 
 rootViteConfig(['core', 'server'], { bin: true })
 singleSrcViteConfig('server').includes('srcServer') // true
@@ -2241,7 +2401,7 @@ isBehind(rangeToFreshness('^0.0.7', '0.0.9')) // true
 
 packageShortName('@orkestrel/contract') // 'contract'
 guideStub('guides/src/contract.md') // the local pointer content
-readGuideReferences('./packages/router', [{ name: '@orkestrel/contract', range: '^0.0.7' }])
+readGuideReferences('./packages/router', ['@orkestrel/contract'])
 syncReportOf('./packages/router', [], []) // { clean: true, failed: 0, … }
 ```
 
@@ -2297,6 +2457,7 @@ import { createSync } from '@orkestrel/scaffold/server'
 
 const sync = createSync({ concurrency: 4, retries: 1 })
 
+await sync.lookup(['@orkestrel/contract'])
 const report = await sync.pull('.')
 if (report.failed === 0) await sync.write(report, '.')
 
@@ -2305,7 +2466,22 @@ await sync.guides(deps)
 await sync.versions(deps)
 await sync.catalog()
 
+const mirror = await sync.mirror('.')
+if (mirror.failed === 0) await sync.write(mirror, '.')
+
 sync.destroy()
+```
+
+Refresh the entire published guide mirror from an installed package:
+
+```sh
+npx scaffold mirror --apply --yes
+```
+
+Or from this checkout after building:
+
+```sh
+node ./dist/bin/scaffold.js mirror --apply --yes
 ```
 
 ### Fleet discovery, prune scanning, and the local catalog
@@ -2421,6 +2597,7 @@ import {
 	parseSyncBranch,
 	parseSyncCurrent,
 	parseSyncDependencies,
+	parseSyncNames,
 	parseSyncOptions,
 	parseWritePreconditions,
 	syncGuideOptionsShape,
@@ -2443,6 +2620,7 @@ parseMaterializerOptions({ host: './dist/host' })
 parseSyncBase('registry.npmjs.org') // 'https://registry.npmjs.org'
 parseSyncBranch('main')
 parseSyncCurrent({ '@orkestrel/contract': '# contract\n' }, ['@orkestrel/contract'], 16_777_216)
+parseSyncNames(['@orkestrel/contract', 'zod'])
 parseSyncDependencies([{ name: '@orkestrel/contract', range: '^0.0.7' }], false)
 parsePortablePaths(['src/core/index.ts'], 1_000)
 parseFilesystemPaths(['./packages'], 1_000)
@@ -2487,6 +2665,8 @@ isMissingPathError(caught) // true only for an ENOENT error
   ids, the batch-overload semantics, and all-or-nothing list removal.
 - [`tests/src/core/policy.test.ts`](../../tests/src/core/policy.test.ts) — the repository coding-law
   policy module against this workspace and against deliberately hostile fixtures.
+- [`tests/config/vite.test.ts`](../../tests/config/vite.test.ts) — the executable root Vite
+  invariants for workspace, environment, and output containment.
 - [`tests/src/server/helpers.test.ts`](../../tests/src/server/helpers.test.ts) — containment,
   digests, host staging, hydration, derivation, prune scanning, and the local catalog.
 - [`tests/src/server/validators.test.ts`](../../tests/src/server/validators.test.ts) — the portable
