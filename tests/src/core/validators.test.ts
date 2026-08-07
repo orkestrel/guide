@@ -8,7 +8,9 @@ import {
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
-import { readFixture } from '../../setup.js'
+import { readInventory, requireText } from '../../setupServer.js'
+
+const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The four from-unknown guards a parsed guide/manifest value crosses on its
 // way into a typed shape — each total (never throws), each accepting real
@@ -16,7 +18,7 @@ import { readFixture } from '../../setup.js'
 
 describe('isExportKind (via isSurfaceSymbol)', () => {
 	it('accepts every real extracted value', () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		for (const symbol of extractSurface(document)) {
 			expect(isSurfaceSymbol(symbol)).toBe(true)
 		}
@@ -68,7 +70,7 @@ describe('isSurfaceSymbol', () => {
 
 describe('isMethodGroup', () => {
 	it('accepts every real extracted method group', () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		for (const group of extractMethods(document)) {
 			expect(isMethodGroup(group)).toBe(true)
 		}
@@ -108,7 +110,7 @@ describe('isMethodGroup', () => {
 
 describe('isManifestEntry', () => {
 	it('accepts every real parsed manifest entry', () => {
-		const entries = parseManifest(readFixture('good/guides/README.md'), 'guides')
+		const entries = parseManifest(requireText(FIXTURES, 'good/guides/README.md'), 'guides')
 		for (const entry of entries) {
 			expect(isManifestEntry(entry)).toBe(true)
 		}

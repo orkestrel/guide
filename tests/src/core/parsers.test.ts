@@ -3,9 +3,11 @@ import {
 	exampleMethods,
 	examplesFrom,
 	exportsFrom,
+	extractExampleLines,
 	extractLinks,
 	extractMethods,
 	extractPatterns,
+	extractSourceLines,
 	extractSurface,
 	extractTests,
 	fenceImports,
@@ -18,7 +20,9 @@ import {
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
-import { readFixture } from '../../setup.js'
+import { readInventory, requireText } from '../../setupServer.js'
+
+const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The guide-markdown scanners (section scoping, Surface/Methods/Links/Tests
 // extraction, manifest row parsing) plus the source-text declaration grammar
@@ -49,9 +53,111 @@ describe('sectionBlocks', () => {
 	})
 })
 
+describe('successor lexical and reflection boundaries', () => {
+	it('exportsFrom carries every hostile lexical transition to direct reflection', () => {
+		for (const source of [
+			'const ratio = count++ / total /* open\nexport const ghost = true\n*/\nexport const visible = true',
+			'const ratio = count-- / total /* open\nexport const ghost = true\n*/\nexport const visible = true',
+			'const ratio = count! / total /* open\nexport const ghost = true\n*/\nexport const visible = true',
+			"if (true) /[/*]/.test('*')\nexport const visible = true",
+			'const values = [... /[/*]/]\nexport const visible = true',
+			'for (const value of /[/*]/) value\nexport const visible = true',
+		]) {
+			expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		}
+	})
+
+	it('exportsFrom excludes comments after ordinary and private literal Unicode identifiers', () => {
+		const sources = [
+			'const ratio = object.\u03c0 / 2 /* open\nexport const ghost = true\n*/\nexport const visible = true',
+			'class Counter {\n\t#\u03c0 = 1\n\tratio(): number { return this.#\u03c0 / 2 /* open\nexport const ghost = true\n*/ }\n}\nexport const visible = true',
+		]
+		expect(sources.map(exportsFrom)).toEqual(
+			sources.map(() => [{ name: 'visible', kind: 'const' }]),
+		)
+	})
+
+	it('exportsFrom preserves declarations after empty and elided for-of bindings', () => {
+		const sources = [
+			'for (const {} of /[/*]/ as unknown as readonly object[]) {}\nexport const visible = true',
+			'for (const [] of /[/*]/ as unknown as readonly unknown[][]) {}\nexport const visible = true',
+			'for (const [,,] of /[/*]/ as unknown as readonly unknown[][]) {}\nexport const visible = true',
+			'for (const [{}, []] of /[/*]/ as unknown as readonly [object, unknown[]][]) {}\nexport const visible = true',
+		]
+		expect(sources.map(exportsFrom)).toEqual(
+			sources.map(() => [{ name: 'visible', kind: 'const' }]),
+		)
+	})
+
+	it('keeps leading and interrupted comment payload outside anchored declaration membership', () => {
+		const source = [
+			'/* hidden */ export const interrupted = true',
+			'/*',
+			'export const leading = true',
+			'*/',
+			'export const visible = true /* trailing */',
+		].join('\n')
+		expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(hiddenFrom(source.replaceAll('export ', ''))).toEqual([
+			{ name: 'visible', kind: 'const' },
+		])
+	})
+
+	it('declarationBody ignores commented declarations and commented closes', () => {
+		const source = [
+			'/*',
+			'export interface Ghost {',
+			'\tphantom(): void',
+			'}',
+			'*/',
+			'export interface Ghost {',
+			'\t/*',
+			'}',
+			'\t*/',
+			'\tvisible(): void',
+			'}',
+		].join('\n')
+		expect(declarationBody(source, 'interface', 'Ghost')).toEqual([
+			'\t/*',
+			'}',
+			'\t*/',
+			'\tvisible(): void',
+		])
+	})
+
+	it('memberMethods excludes commented candidates', () => {
+		expect(memberMethods(['\t/*', '\tghost(): void', '\t*/', '\tvisible(): void'])).toEqual([
+			'visible',
+		])
+	})
+
+	it('exampleMethods keeps raw JSDoc evidence but rejects commented candidates', () => {
+		const lines = [
+			'\t/** @example */',
+			'\tvisible(): void',
+			'\t/** @example */',
+			'\t/* ghost(): void */',
+		]
+		expect(exampleMethods(lines)).toEqual(['visible'])
+	})
+
+	it("parseManifest canonicalizes root and duplicate source links to '.'", () => {
+		const markdown = [
+			'## By concept',
+			'',
+			'| Concept | Spec | Source | Tests |',
+			'| --- | --- | --- | --- |',
+			'| Root | [guide](./guide.md) | [root](..) [same](../.) | [tests](../tests) |',
+		].join('\n')
+		expect(parseManifest(markdown, 'guides')).toEqual([
+			{ concept: 'Root', spec: 'guides/guide.md', source: '.', tests: 'tests' },
+		])
+	})
+})
+
 describe('extractSurface', () => {
 	it("extracts the good fixture guide's exact 6-symbol surface", () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toEqual([
 			{ name: 'WidgetInterface', kind: 'interface' },
@@ -64,27 +170,29 @@ describe('extractSurface', () => {
 	})
 
 	it('normalizes a generic-annotated table row to its bare identifier', () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface.some((symbol) => symbol.name === 'WidgetInterface')).toBe(true)
 		expect(surface.some((symbol) => symbol.name.includes('<'))).toBe(false)
 	})
 
 	it('unions a backticked H3 entity heading as a class symbol', () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toContainEqual({ name: 'Widget', kind: 'class' })
 	})
 
 	it('extracts empty when the Surface heading was renamed', () => {
-		const document = createMarkdown(readFixture('broken/renamed-surface/widget.md')).document
+		const document = createMarkdown(
+			requireText(FIXTURES, 'broken/renamed-surface/widget.md'),
+		).document
 		expect(extractSurface(document)).toEqual([])
 	})
 })
 
 describe('extractMethods', () => {
 	it('extracts one group of inspect/render/reset from the good fixture', () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		expect(extractMethods(document)).toEqual([
 			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset'] },
 		])
@@ -92,7 +200,7 @@ describe('extractMethods', () => {
 
 	it('reflects a missing method row (missing-interface-method fixture)', () => {
 		const document = createMarkdown(
-			readFixture('broken/missing-interface-method/widget.md'),
+			requireText(FIXTURES, 'broken/missing-interface-method/widget.md'),
 		).document
 		expect(extractMethods(document)).toEqual([
 			{ interface: 'WidgetInterface', methods: ['inspect', 'render'] },
@@ -100,7 +208,9 @@ describe('extractMethods', () => {
 	})
 
 	it('reflects a phantom method row (phantom-method fixture)', () => {
-		const document = createMarkdown(readFixture('broken/phantom-method/widget.md')).document
+		const document = createMarkdown(
+			requireText(FIXTURES, 'broken/phantom-method/widget.md'),
+		).document
 		expect(extractMethods(document)).toEqual([
 			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset', 'destroy'] },
 		])
@@ -127,19 +237,19 @@ describe('extractLinks', () => {
 	})
 
 	it('extracts every link in the good fixture guide, including the See-also style extra', () => {
-		const document = createMarkdown(readFixture('broken/broken-link/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'broken/broken-link/widget.md')).document
 		expect(extractLinks(document)).toContain('../../good/module/gone.ts')
 	})
 })
 
 describe('extractTests', () => {
 	it("extracts only the Tests section's links", () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		expect(extractTests(document)).toEqual(['../../tests/widget.test.ts'])
 	})
 
 	it('excludes links outside the Tests section', () => {
-		const document = createMarkdown(readFixture('broken/broken-link/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'broken/broken-link/widget.md')).document
 		expect(extractTests(document)).toEqual(['../../good/tests/widget.test.ts'])
 	})
 
@@ -151,14 +261,16 @@ describe('extractTests', () => {
 
 describe('parseManifest', () => {
 	it("parses the good manifest's one row with normalized paths", () => {
-		const entries = parseManifest(readFixture('good/guides/README.md'), 'guides')
+		const entries = parseManifest(requireText(FIXTURES, 'good/guides/README.md'), 'guides')
 		expect(entries).toEqual([
 			{ concept: 'Widget', spec: 'guides/src/widget.md', source: 'module', tests: 'tests' },
 		])
 	})
 
 	it('returns an empty array for an empty manifest table', () => {
-		expect(parseManifest(readFixture('broken/empty-manifest/README.md'), 'guides')).toEqual([])
+		expect(
+			parseManifest(requireText(FIXTURES, 'broken/empty-manifest/README.md'), 'guides'),
+		).toEqual([])
 	})
 
 	it('skips a row missing a concept', () => {
@@ -186,7 +298,7 @@ describe('parseManifest', () => {
 	})
 
 	it('collapses a single source directory to a string', () => {
-		const entries = parseManifest(readFixture('good/guides/README.md'), 'guides')
+		const entries = parseManifest(requireText(FIXTURES, 'good/guides/README.md'), 'guides')
 		expect(entries[0]?.source).toBe('module')
 	})
 
@@ -196,11 +308,61 @@ describe('parseManifest', () => {
 		const entries = parseManifest(markdown, 'guides')
 		expect(entries[0]?.source).toEqual(['guides/a', 'guides/b'])
 	})
+
+	it('resolves every manifest path from a nested manifest directory', () => {
+		const markdown =
+			'## By concept\n\n| Concept | Spec | Source | Tests |\n| --- | --- | --- | --- |\n| X | [s](spec.md) | [m](module) | [t](tests) |\n'
+		expect(parseManifest(markdown, 'guides/nested')).toEqual([
+			{
+				concept: 'X',
+				spec: 'guides/nested/spec.md',
+				source: 'guides/nested/module',
+				tests: 'guides/nested/tests',
+			},
+		])
+	})
 })
 
 describe('exportsFrom', () => {
+	it('excludes five-kind declarations inside a multiline block comment', () => {
+		const source = [
+			'/*',
+			'export type GhostType = string',
+			'export interface GhostInterface {}',
+			'export const ghostConst = true',
+			'export function ghostFunction(): void {}',
+			'export class GhostClass {}',
+			'*/',
+			'export const visible = true',
+			'',
+		].join('\n')
+		expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+	})
+
+	it('retains five-kind code with literal initializers and comments while excluding enum', () => {
+		const source = [
+			'export type VisibleType = string // note',
+			'export interface VisibleInterface {} /* note */',
+			"export const stringValue = '/* data */' // note",
+			'export const regexValue = /[/*]/ // note',
+			'export const templateValue = `payload ${1}` // note',
+			'export function visibleFunction(): void {} /* note */',
+			'export class VisibleClass {} // note',
+			'export enum Outside { Value }',
+		].join('\n')
+		expect(exportsFrom(source)).toEqual([
+			{ name: 'VisibleType', kind: 'type' },
+			{ name: 'VisibleInterface', kind: 'interface' },
+			{ name: 'stringValue', kind: 'const' },
+			{ name: 'regexValue', kind: 'const' },
+			{ name: 'templateValue', kind: 'const' },
+			{ name: 'visibleFunction', kind: 'function' },
+			{ name: 'VisibleClass', kind: 'class' },
+		])
+	})
+
 	it('scans all five ExportKind declarations from the good fixture types.ts', () => {
-		const symbols = exportsFrom(readFixture('good/module/types.ts'))
+		const symbols = exportsFrom(requireText(FIXTURES, 'good/module/types.ts'))
 		expect(symbols).toEqual([
 			{ name: 'WidgetInterface', kind: 'interface' },
 			{ name: 'WidgetKind', kind: 'type' },
@@ -236,6 +398,43 @@ describe('exportsFrom', () => {
 })
 
 describe('hiddenFrom', () => {
+	it('excludes five-kind declarations inside a multiline block comment', () => {
+		const source = [
+			'/*',
+			'type GhostType = string',
+			'interface GhostInterface {}',
+			'const ghostConst = true',
+			'function ghostFunction(): void {}',
+			'class GhostClass {}',
+			'*/',
+			'const visible = true',
+			'',
+		].join('\n')
+		expect(hiddenFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+	})
+
+	it('retains hidden five-kind code with literal initializers and comments while excluding enum', () => {
+		const source = [
+			'type VisibleType = string // note',
+			'interface VisibleInterface {} /* note */',
+			"const stringValue = '/* data */' // note",
+			'const regexValue = /[/*]/ // note',
+			'const templateValue = `payload ${1}` // note',
+			'function visibleFunction(): void {} /* note */',
+			'class VisibleClass {} // note',
+			'enum Outside { Value }',
+		].join('\n')
+		expect(hiddenFrom(source)).toEqual([
+			{ name: 'VisibleType', kind: 'type' },
+			{ name: 'VisibleInterface', kind: 'interface' },
+			{ name: 'stringValue', kind: 'const' },
+			{ name: 'regexValue', kind: 'const' },
+			{ name: 'templateValue', kind: 'const' },
+			{ name: 'visibleFunction', kind: 'function' },
+			{ name: 'VisibleClass', kind: 'class' },
+		])
+	})
+
 	it('detects a hidden function declaration', () => {
 		expect(hiddenFrom('function secretHelper() {}\n')).toEqual([
 			{ name: 'secretHelper', kind: 'function' },
@@ -281,11 +480,11 @@ describe('hiddenFrom', () => {
 	})
 
 	it('returns empty for the good fixture types.ts (fully exported)', () => {
-		expect(hiddenFrom(readFixture('good/module/types.ts'))).toEqual([])
+		expect(hiddenFrom(requireText(FIXTURES, 'good/module/types.ts'))).toEqual([])
 	})
 
 	it('finds the hidden-declaration fixture Widget.ts secretHelper', () => {
-		const symbols = hiddenFrom(readFixture('broken/hidden-declaration/module/Widget.ts'))
+		const symbols = hiddenFrom(requireText(FIXTURES, 'broken/hidden-declaration/module/Widget.ts'))
 		expect(symbols).toEqual([{ name: 'secretHelper', kind: 'function' }])
 	})
 })
@@ -323,7 +522,7 @@ describe('joinHead', () => {
 	})
 
 	it('joins the single-line head from the fixture types.ts text', () => {
-		const lines = readFixture('good/module/types.ts').split(/\r?\n/)
+		const lines = requireText(FIXTURES, 'good/module/types.ts').split(/\r?\n/)
 		const start = lines.findIndex((line) => line.startsWith('export interface WidgetInterface'))
 		const head = joinHead(lines, start)
 		expect(head?.text).toBe('export interface WidgetInterface<T = Record<string, unknown>> {')
@@ -348,7 +547,7 @@ describe('declarationBody', () => {
 
 	it('extracts a body from the fixture types.ts text', () => {
 		const body = declarationBody(
-			readFixture('good/module/types.ts'),
+			requireText(FIXTURES, 'good/module/types.ts'),
 			'interface',
 			'WidgetInterface',
 		)
@@ -418,7 +617,7 @@ describe('memberMethods', () => {
 	})
 
 	it("reproduces the good fixture Widget class's exact three methods (excluding the trap members)", () => {
-		const body = declarationBody(readFixture('good/module/Widget.ts'), 'class', 'Widget')
+		const body = declarationBody(requireText(FIXTURES, 'good/module/Widget.ts'), 'class', 'Widget')
 		expect(memberMethods(body).filter((method) => method !== 'constructor')).toEqual([
 			'inspect',
 			'render',
@@ -428,6 +627,26 @@ describe('memberMethods', () => {
 })
 
 describe('examplesFrom', () => {
+	it('excludes template and outer-comment faux JSDoc while preserving genuine examples', () => {
+		const source = [
+			'export const text = `',
+			'/**',
+			' * @example',
+			' */',
+			'export function templateGhost() {}',
+			'`',
+			'/*',
+			'/** @example */',
+			'export function outerVisible(): void {}',
+			'/**',
+			' * @example',
+			' */',
+			'export function genuine(): void {}',
+			'',
+		].join('\n')
+		expect(examplesFrom(source)).toEqual(['genuine'])
+	})
+
 	it('collects a function immediately preceded by an @example JSDoc block', () => {
 		const source = ['/**', ' * @example', ' */', 'export function walk() {}', ''].join('\n')
 		expect(examplesFrom(source)).toEqual(['walk'])
@@ -480,7 +699,86 @@ describe('examplesFrom', () => {
 	})
 })
 
+describe('extractExampleLines exact tags and physical adjacency', () => {
+	it('accepts exact tags with optional titles and rejects suffixes or embedded prose', () => {
+		const sources = [
+			'/** @example */\nexport function exact(): void {}',
+			'/** @example titled usage */\nexport function titled(): void {}',
+			'/** @examples */\nexport function plural(): void {}',
+			'/** @exampled */\nexport function suffixed(): void {}',
+			'/** text @example prose */\nexport function embedded(): void {}',
+		]
+		expect(
+			sources.map((source) =>
+				extractExampleLines(extractSourceLines(source)).map((line) => line.source),
+			),
+		).toEqual([
+			['export function exact(): void {}'],
+			['export function titled(): void {}'],
+			[],
+			[],
+			[],
+		])
+		expect(sources.map(examplesFrom)).toEqual([['exact'], ['titled'], [], [], []])
+	})
+
+	it('makes the last whitespace-separated leading JSDoc span authoritative', () => {
+		const taggedThenPlain = '/** @example */ /** plain */\nexport function candidate(): void {}'
+		const plainThenTagged =
+			'/** plain */ /** @example title */\nexport function candidate(): void {}'
+		expect(
+			[taggedThenPlain, plainThenTagged].map((source) =>
+				extractExampleLines(extractSourceLines(source)).map((line) => line.source),
+			),
+		).toEqual([[], ['export function candidate(): void {}']])
+		expect([taggedThenPlain, plainThenTagged].map(examplesFrom)).toEqual([[], ['candidate']])
+	})
+
+	it('recognizes a later exact span after a minimal JSDoc span', () => {
+		expect(
+			examplesFrom('/**/ /** @example title */\nexport function candidate(): void {}'),
+		).toEqual(['candidate'])
+	})
+
+	it('replaces a minimal JSDoc span with a next-line exact span', () => {
+		expect(
+			examplesFrom('/**/\n/** @example title */\nexport function candidate(): void {}'),
+		).toEqual(['candidate'])
+	})
+
+	it('excludes a tagged span replaced by a final minimal JSDoc span', () => {
+		expect(examplesFrom('/** @example */ /**/\nexport function candidate(): void {}')).toEqual([])
+	})
+
+	it('severs or replaces pending association at the next physical record boundary', () => {
+		const sources = [
+			'/** @example */ const intervening = true\nexport function candidate(): void {}',
+			'/** @example */ // intervening\nexport function candidate(): void {}',
+			'/** @example */ /* intervening */\nexport function candidate(): void {}',
+			'/** @example */ export function sameLine(): void {}\nexport function candidate(): void {}',
+			'/** @example */\n\nexport function candidate(): void {}',
+			'/** @example */\n// intervening\nexport function candidate(): void {}',
+			'/** @example */\n/** plain */\nexport function candidate(): void {}',
+			'/** plain */\n/**\n * @example title\n */\nexport function candidate(): void {}',
+		]
+		expect(sources.map(examplesFrom)).toEqual([[], [], [], [], [], [], [], ['candidate']])
+	})
+})
+
 describe('exampleMethods', () => {
+	it('excludes faux JSDoc inside an outer comment while preserving a genuine member example', () => {
+		const lines = [
+			'\t/*',
+			'\t/** @example */',
+			'\touterVisible(): void',
+			'\t/**',
+			'\t * @example',
+			'\t */',
+			'\tgenuine(): void',
+		]
+		expect(exampleMethods(lines)).toEqual(['genuine'])
+	})
+
 	it('collects a method immediately preceded by an @example JSDoc block', () => {
 		const lines = ['\t/**', '\t * @example', '\t */', '\twalk(): void']
 		expect(exampleMethods(lines)).toEqual(['walk'])
@@ -507,6 +805,35 @@ describe('exampleMethods', () => {
 	it('handles a single-line JSDoc comment on an interface member', () => {
 		expect(exampleMethods(['\t/** @example */', '\twalk(): void'])).toEqual(['walk'])
 	})
+
+	it('uses exact titled tags and last-span authority for members', () => {
+		const lines = [
+			'\t/** @example title */',
+			'\texact(): void',
+			'\t/** @examples */',
+			'\tplural(): void',
+			'\t/** text @example prose */',
+			'\tembedded(): void',
+			'\t/** @example */ /** plain */',
+			'\treplaced(): void',
+			'\t/** plain */ /** @example title */',
+			'\tauthoritative(): void',
+		]
+		expect(exampleMethods(lines)).toEqual(['authoritative', 'exact'])
+	})
+
+	it('applies minimal JSDoc span replacement to members', () => {
+		const lines = [
+			'\t/**/ /** @example title */',
+			'\tsameLine(): void',
+			'\t/**/',
+			'\t/** @example title */',
+			'\tnextLine(): void',
+			'\t/** @example */ /**/',
+			'\treplaced(): void',
+		]
+		expect(exampleMethods(lines)).toEqual(['nextLine', 'sameLine'])
+	})
 })
 
 describe('extractPatterns', () => {
@@ -531,7 +858,7 @@ describe('extractPatterns', () => {
 	})
 
 	it("extracts the good fixture guide's Patterns fence bodies", () => {
-		const document = createMarkdown(readFixture('good/guides/src/widget.md')).document
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		expect(extractPatterns(document)).toEqual([])
 	})
 })
@@ -541,11 +868,11 @@ describe('extractPatterns', () => {
 describe('broken fixture: missing-example', () => {
 	it('finds farewell unexampled (has neither a fence mention nor an @example) while greet is clean', () => {
 		const guideDocument = createMarkdown(
-			readFixture('broken/missing-example/guides/src/widget.md'),
+			requireText(FIXTURES, 'broken/missing-example/guides/src/widget.md'),
 		).document
 		const fences = extractPatterns(guideDocument)
 		const surfaceNames = ['greet', 'farewell']
-		const examples = examplesFrom(readFixture('broken/missing-example/module/helpers.ts'))
+		const examples = examplesFrom(requireText(FIXTURES, 'broken/missing-example/module/helpers.ts'))
 
 		const unexampled = surfaceNames.filter((name) => {
 			if (examples.includes(name)) return false
@@ -559,12 +886,12 @@ describe('broken fixture: missing-example', () => {
 describe('broken fixture: phantom-import', () => {
 	it("finds ghost as a phantom import (real exists, ghost doesn't)", () => {
 		const guideDocument = createMarkdown(
-			readFixture('broken/phantom-import/guides/src/widget.md'),
+			requireText(FIXTURES, 'broken/phantom-import/guides/src/widget.md'),
 		).document
 		const fences = extractPatterns(guideDocument)
-		const exportNames = exportsFrom(readFixture('broken/phantom-import/module/helpers.ts')).map(
-			(symbol) => symbol.name,
-		)
+		const exportNames = exportsFrom(
+			requireText(FIXTURES, 'broken/phantom-import/module/helpers.ts'),
+		).map((symbol) => symbol.name)
 
 		const phantom = fences.flatMap((fence) =>
 			fenceImports(fence)

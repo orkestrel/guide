@@ -7,30 +7,581 @@ import {
 	isLinkNode,
 	walkNodes,
 } from '@orkestrel/markdown'
-import type { GuideModule, SurfaceSymbol } from './types.js'
+import type { GuideModule, SourceLine, SurfaceSymbol } from './types.js'
 import { EXTERNAL_SCHEMES } from './constants.js'
 
 /**
- * A module scope normalized to its directory list — a single directory
- * becomes a one-element list so every scanner walks the same shape.
+ * Extract aligned physical source-line records in one character traversal.
+ * Real line and block comments and complete template tokens become spaces in
+ * {@link SourceLine.code}, while ordinary code, quoted strings, and recognized
+ * regex literals retain their columns. Genuine JSDoc opened from reflection
+ * code is retained span by span at its exact physical column in
+ * {@link SourceLine.jsdoc}; faux openers in comments and templates are
+ * excluded. Membership remains each consumer's separate anchored grammar.
+ *
+ * @remarks
+ * Regex recognition is a bounded lexical goal rather than TypeScript parser
+ * grammar. Literal ECMAScript Unicode identifiers participate in slash-state
+ * recognition, including private identifiers, without decoding escaped
+ * identifier spellings. Slash after bare `}` is division, and a post-brace
+ * regex statement requires an explicit `;`. General semicolonless
+ * declaration/ASI classification is outside this finite projector, so callers
+ * place an explicit `;` before a slash-leading statement after such a
+ * declaration.
+ *
+ * @param source - The TypeScript source text to project
+ * @returns One aligned terminator-free record per LF or CRLF physical line, including the final line
+ *
+ * @example
+ * ```ts
+ * extractSourceLines('export const visible = true // note\n')
+ * // [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }, ...]
+ * ```
+ */
+export function extractSourceLines(source: string): readonly SourceLine[] {
+	const lines: SourceLine[] = []
+	let characters: string[] = []
+	let jsdocCharacters: string[] = []
+	const identifier = /#?[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*/uy
+	const templates: number[] = []
+	const parentheses: { role: string; phase: string; binding: boolean }[] = []
+	let start = 0
+	let mode = 'code'
+	let escaped = false
+	let regexClass = false
+	let operandExpected = true
+	let memberExpected = false
+	let pendingRole: string | undefined
+	let restricted: string | undefined
+	let separated = false
+	let blockTemplate = false
+	let lineTemplate = false
+	let jsdoc = false
+	let jsdocPresent = false
+
+	for (let offset = 0; offset < source.length; offset += 1) {
+		const character = source[offset]
+		if (character === undefined) continue
+		const next = source[offset + 1]
+		const crlf = character === '\r' && next === '\n'
+		if (character === '\n' || crlf) {
+			const code = characters.join('')
+			const present = jsdocPresent || jsdoc
+			lines.push({
+				source: source.slice(start, offset),
+				code,
+				jsdoc: present ? jsdocCharacters.join('').padEnd(code.length, ' ') : undefined,
+			})
+			characters = []
+			jsdocCharacters = []
+			jsdocPresent = jsdoc
+			if (mode !== 'template') separated = true
+			if (restricted !== undefined) {
+				operandExpected = true
+				memberExpected = false
+				pendingRole = undefined
+				restricted = undefined
+			}
+			if (crlf) offset += 1
+			start = offset + 1
+
+			if (mode === 'line') mode = lineTemplate ? 'templateCode' : 'code'
+			else if (mode === 'regex') {
+				mode = 'code'
+				operandExpected = true
+				regexClass = false
+			} else if (mode === 'templateLine' || mode === 'templateRegex') {
+				mode = 'templateCode'
+				operandExpected = true
+				regexClass = false
+			} else if (mode === 'single' || mode === 'double') {
+				if (!escaped) {
+					mode = 'code'
+					operandExpected = true
+				}
+			} else if (mode === 'templateSingle' || mode === 'templateDouble') {
+				if (!escaped) {
+					mode = 'templateCode'
+					operandExpected = true
+				}
+			}
+			escaped = false
+			continue
+		}
+
+		if (mode === 'line' || mode === 'templateLine') {
+			characters.push(' ')
+			continue
+		}
+
+		if (mode === 'block' || mode === 'templateBlock') {
+			characters.push(' ')
+			if (jsdoc) jsdocCharacters.push(character)
+			if (character === '*' && next === '/') {
+				characters.push(' ')
+				if (jsdoc) {
+					jsdocCharacters.push('/')
+					jsdoc = false
+				}
+				offset += 1
+				mode = blockTemplate ? 'templateCode' : 'code'
+			}
+			continue
+		}
+
+		if (mode === 'single' || mode === 'double') {
+			characters.push(character)
+			if (escaped) {
+				escaped = false
+				continue
+			}
+			if (character === '\\') {
+				escaped = true
+				continue
+			}
+			if ((mode === 'single' && character === "'") || (mode === 'double' && character === '"')) {
+				mode = 'code'
+				operandExpected = false
+			}
+			continue
+		}
+
+		if (mode === 'regex') {
+			characters.push(character)
+			if (escaped) {
+				escaped = false
+				continue
+			}
+			if (character === '\\') {
+				escaped = true
+				continue
+			}
+			if (character === '[') regexClass = true
+			else if (character === ']') regexClass = false
+			else if (character === '/' && !regexClass) {
+				mode = 'code'
+				operandExpected = false
+			}
+			continue
+		}
+
+		if (mode === 'templateSingle' || mode === 'templateDouble') {
+			characters.push(' ')
+			if (escaped) {
+				escaped = false
+				continue
+			}
+			if (character === '\\') {
+				escaped = true
+				continue
+			}
+			if (
+				(mode === 'templateSingle' && character === "'") ||
+				(mode === 'templateDouble' && character === '"')
+			) {
+				mode = 'templateCode'
+				operandExpected = false
+			}
+			continue
+		}
+
+		if (mode === 'templateRegex') {
+			characters.push(' ')
+			if (escaped) {
+				escaped = false
+				continue
+			}
+			if (character === '\\') {
+				escaped = true
+				continue
+			}
+			if (character === '[') regexClass = true
+			else if (character === ']') regexClass = false
+			else if (character === '/' && !regexClass) {
+				mode = 'templateCode'
+				operandExpected = false
+			}
+			continue
+		}
+
+		if (mode === 'template') {
+			characters.push(' ')
+			if (escaped) {
+				escaped = false
+				continue
+			}
+			if (character === '\\') {
+				escaped = true
+				continue
+			}
+			if (character === '$' && next === '{') {
+				characters.push(' ')
+				offset += 1
+				const index = templates.length - 1
+				if (index >= 0) templates[index] = 1
+				mode = 'templateCode'
+				operandExpected = true
+				memberExpected = false
+				pendingRole = undefined
+				continue
+			}
+			if (character === '`') {
+				templates.pop()
+				mode = templates.length === 0 ? 'code' : 'templateCode'
+				operandExpected = false
+			}
+			continue
+		}
+
+		const templateCode = mode === 'templateCode'
+		if (character === '/' && next === '/') {
+			characters.push(' ', ' ')
+			offset += 1
+			lineTemplate = templateCode
+			mode = templateCode ? 'templateLine' : 'line'
+			continue
+		}
+		if (character === '/' && next === '*') {
+			characters.push(' ', ' ')
+			if (!templateCode && source[offset + 2] === '*') {
+				const column = offset - start
+				const width = jsdocCharacters.join('').length
+				jsdocCharacters.push(' '.repeat(column - width), '/', '*')
+				jsdoc = true
+				jsdocPresent = true
+			}
+			offset += 1
+			blockTemplate = templateCode
+			mode = templateCode ? 'templateBlock' : 'block'
+			continue
+		}
+
+		if (character === "'") {
+			characters.push(templateCode ? ' ' : character)
+			mode = templateCode ? 'templateSingle' : 'single'
+			escaped = false
+			separated = false
+			restricted = undefined
+			continue
+		}
+		if (character === '"') {
+			characters.push(templateCode ? ' ' : character)
+			mode = templateCode ? 'templateDouble' : 'double'
+			escaped = false
+			separated = false
+			restricted = undefined
+			continue
+		}
+		if (character === '`') {
+			characters.push(' ')
+			templates.push(0)
+			mode = 'template'
+			escaped = false
+			separated = false
+			restricted = undefined
+			continue
+		}
+
+		const visible = templateCode ? ' ' : character
+		if (character === '/' && next === '=' && !operandExpected) {
+			characters.push(visible, templateCode ? ' ' : '=')
+			offset += 1
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			separated = false
+			restricted = undefined
+			continue
+		}
+		if (character === '/') {
+			characters.push(visible)
+			if (operandExpected) {
+				mode = templateCode ? 'templateRegex' : 'regex'
+				escaped = false
+				regexClass = false
+			} else {
+				operandExpected = true
+				memberExpected = false
+				pendingRole = undefined
+			}
+			separated = false
+			restricted = undefined
+			continue
+		}
+
+		identifier.lastIndex = offset
+		const identifierMatch = identifier.exec(source)
+		if (identifierMatch !== null) {
+			const token = identifierMatch[0]
+			characters.push(templateCode ? ' '.repeat(token.length) : token)
+			if (token.startsWith('#')) {
+				operandExpected = false
+				memberExpected = false
+				pendingRole = undefined
+				restricted = undefined
+				separated = false
+				offset += token.length - 1
+				continue
+			}
+			const frame = parentheses[parentheses.length - 1]
+			const label = restricted === 'label'
+			restricted = undefined
+			separated = false
+			if (memberExpected) {
+				memberExpected = false
+				operandExpected = false
+				pendingRole = undefined
+			} else if (label) {
+				operandExpected = false
+				pendingRole = undefined
+				restricted = 'complete'
+			} else if (/^(?:if|while|with)$/.test(token)) {
+				pendingRole = 'statement'
+				operandExpected = true
+			} else if (token === 'for') {
+				pendingRole = 'for'
+				operandExpected = true
+			} else if (token === 'export') {
+				pendingRole = 'export'
+				operandExpected = true
+			} else if (token === 'default' && pendingRole === 'export') {
+				pendingRole = undefined
+				operandExpected = true
+			} else if (/^(?:switch|catch)$/.test(token)) {
+				pendingRole = 'block'
+				operandExpected = true
+			} else if (token === 'await' && pendingRole === 'for') {
+				operandExpected = true
+			} else if (
+				/^(?:return|throw|case|delete|void|typeof|new|await|yield|else|do|extends)$/.test(token)
+			) {
+				pendingRole = undefined
+				operandExpected = true
+			} else if (/^(?:in|instanceof)$/.test(token)) {
+				pendingRole = undefined
+				operandExpected = true
+			} else if (/^(?:break|continue)$/.test(token)) {
+				pendingRole = undefined
+				operandExpected = false
+				restricted = 'label'
+			} else if (token === 'debugger') {
+				pendingRole = undefined
+				operandExpected = false
+				restricted = 'complete'
+			} else if (
+				token === 'of' &&
+				frame?.role === 'for' &&
+				frame.phase === 'left' &&
+				!frame.binding &&
+				!operandExpected
+			) {
+				frame.phase = 'right'
+				operandExpected = true
+				pendingRole = undefined
+			} else if (
+				/^(?:const|let|var)$/.test(token) &&
+				frame?.role === 'for' &&
+				frame.phase === 'left'
+			) {
+				frame.binding = true
+				operandExpected = true
+				pendingRole = undefined
+			} else {
+				if (frame?.binding === true) frame.binding = false
+				operandExpected = false
+				pendingRole = undefined
+			}
+			offset += token.length - 1
+			continue
+		}
+		if (/[0-9]/.test(character)) {
+			let end = offset + 1
+			while (end < source.length) {
+				const part = source[end]
+				if (part === undefined || !/[A-Za-z0-9_$.]/.test(part)) break
+				end += 1
+			}
+			const token = source.slice(offset, end)
+			characters.push(templateCode ? ' '.repeat(token.length) : token)
+			operandExpected = false
+			memberExpected = false
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			offset = end - 1
+			continue
+		}
+
+		if (
+			(character === '!' && next === '=' && source[offset + 2] === '=') ||
+			(character === '=' && next === '=' && source[offset + 2] === '=')
+		) {
+			characters.push(visible, templateCode ? '  ' : source.slice(offset + 1, offset + 3))
+			offset += 2
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			continue
+		}
+		if ((character === '!' || character === '=') && next === '=') {
+			characters.push(visible, templateCode ? ' ' : '=')
+			offset += 1
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			continue
+		}
+		if ((character === '+' && next === '+') || (character === '-' && next === '-')) {
+			characters.push(visible, templateCode ? ' ' : next)
+			offset += 1
+			if (separated) operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			continue
+		}
+		if (character === '.' && next === '.' && source[offset + 2] === '.') {
+			characters.push(visible, templateCode ? '  ' : '..')
+			offset += 2
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			continue
+		}
+		if (character === '?' && next === '.') {
+			characters.push(visible, templateCode ? ' ' : '.')
+			offset += 1
+			operandExpected = false
+			memberExpected = true
+			pendingRole = undefined
+			restricted = undefined
+			separated = false
+			continue
+		}
+
+		characters.push(visible)
+		if (/\s/.test(character)) continue
+		separated = false
+		restricted = undefined
+		if (character === '(') {
+			parentheses.push({ role: pendingRole ?? 'plain', phase: 'left', binding: false })
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			continue
+		}
+		if (character === ')') {
+			const frame = parentheses.pop()
+			operandExpected = frame?.role === 'statement' || frame?.role === 'for'
+			memberExpected = false
+			pendingRole = undefined
+			continue
+		}
+		if (character === ';') {
+			const frame = parentheses[parentheses.length - 1]
+			if (frame?.role === 'for' && frame.phase === 'left') frame.phase = 'classic'
+			operandExpected = true
+			memberExpected = false
+			pendingRole = undefined
+			continue
+		}
+		if (character === '.') {
+			operandExpected = false
+			memberExpected = true
+			pendingRole = undefined
+			continue
+		}
+		if (character === ']' || character === '}') {
+			const frame = parentheses[parentheses.length - 1]
+			if (frame?.role === 'for' && frame.phase === 'left' && frame.binding) {
+				frame.binding = false
+			}
+		}
+		if (character === ']') operandExpected = false
+		else if (character === '}') {
+			const index = templates.length - 1
+			const depth = templates[index]
+			if (templateCode && index >= 0 && depth !== undefined) {
+				templates[index] = depth - 1
+				if (depth === 1) mode = 'template'
+			}
+			operandExpected = false
+		} else if (character === '{') {
+			const index = templates.length - 1
+			const depth = templates[index]
+			if (templateCode && index >= 0 && depth !== undefined) templates[index] = depth + 1
+			operandExpected = true
+		} else if (character !== '!') operandExpected = true
+		memberExpected = false
+		pendingRole = undefined
+	}
+
+	const code = characters.join('')
+	const present = jsdocPresent || jsdoc
+	lines.push({
+		source: source.slice(start),
+		code,
+		jsdoc: present ? jsdocCharacters.join('').padEnd(code.length, ' ') : undefined,
+	})
+	return lines
+}
+
+/**
+ * Whether an opaque inventory key contains only canonical slash-separated
+ * segments. Empty, `.` and `..` segments are rejected without rewriting the
+ * key; ordinary dotfile segments remain valid.
+ *
+ * @param key - The opaque inventory key to inspect
+ * @returns `true` when every segment is canonical
+ *
+ * @example
+ * ```ts
+ * hasCanonicalSegments('src/.hidden.ts') // true
+ * hasCanonicalSegments('src/../alias.ts') // false
+ * ```
+ */
+export function hasCanonicalSegments(key: string): boolean {
+	return key.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+/**
+ * A module scope normalized to its canonical directory list. `'.'` represents
+ * workspace root; empty, trailing, and dot-segment spellings reduce through
+ * {@link resolvePath}, and duplicates are removed in first-seen order.
  *
  * @param module - The module scope to normalize
  * @returns The directory list `module` denotes
  *
  * @example
  * ```ts
- * moduleDirs('src/core')                       // ['src/core']
- * moduleDirs(['src/core', 'src/browser'])       // ['src/core', 'src/browser']
+ * normalizeDirectories('src/core')                       // ['src/core']
+ * normalizeDirectories(['src/core', 'src/browser'])       // ['src/core', 'src/browser']
  * ```
  */
-export function moduleDirs(module: GuideModule): readonly string[] {
-	return typeof module === 'string' ? [module] : module
+export function normalizeDirectories(module: GuideModule): readonly string[] {
+	const directories: string[] = []
+	const seen = new Set<string>()
+	for (const value of typeof module === 'string' ? [module] : module) {
+		const directory = resolvePath('.', value)
+		if (seen.has(directory)) continue
+		seen.add(directory)
+		directories.push(directory)
+	}
+	return directories
 }
 
 /**
- * The file inventory's keys belonging to a {@link GuideModule} scope, sorted —
- * a key belongs when it starts with one of the scope's directories, ends in
- * `.ts`, and is neither that directory's `index.ts` nor a `.test.ts` file.
+ * The exact opaque file-inventory keys belonging under any canonical
+ * {@link GuideModule} directory, sorted. `'.'` selects canonical root-relative
+ * keys without accepting `/`, `./`, or `../` aliases. Every selected exact
+ * `index.ts` and every `.test.ts` key is excluded independent of scope order.
  *
  * @param files - The workspace file inventory, root-relative path → file text
  * @param module - The module scope to filter to
@@ -38,23 +589,27 @@ export function moduleDirs(module: GuideModule): readonly string[] {
  *
  * @example
  * ```ts
- * moduleKeys({ 'src/core/Guide.ts': '', 'src/core/index.ts': '' }, 'src/core') // ['src/core/Guide.ts']
+ * selectModuleKeys({ 'src/core/Guide.ts': '', 'src/core/index.ts': '' }, 'src/core') // ['src/core/Guide.ts']
  * ```
  */
-export function moduleKeys(
+export function selectModuleKeys(
 	files: Readonly<Record<string, string>>,
 	module: GuideModule,
 ): readonly string[] {
-	const dirs = moduleDirs(module)
+	const dirs = normalizeDirectories(module)
+	const indexes = new Set(dirs.map((directory) => resolvePath(directory, 'index.ts')))
 	const keys: string[] = []
 
 	for (const key of Object.keys(files)) {
+		if (!hasCanonicalSegments(key)) continue
 		if (!key.endsWith('.ts')) continue
 		if (key.endsWith('.test.ts')) continue
-
-		const dir = dirs.find((candidate) => key.startsWith(`${candidate}/`))
-		if (dir === undefined) continue
-		if (key === `${dir}/index.ts`) continue
+		if (
+			!dirs.some((directory) => directory === '.' || key.startsWith(`${directory}/`)) ||
+			indexes.has(key)
+		) {
+			continue
+		}
 
 		keys.push(key)
 	}
@@ -153,7 +708,7 @@ export function findUnexampled(
  * Parse a fence's `import` statements into per-specifier imported identifier
  * names — handles `import type`, mixed multiline braces, and `x as y` aliases
  * (resolved to the local name `x`... the ORIGINAL exported name, since it is
- * the export that must exist in `source.exports()`).
+ * the export that must exist in the checked public/barrel surface).
  *
  * @param fence - A ```ts Patterns fence's verbatim body text
  * @returns One entry per `import ... from 'specifier'` statement, in fence order
@@ -211,38 +766,58 @@ export function isExternalLink(href: string): boolean {
 }
 
 /**
- * Resolve a relative link `target` against `from` and normalize the result — `from`
- * is treated as a file (its directory is everything before the last `/`) when it
- * carries a `/`, or as a bare directory itself when it does not; `.` segments drop
- * and `..` segments pop the preceding component, purely (no `node:path`).
+ * Resolve a relative `target` from a root-relative `directory`, normalizing
+ * forward-slash dot segments without filesystem or extension inference. A
+ * parent pops only a retained real component; every excess leading parent is
+ * preserved.
  *
- * @param from - The declaring guide path (a file) or manifest base (a directory)
- * @param target - The relative link destination to resolve
- * @returns The normalized, workspace-root-relative path
+ * @param directory - The root-relative directory to resolve from
+ * @param target - The relative target to resolve
+ * @returns The normalized path, or `'.'` when no segment remains, retaining every excess parent
  *
  * @example
  * ```ts
- * resolveLink('guides/src/markdown.md', '../../src/core/helpers.ts') // 'src/core/helpers.ts'
- * resolveLink('guides', '../src/core') // 'src/core'
+ * resolvePath('guides/src', '../../src/core/helpers.ts') // 'src/core/helpers.ts'
+ * resolvePath('.', '../../outside.ts') // '../../outside.ts'
  * ```
  */
-export function resolveLink(from: string, target: string): string {
-	const index = from.lastIndexOf('/')
-	const dir = index < 0 ? from : from.slice(0, index)
-	const combined = dir === '' ? target : `${dir}/${target}`
+export function resolvePath(directory: string, target: string): string {
+	const combined = `${directory}/${target}`
 	const segments: string[] = []
 
 	for (const segment of combined.split('/')) {
 		if (segment === '' || segment === '.') continue
 		if (segment === '..') {
-			if (segments.length > 0) segments.pop()
+			const previous = segments[segments.length - 1]
+			if (previous !== undefined && previous !== '..') segments.pop()
 			else segments.push(segment)
 			continue
 		}
 		segments.push(segment)
 	}
 
-	return segments.join('/')
+	return segments.length === 0 ? '.' : segments.join('/')
+}
+
+/**
+ * Resolve a relative `target` from the directory containing a root-relative
+ * declaring `file`. A slashless file belongs to the workspace root; path
+ * reduction is delegated to {@link resolvePath}.
+ *
+ * @param file - The root-relative declaring file
+ * @param target - The relative link destination to resolve
+ * @returns The normalized path, retaining every excess leading parent
+ *
+ * @example
+ * ```ts
+ * resolveLink('guides/src/guide.md', '../../src/core/helpers.ts') // 'src/core/helpers.ts'
+ * resolveLink('index.ts', './root.ts') // 'root.ts'
+ * ```
+ */
+export function resolveLink(file: string, target: string): string {
+	const index = file.lastIndexOf('/')
+	const directory = index < 0 ? '.' : file.slice(0, index)
+	return resolvePath(directory, target)
 }
 
 /**

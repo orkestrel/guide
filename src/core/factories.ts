@@ -15,7 +15,7 @@ import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shap
 /**
  * Create a structured {@link GuideInterface} view over one guide's markdown
  * source — parses once and caches its `sections` / `surface` / `methods` /
- * `links` / `tests` projections.
+ * `links` / `tests` / `patterns` projections.
  *
  * @param source - The guide's markdown source text
  * @returns A working {@link GuideInterface}
@@ -63,7 +63,7 @@ export function createSource(options: SourceOptions): SourceInterface {
  *
  * @example
  * ```ts
- * import { createSurfaceSymbolContract } from '@orkestrel/guide/core'
+ * import { createSurfaceSymbolContract } from '@orkestrel/guide'
  *
  * const surfaceSymbol = createSurfaceSymbolContract()
  * surfaceSymbol.is({ name: 'Markdown', kind: 'class' }) // true
@@ -82,7 +82,7 @@ export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> 
  *
  * @example
  * ```ts
- * import { createMethodGroupContract } from '@orkestrel/guide/core'
+ * import { createMethodGroupContract } from '@orkestrel/guide'
  *
  * const methodGroup = createMethodGroupContract()
  * methodGroup.is({ interface: 'MarkdownInterface', methods: ['walk'] }) // true
@@ -101,7 +101,7 @@ export function createMethodGroupContract(): ContractInterface<MethodGroup> {
  *
  * @example
  * ```ts
- * import { createManifestEntryContract } from '@orkestrel/guide/core'
+ * import { createManifestEntryContract } from '@orkestrel/guide'
  *
  * const manifestEntry = createManifestEntryContract()
  * manifestEntry.is({ concept: 'Markdown', spec: 'guides/src/markdown.md', source: 'src/core', tests: 'tests/src/core' }) // true

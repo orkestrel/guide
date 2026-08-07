@@ -9,9 +9,24 @@ import {
 	walkNodes,
 } from '@orkestrel/markdown'
 import { isEmptyString, isNonEmptyArray, isNonEmptyString } from '@orkestrel/contract'
-import type { DeclarationHead, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
+import type {
+	DeclarationHead,
+	ManifestEntry,
+	MethodGroup,
+	SourceLine,
+	SurfaceSymbol,
+} from './types.js'
 import { MANIFEST, METHODS, SURFACE, TESTS } from './constants.js'
-import { cellLinks, firstCode, identifierOf, kindIndex, resolveLink, symbolKey } from './helpers.js'
+import {
+	cellLinks,
+	extractSourceLines,
+	firstCode,
+	identifierOf,
+	kindIndex,
+	normalizeDirectories,
+	resolvePath,
+	symbolKey,
+} from './helpers.js'
 import { isExportKind } from './validators.js'
 
 /**
@@ -19,6 +34,11 @@ import { isExportKind } from './validators.js'
  * `export (async)? (function(\*)?|class|const|interface|type) Name`, deduped
  * by (kind, name). A generator export (`export function* walk`) scans as kind
  * `function` — its trailing `*` is stripped before the {@link ExportKind} check.
+ * Scanning uses {@link extractSourceLines}, so comment and template payload is
+ * excluded while its uninterrupted column-zero head remains required; preserved
+ * columns do not grant membership to leading/interrupted comment forms. The population is
+ * exactly `type`, `interface`, `const`, `function`, and `class`; `enum` is
+ * outside this reflection contract, not forbidden by general package policy.
  *
  * @param source - The file's source text
  * @returns The file's exported symbols, in file order
@@ -33,8 +53,10 @@ export function exportsFrom(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
 
-	for (const line of source.split(/\r?\n/)) {
-		const match = line.match(/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/)
+	for (const line of extractSourceLines(source)) {
+		const match = line.code.match(
+			/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/,
+		)
 		const rawKind = match?.[1]
 		const name = match?.[2]
 		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
@@ -57,7 +79,10 @@ export function exportsFrom(source: string): readonly SurfaceSymbol[] {
  * `const` / `interface` / `type`) — a module-scope `let` or `var` is a
  * different violation class (AGENTS §1 bans `var`; a bare `let` is not a
  * declaration kind this scanner's five-kind grammar covers) and is out of
- * this check's contract.
+ * this check's contract. Scanning uses {@link extractSourceLines}, so comment
+ * and template payload is excluded while its uninterrupted column-zero head
+ * remains required; preserved columns do not widen membership. `enum` is likewise outside this reflection population, not
+ * forbidden by general package policy.
  *
  * @param source - The file's source text
  * @returns The file's hidden (non-exported) symbols, in file order
@@ -72,9 +97,9 @@ export function hiddenFrom(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
 
-	for (const line of source.split(/\r?\n/)) {
-		if (line.startsWith('export ')) continue
-		const match = line.match(/^(?:async )?(function\*?|class|const|interface|type) (\w+)/)
+	for (const line of extractSourceLines(source)) {
+		if (line.code.startsWith('export ')) continue
+		const match = line.code.match(/^(?:async )?(function\*?|class|const|interface|type) (\w+)/)
 		const rawKind = match?.[1]
 		const name = match?.[2]
 		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
@@ -117,8 +142,9 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 
 /**
  * The body lines of the named `export class` / `export interface` declaration
- * within one file's source text — everything between the head's opening `{`
- * and the column-0 closing `}`.
+ * within one file's source text — everything between a projected real head and
+ * projected column-0 closing `}`. Structural eligibility is projected while the
+ * corresponding returned body lines remain raw for JSDoc evidence.
  *
  * @param source - The file's source text to search
  * @param keyword - Whether to look for a `class` or an `interface`
@@ -137,19 +163,20 @@ export function declarationBody(
 ): readonly string[] {
 	const opener = `export ${keyword} ${name}`
 	const declaration = new RegExp(`^export ${keyword} ${name}(?:<.*>)?(?: .*)? \\{$`)
-	const lines = source.split(/\r?\n/)
+	const lines = extractSourceLines(source)
+	const projected = lines.map((line) => line.code)
 
-	for (let index = 0; index < lines.length; index += 1) {
-		const line = lines[index]
+	for (let index = 0; index < projected.length; index += 1) {
+		const line = projected[index]
 		if (line === undefined || !line.startsWith(opener)) continue
 
-		const head = joinHead(lines, index)
+		const head = joinHead(projected, index)
 		if (head === undefined || !declaration.test(head.text)) continue
 
-		const body: string[] = []
-		for (const member of lines.slice(head.end + 1)) {
-			if (member === '}') return body
-			body.push(member)
+		for (let close = head.end + 1; close < projected.length; close += 1) {
+			if (projected[close] === '}') {
+				return lines.slice(head.end + 1, close).map((record) => record.source)
+			}
 		}
 
 		// Unterminated body — keep scanning in case a later match succeeds.
@@ -162,7 +189,8 @@ export function declarationBody(
  * The member lines declaring a callable member: plain, `async`, generator
  * (`*`), and optional (`records?(`) methods all count; getters, setters,
  * `static` members, and `#` privates never do (their keyword or `#` breaks
- * the `name(` shape).
+ * the `name(` shape). Matching runs once over projected lines so commented
+ * method-like payload never becomes eligible.
  *
  * @param lines - A declaration's body lines
  * @returns The declared method names, deduped and sorted
@@ -175,8 +203,8 @@ export function declarationBody(
 export function memberMethods(lines: readonly string[]): readonly string[] {
 	const methods: string[] = []
 
-	for (const line of lines) {
-		const method = line.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
+	for (const line of extractSourceLines(lines.join('\n'))) {
+		const method = line.code.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
 		if (method?.[1] !== undefined) methods.push(method[1])
 	}
 
@@ -358,10 +386,107 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 }
 
 /**
+ * Select the next physical record after an eligible genuine JSDoc whose final
+ * authoritative span carries an exact block-position `@example` tag. Title
+ * text is allowed. A leading whitespace-separated span chain is last-span
+ * authoritative; intervening source material severs association, while a
+ * leading JSDoc on the next record replaces pending state. Any other next
+ * physical record is returned once and consumes it. This parser walks aligned
+ * records without rescanning source syntax or applying declaration/member
+ * grammar.
+ *
+ * @param lines - Aligned physical source-line records
+ * @returns The immediately following candidate lines, in source order
+ *
+ * @example
+ * ```ts
+ * extractExampleLines(extractSourceLines('/** @example *' + '/\nexport function walk() {}'))
+ * // the `export function walk() {}` SourceLine
+ * ```
+ */
+export function extractExampleLines(lines: readonly SourceLine[]): readonly SourceLine[] {
+	const examples: SourceLine[] = []
+	let block = false
+	let eligible = false
+	let example = false
+	let pending = false
+
+	for (const line of lines) {
+		const projection = line.jsdoc
+		const first = projection?.indexOf('/**') ?? -1
+
+		if (pending) {
+			if (!block && first >= 0 && line.source.slice(0, first).trim() === '') pending = false
+			else {
+				examples.push(line)
+				pending = false
+			}
+		}
+
+		if (projection === undefined) continue
+
+		let cursor = 0
+		if (block) {
+			const close = projection.indexOf('*/')
+			const end = close < 0 ? projection.length : close + 2
+			if (eligible && /^\s*\*?\s*@example(?=\s|\*\/|$)/.test(projection.slice(0, end))) {
+				example = true
+			}
+			if (close < 0) continue
+
+			block = false
+			const opener = projection.indexOf('/**', close + 2)
+			const endOfGap = opener < 0 ? line.source.length : opener
+			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
+			if (opener < 0) {
+				pending = eligible && example && whitespace
+				continue
+			}
+
+			eligible = eligible && whitespace
+			example = false
+			cursor = opener
+		} else {
+			if (first < 0) continue
+			eligible = line.source.slice(0, first).trim() === ''
+			example = false
+			cursor = first
+		}
+
+		while (cursor < projection.length) {
+			const close = projection.indexOf('*/', cursor + 2)
+			const end = close < 0 ? projection.length : close + 2
+			if (eligible && /^\s*\*?\s*@example(?=\s|\*\/|$)/.test(projection.slice(cursor + 3, end))) {
+				example = true
+			}
+
+			if (close < 0) {
+				block = true
+				break
+			}
+
+			const opener = projection.indexOf('/**', close + 2)
+			const endOfGap = opener < 0 ? line.source.length : opener
+			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
+			if (opener < 0) {
+				pending = eligible && example && whitespace
+				break
+			}
+
+			eligible = eligible && whitespace
+			example = false
+			cursor = opener
+		}
+	}
+
+	return examples
+}
+
+/**
  * The exported functions in one file's source text whose immediately preceding
- * JSDoc block carries `@example` — walked line by line, tracking the current
- * comment block; the block resets on any non-comment, non-export line so an
- * `@example` never attaches to a declaration it does not directly precede.
+ * eligible genuine JSDoc block carries `@example`. Shared adjacency comes from
+ * {@link extractExampleLines}; exported-function membership is matched against
+ * the aligned code projection, so comment and template payload cannot qualify.
  *
  * @param source - The file's source text
  * @returns The exported function names with an `@example`, in file order
@@ -376,40 +501,14 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 export function examplesFrom(source: string): readonly string[] {
 	const names: string[] = []
 	const seen = new Set<string>()
-	let inBlock = false
-	let blockHasExample = false
-	let pending = false
 
-	for (const line of source.split(/\r?\n/)) {
-		const trimmed = line.trim()
-
-		if (!inBlock && trimmed.startsWith('/**')) {
-			inBlock = true
-			blockHasExample = trimmed.includes('@example')
-			pending = false
-			if (trimmed.length > 3 && trimmed.endsWith('*/')) {
-				inBlock = false
-				pending = blockHasExample
-			}
-			continue
-		}
-
-		if (inBlock) {
-			if (trimmed.includes('@example')) blockHasExample = true
-			if (trimmed.endsWith('*/')) {
-				inBlock = false
-				pending = blockHasExample
-			}
-			continue
-		}
-
-		const match = line.match(/^export (?:async )?function\*? (\w+)/)
+	for (const line of extractExampleLines(extractSourceLines(source))) {
+		const match = line.code.match(/^export (?:async )?function\*? (\w+)/)
 		const name = match?.[1]
-		if (pending && isNonEmptyString(name) && !seen.has(name)) {
+		if (isNonEmptyString(name) && !seen.has(name)) {
 			seen.add(name)
 			names.push(name)
 		}
-		pending = false
 	}
 
 	return names
@@ -417,8 +516,10 @@ export function examplesFrom(source: string): readonly string[] {
 
 /**
  * The callable-member names in a declaration body (per {@link memberMethods}'
- * grammar) whose immediately preceding JSDoc block, within the same body,
- * carries `@example` — the member-level mirror of {@link examplesFrom}.
+ * grammar) whose immediately preceding eligible genuine JSDoc block, within
+ * the same body, carries `@example`. Shared adjacency comes from
+ * {@link extractExampleLines}; member membership is matched against aligned
+ * projected code.
  *
  * @param lines - A declaration's body lines
  * @returns The exemplified member names, deduped and sorted
@@ -431,40 +532,14 @@ export function examplesFrom(source: string): readonly string[] {
 export function exampleMethods(lines: readonly string[]): readonly string[] {
 	const methods: string[] = []
 	const seen = new Set<string>()
-	let inBlock = false
-	let blockHasExample = false
-	let pending = false
 
-	for (const line of lines) {
-		const trimmed = line.trim()
-
-		if (!inBlock && trimmed.startsWith('/**')) {
-			inBlock = true
-			blockHasExample = trimmed.includes('@example')
-			pending = false
-			if (trimmed.length > 3 && trimmed.endsWith('*/')) {
-				inBlock = false
-				pending = blockHasExample
-			}
-			continue
-		}
-
-		if (inBlock) {
-			if (trimmed.includes('@example')) blockHasExample = true
-			if (trimmed.endsWith('*/')) {
-				inBlock = false
-				pending = blockHasExample
-			}
-			continue
-		}
-
-		const method = line.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
+	for (const line of extractExampleLines(extractSourceLines(lines.join('\n')))) {
+		const method = line.code.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
 		const name = method?.[1]
-		if (pending && isNonEmptyString(name) && !seen.has(name)) {
+		if (isNonEmptyString(name) && !seen.has(name)) {
 			seen.add(name)
 			methods.push(name)
 		}
-		pending = false
 	}
 
 	return Array.from(new Set(methods)).sort()
@@ -493,15 +568,14 @@ export function extractPatterns(document: MarkdownDocument): readonly string[] {
 /**
  * Parse a `## By concept` manifest table into its {@link ManifestEntry} rows —
  * each row's Concept cell (flattened text), Spec / Tests cells (a single link
- * href, resolved against `base`), and Source cell (every link href, resolved
- * against `base`; one directory collapses to a `string`, several become a
- * `readonly string[]`). A row missing a concept, spec link, tests link, or
+ * href, resolved against `directory`), and Source cell (every link href,
+ * resolved against `directory`; Source links canonicalize through
+ * {@link normalizeDirectories}, one directory collapses to a `string`, and several become
+ * a `readonly string[]`). A row missing a concept, spec link, tests link, or
  * source link is skipped as malformed.
  *
  * @param markdown - The manifest markdown source (e.g. `guides/README.md`'s content)
- * @param base - A single directory name relative to the workspace root that the manifest's
- *   links are resolved against (e.g. `'guides'`) — {@link resolveLink}'s arithmetic supports
- *   only one path segment, so a deeper or nested base is not supported
+ * @param directory - The root-relative directory containing the manifest
  * @returns The manifest's entries, in row order
  *
  * @example
@@ -509,7 +583,7 @@ export function extractPatterns(document: MarkdownDocument): readonly string[] {
  * parseManifest(readme, 'guides') // [{ concept: 'Markdown', spec: 'guides/src/markdown.md', ... }]
  * ```
  */
-export function parseManifest(markdown: string, base: string): readonly ManifestEntry[] {
+export function parseManifest(markdown: string, directory: string): readonly ManifestEntry[] {
 	const document = createMarkdown(markdown).document
 	const entries: ManifestEntry[] = []
 
@@ -537,16 +611,18 @@ export function parseManifest(markdown: string, base: string): readonly Manifest
 			const testsHref = cellLinks(testsCell)[0]
 			if (specHref === undefined || testsHref === undefined) continue
 
-			const sourceHrefs = cellLinks(sourceCell).map((href) => resolveLink(base, href))
+			const sourceHrefs = normalizeDirectories(
+				cellLinks(sourceCell).map((href) => resolvePath(directory, href)),
+			)
 			if (!isNonEmptyArray<string>(sourceHrefs)) continue
 			const [firstSource] = sourceHrefs
 			const source = sourceHrefs.length === 1 ? firstSource : sourceHrefs
 
 			entries.push({
 				concept,
-				spec: resolveLink(base, specHref),
+				spec: resolvePath(directory, specHref),
 				source,
-				tests: resolveLink(base, testsHref),
+				tests: resolvePath(directory, testsHref),
 			})
 		}
 	}

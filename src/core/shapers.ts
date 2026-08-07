@@ -12,7 +12,7 @@ import { arrayShape, literalShape, objectShape, stringShape, unionShape } from '
  * @example
  * ```ts
  * import { createContract } from '@orkestrel/contract'
- * import { surfaceSymbolShape } from '@orkestrel/guide/core'
+ * import { surfaceSymbolShape } from '@orkestrel/guide'
  *
  * const surfaceSymbol = createContract(surfaceSymbolShape)
  * surfaceSymbol.is({ name: 'Markdown', kind: 'class' }) // true
@@ -30,7 +30,7 @@ export const surfaceSymbolShape = objectShape({
  * @example
  * ```ts
  * import { createContract } from '@orkestrel/contract'
- * import { methodGroupShape } from '@orkestrel/guide/core'
+ * import { methodGroupShape } from '@orkestrel/guide'
  *
  * const methodGroup = createContract(methodGroupShape)
  * methodGroup.is({ interface: 'MarkdownInterface', methods: ['walk'] }) // true
@@ -48,7 +48,7 @@ export const methodGroupShape = objectShape({
  * @example
  * ```ts
  * import { createContract } from '@orkestrel/contract'
- * import { manifestEntryShape } from '@orkestrel/guide/core'
+ * import { manifestEntryShape } from '@orkestrel/guide'
  *
  * const manifestEntry = createContract(manifestEntryShape)
  * manifestEntry.is({ concept: 'Markdown', spec: 'guides/src/markdown.md', source: 'src/core', tests: 'tests/src/core' }) // true

@@ -7,7 +7,10 @@ import {
 } from '@src/core'
 import { seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
-import { TEST_SEED, fixtureFiles, readFixture } from '../../setup.js'
+import { TEST_SEED } from '../../setup.js'
+import { readInventory, requireText } from '../../setupServer.js'
+
+const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The factory surface — createGuide / createSource construct working
 // instances, and createSurfaceSymbolContract / createMethodGroupContract /
@@ -18,7 +21,7 @@ import { TEST_SEED, fixtureFiles, readFixture } from '../../setup.js'
 
 describe('createGuide', () => {
 	it('returns a working GuideInterface over the good fixture guide', () => {
-		const guide = createGuide(readFixture('good/guides/src/widget.md'))
+		const guide = createGuide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.surface()).toHaveLength(6)
 		expect(guide.sections()).toEqual(['Surface', 'Methods', 'Tests'])
 	})
@@ -26,7 +29,10 @@ describe('createGuide', () => {
 
 describe('createSource', () => {
 	it('returns a working SourceInterface over a file inventory', () => {
-		const source = createSource({ files: fixtureFiles('good'), module: 'module' })
+		const source = createSource({
+			files: readInventory(new URL('../../fixtures/good/', import.meta.url), ['.']),
+			module: 'module',
+		})
 		expect(source.exports()).toHaveLength(6)
 		expect(source.methods('WidgetInterface')).toEqual(['inspect', 'render', 'reset'])
 		expect(source.exists('module/Widget.ts')).toBe(true)

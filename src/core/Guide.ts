@@ -9,9 +9,9 @@ import {
 } from './parsers.js'
 
 /**
- * A stateful, structured view over one parsed guide — the five documented
- * projections (`sections` / `surface` / `methods` / `links` / `tests`) are
- * extracted once at construction and cached.
+ * A stateful, structured view over one parsed guide — the six documented
+ * projections (`sections` / `surface` / `methods` / `links` / `tests` /
+ * `patterns`) are extracted once at construction and cached.
  *
  * @remarks
  * Pure: parses `source` once via `@orkestrel/markdown` and never touches the
@@ -21,7 +21,7 @@ import {
  *
  * @example
  * ```ts
- * import { Guide } from '@orkestrel/guide/core'
+ * import { Guide } from '@orkestrel/guide'
  *
  * const guide = new Guide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
  * guide.surface() // [{ name: 'X', kind: 'class' }]
