@@ -85,16 +85,20 @@ If the user changes a type mid-task, treat it as immediately authoritative. Type
 
 A defect fix inserts a failing proof before its implementation: record the exact command and its failing count, implement, then record the same command green. A test that never ran red does not bind to the defect it claims.
 
+An idea is worth nothing until it has been run. Get the question into a file and under a test as early as it can go: the smallest real input through the real code, read the real output. Deliberation chooses what to run and reads what came back — it does not stand in for the run, and an argument about behaviour never outranks an observation of it. When two explanations compete, the probe that separates them is cheaper than the paragraph that reconciles them.
+
 For comprehensive hardening, research, centralization, contract adoption, real-service integration, or cross-package alignment, follow the applicable repository skill. No current-scope requirement may end as a TODO, skipped test, deferred row, or hidden follow-up.
+
+Completion is defined before the work starts, never discovered by exhaustion. Enumerate the capabilities the change owns and what closing each one requires; that enumeration is current scope, and it is fixed when the work begins. A finding outside it belongs to the next change, recorded against the capability that owns it rather than reopening this one.
 
 ## Work process
 
-1. **Understand:** clarify scope and entities; read `*/types.ts`, the rule files, the applicable skill, and the matching guide before editing.
+1. **Understand:** clarify scope and entities, and state what completion requires before starting; read `*/types.ts`, the rule files, the applicable skill, and the matching guide before editing.
 2. **Research:** when requested or externally material, verify current primary sources and build a capability/defect matrix before changing the API.
 3. **Design:** change types first and typecheck the proposed contract.
 4. **Implement:** match the interface, reuse declared ecosystem primitives, extract centralized logic, and update the sole barrel.
 5. **Consolidate:** remove duplication, nested declarations, and superfluous wrappers without expanding the API.
-6. **Test:** mirror source structure, challenge the applicable seams with real implementations, and run the narrowest relevant project.
+6. **Test:** mirror source structure, challenge the applicable seams with real implementations, and run the narrowest relevant project. Reach this step early and often rather than once at the end; a question answered here is settled, and the same question answered in prose is still open.
 7. **Document:** update the guide, examples, and parity contract.
 8. **Verify:** audit discovery/deferrals/package contents as applicable, run the required gates, and read their actual output before claiming success.
 
@@ -108,6 +112,7 @@ npm run format:check → npm run lint:check → npm run check → npm run build 
 - Type error: read the complete diagnostic, compare implementation with `*/types.ts`, fix one cause, and rerun the relevant check.
 - Unused contract symbol: stop; implement it or leave the prescribed TODO—never delete it for lint.
 - Compound entity member: stop; correct the API shape before implementation. This does not apply to descriptive module helpers.
+- Scope closed and gates green: stop. Report the outcome and move to the next scope; another pass over the same surface is a new instruction, not diligence.
 
 ## Rule map
 
