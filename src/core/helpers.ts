@@ -44,7 +44,7 @@ export function extractSourceLines(source: string): readonly SourceLine[] {
 	let jsdocCharacters: string[] = []
 	const identifier = /#?[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*/uy
 	const templates: number[] = []
-	const parentheses: { role: string; phase: string; binding: boolean }[] = []
+	const parentheses: Array<{ role: string; phase: string; binding: boolean }> = []
 	let start = 0
 	let mode = 'code'
 	let escaped = false
@@ -720,8 +720,8 @@ export function findUnexampled(
  */
 export function fenceImports(
 	fence: string,
-): readonly { specifier: string; names: readonly string[] }[] {
-	const results: { specifier: string; names: readonly string[] }[] = []
+): ReadonlyArray<{ specifier: string; names: readonly string[] }> {
+	const results: Array<{ specifier: string; names: readonly string[] }> = []
 	const pattern = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gs
 
 	let match: RegExpExecArray | null
