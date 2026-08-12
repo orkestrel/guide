@@ -6,7 +6,7 @@
 > scanners (no filesystem or TypeScript compiler API); runtime dependencies provide markdown
 > and contract primitives, while comparison helpers (`missingSymbols`, `findMissing`,
 > `resolveLink`, …) reduce every guides-parity check to `expect([]).toEqual([])`
-> (AGENTS §22). Source: [`src/core`](../../src/core). Published through `@orkestrel/guide`.
+> (AGENTS §22). Source: [`src/core`](../src/core). Published through `@orkestrel/guide`.
 
 The doctrine: a guide is a contract, not prose. `createGuide(markdown)` parses a guide's
 source once (via `@orkestrel/markdown`) into a `GuideInterface` — its `## Surface` identifiers
@@ -24,7 +24,7 @@ iterates to run this check once per documented concept.
 
 ### Types
 
-The manifest/extraction shapes every check is built from, from [`types.ts`](../../src/core/types.ts).
+The manifest/extraction shapes every check is built from, from [`types.ts`](../src/core/types.ts).
 
 | Name              | Kind      | Shape                                                                                                                                                                                               |
 | ----------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42,7 +42,7 @@ The manifest/extraction shapes every check is built from, from [`types.ts`](../.
 ### Constants
 
 The section-heading keys and external-link schemes every extractor and link check is keyed
-on, from [`constants.ts`](../../src/core/constants.ts).
+on, from [`constants.ts`](../src/core/constants.ts).
 
 | Name               | Kind  | Behavior                                                                                                                        |
 | ------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,7 +54,7 @@ on, from [`constants.ts`](../../src/core/constants.ts).
 
 ### Helpers
 
-Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the building blocks
+Pure, total leaves from [`helpers.ts`](../src/core/helpers.ts) — the building blocks
 `parsers.ts`'s extractors and a consumer's parity test both reach for directly.
 
 | Name                   | Kind     | Signature                                                                                                 | Behavior                                                                                                                                 |
@@ -78,7 +78,7 @@ Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the buildi
 
 ### Parsers
 
-The guide/manifest extraction pipeline, from [`parsers.ts`](../../src/core/parsers.ts) —
+The guide/manifest extraction pipeline, from [`parsers.ts`](../src/core/parsers.ts) —
 the orchestration `Guide` composes out of `helpers.ts`'s leaves.
 
 | Name                  | Kind     | Signature                                                                              | Behavior                                                                                                                                           |
@@ -102,7 +102,7 @@ the orchestration `Guide` composes out of `helpers.ts`'s leaves.
 ### Shapers
 
 Declarative `ContractShape` values (from `@orkestrel/contract`) from
-[`shapers.ts`](../../src/core/shapers.ts) — every documented data type here is
+[`shapers.ts`](../src/core/shapers.ts) — every documented data type here is
 non-recursive, so each shapes directly.
 
 | Name                 | Kind  | Builds                                                                              |
@@ -114,7 +114,7 @@ non-recursive, so each shapes directly.
 ### Validators
 
 Total from-unknown guards composed from `@orkestrel/contract` combinators, from
-[`validators.ts`](../../src/core/validators.ts).
+[`validators.ts`](../src/core/validators.ts).
 
 | Name              | Kind  | Narrows to / Tests | Behavior                                                                 |
 | ----------------- | ----- | ------------------ | ------------------------------------------------------------------------ |
@@ -125,7 +125,7 @@ Total from-unknown guards composed from `@orkestrel/contract` combinators, from
 
 ### Factories
 
-From [`factories.ts`](../../src/core/factories.ts).
+From [`factories.ts`](../src/core/factories.ts).
 
 | Name                          | Kind     | Signature                                     | Behavior                                                                         |
 | ----------------------------- | -------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -137,7 +137,7 @@ From [`factories.ts`](../../src/core/factories.ts).
 
 ### `Guide`
 
-The implementing class of `GuideInterface`, from [`Guide.ts`](../../src/core/Guide.ts). A
+The implementing class of `GuideInterface`, from [`Guide.ts`](../src/core/Guide.ts). A
 stateful, structured view over one parsed guide: parses `source` once via
 `@orkestrel/markdown` and never touches the filesystem — `Guide` has no notion of "where"
 the guide came from, only its markdown text. Every accessor returns the same cached,
@@ -146,7 +146,7 @@ surface.
 
 ### `Source`
 
-The implementing class of `SourceInterface`, from [`Source.ts`](../../src/core/Source.ts). A
+The implementing class of `SourceInterface`, from [`Source.ts`](../src/core/Source.ts). A
 pure reflection over a consumer-supplied file inventory (root-relative path → file text) plus a
 module scope. `exports()` inventories direct `type`, `interface`, `const`, `function`, and
 `class` declarations in the selected canonical directories' exact opaque module keys over
@@ -406,18 +406,18 @@ resolveLink('index.ts', './root.ts') // 'root.ts'
 
 ## Tests
 
-- [`tests/src/core/helpers.test.ts`](../../tests/src/core/helpers.test.ts) — direct `SourceLine`, lexical, JSDoc-alignment, canonical-key, runtime-name, `resolvePath`, and `resolveLink` invariants; all remaining helper leaves.
-- [`tests/src/core/parsers.test.ts`](../../tests/src/core/parsers.test.ts) — projected five-kind direct/hidden reflection, genuine JSDoc example adjacency, faux JSDoc exclusion, nested-directory `parseManifest`, and every guide/manifest extractor.
-- [`tests/src/core/validators.test.ts`](../../tests/src/core/validators.test.ts) — `isExportKind` / `isSurfaceSymbol` / `isMethodGroup` / `isManifestEntry`.
-- [`tests/src/core/shapers.test.ts`](../../tests/src/core/shapers.test.ts) — per-shape guard exactness, JSON Schema essentials, seeded generate round-trips, parse rebuilds.
-- [`tests/src/core/factories.test.ts`](../../tests/src/core/factories.test.ts) — `createGuide` / `createSource` + the compiled symbol/group/manifest contracts.
-- [`tests/src/core/Guide.test.ts`](../../tests/src/core/Guide.test.ts) — `Guide`'s six cached projections and production barrel/Guide phantom and kind-drift controls.
-- [`tests/src/core/Source.test.ts`](../../tests/src/core/Source.test.ts) — direct/barrel projections, lexical and JSDoc regressions, canonical-key populations, root and nested indexes, exact row grammar, graph invariants, and correlated population controls.
-- [`tests/fixtures/broken/stranded-export`](../../tests/fixtures/broken/stranded-export) — permanent negative control: its guide and direct declarations agree while its conventional barrel omits `strandedExport`.
-- [`tests/guides.test.ts`](../../tests/guides.test.ts) — the drop-in guides-parity suite, run against THIS repo's own `guides/README.md` manifest — the self-dogfooding acceptance criterion.
+- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — direct `SourceLine`, lexical, JSDoc-alignment, canonical-key, runtime-name, `resolvePath`, and `resolveLink` invariants; all remaining helper leaves.
+- [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — projected five-kind direct/hidden reflection, genuine JSDoc example adjacency, faux JSDoc exclusion, nested-directory `parseManifest`, and every guide/manifest extractor.
+- [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — `isExportKind` / `isSurfaceSymbol` / `isMethodGroup` / `isManifestEntry`.
+- [`tests/src/core/shapers.test.ts`](../tests/src/core/shapers.test.ts) — per-shape guard exactness, JSON Schema essentials, seeded generate round-trips, parse rebuilds.
+- [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — `createGuide` / `createSource` + the compiled symbol/group/manifest contracts.
+- [`tests/src/core/Guide.test.ts`](../tests/src/core/Guide.test.ts) — `Guide`'s six cached projections and production barrel/Guide phantom and kind-drift controls.
+- [`tests/src/core/Source.test.ts`](../tests/src/core/Source.test.ts) — direct/barrel projections, lexical and JSDoc regressions, canonical-key populations, root and nested indexes, exact row grammar, graph invariants, and correlated population controls.
+- [`tests/fixtures/broken/stranded-export`](../tests/fixtures/broken/stranded-export) — permanent negative control: its guide and direct declarations agree while its conventional barrel omits `strandedExport`.
+- [`tests/guides.test.ts`](../tests/guides.test.ts) — the drop-in guides-parity suite, run against THIS repo's own `guides/README.md` manifest — the self-dogfooding acceptance criterion.
 
 ## See also
 
 - `AGENTS.md` (workspace root) — the rules; §22 documentation-as-contracts.
-- [`README.md`](../README.md) — the guides index.
+- [`README.md`](README.md) — the guides index.
 - [`markdown.md`](markdown.md) — the dependency mirror for `@orkestrel/markdown`, the AST/parse layer `Guide` is built on.
