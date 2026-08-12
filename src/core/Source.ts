@@ -1,21 +1,19 @@
 import type { SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
 import {
+	declarationBody,
+	exampleMethods,
+	examplesFrom,
+	exportsFrom,
 	extractSourceLines,
 	hasCanonicalSegments,
+	hiddenFrom,
+	memberMethods,
 	normalizeDirectories,
 	resolveLink,
 	resolvePath,
 	selectModuleKeys,
 	symbolKey,
 } from './helpers.js'
-import {
-	declarationBody,
-	exampleMethods,
-	examplesFrom,
-	exportsFrom,
-	hiddenFrom,
-	memberMethods,
-} from './parsers.js'
 
 /**
  * A pure `SourceInterface` — reflects a module scope's intentional direct

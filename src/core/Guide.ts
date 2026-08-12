@@ -6,7 +6,7 @@ import {
 	extractPatterns,
 	extractSurface,
 	extractTests,
-} from './parsers.js'
+} from './helpers.js'
 
 /**
  * A stateful, structured view over one parsed guide — the six documented

@@ -160,7 +160,7 @@ declaration.
 ## Guide
 
 For the full surface — the guide anatomy, the manifest format, and the check
-catalog — see [`guides/src/guide.md`](guides/src/guide.md). For the design
+catalog — see [`guides/guide.md`](guides/guide.md). For the design
 and guide index, see [`guides/`](./guides/).
 
 ## Package
