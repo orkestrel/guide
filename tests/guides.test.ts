@@ -14,11 +14,11 @@ import {
 	resolveLink,
 	symbolKey,
 } from '@src/core'
-import { readInventory, requireText } from '../../setupServer.js'
+import { readInventory, requireText } from './setupServer.js'
 
 const SELF_SPECIFIERS = ['@orkestrel/guide', '@src/core']
 const files = readInventory(
-	new URL('../../../', import.meta.url),
+	new URL('../', import.meta.url),
 	['src', 'guides', 'tests'],
 	['.ts', '.md'],
 )

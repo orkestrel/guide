@@ -50,7 +50,7 @@ describe('repository coding law', () => {
 	it('keeps universal setup host-independent and parity free of local filesystem helpers', () => {
 		const setup = readFileSync(new URL('./setup.ts', import.meta.url), 'utf8')
 		const server = readFileSync(new URL('./setupServer.ts', import.meta.url), 'utf8')
-		const parity = readFileSync(new URL('./guides/src/parity.test.ts', import.meta.url), 'utf8')
+		const parity = readFileSync(new URL('./guides.test.ts', import.meta.url), 'utf8')
 		expect(setup).not.toContain('node:')
 		expect(parity).not.toMatch(/\b(?:walk|readText)\b/)
 		expect(`${setup}\n${server}\n${parity}`).not.toMatch(

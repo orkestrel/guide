@@ -414,7 +414,7 @@ resolveLink('index.ts', './root.ts') // 'root.ts'
 - [`tests/src/core/Guide.test.ts`](../../tests/src/core/Guide.test.ts) — `Guide`'s six cached projections and production barrel/Guide phantom and kind-drift controls.
 - [`tests/src/core/Source.test.ts`](../../tests/src/core/Source.test.ts) — direct/barrel projections, lexical and JSDoc regressions, canonical-key populations, root and nested indexes, exact row grammar, graph invariants, and correlated population controls.
 - [`tests/fixtures/broken/stranded-export`](../../tests/fixtures/broken/stranded-export) — permanent negative control: its guide and direct declarations agree while its conventional barrel omits `strandedExport`.
-- [`tests/guides/src/parity.test.ts`](../../tests/guides/src/parity.test.ts) — the drop-in guides-parity suite, run against THIS repo's own `guides/README.md` manifest — the self-dogfooding acceptance criterion.
+- [`tests/guides.test.ts`](../../tests/guides.test.ts) — the drop-in guides-parity suite, run against THIS repo's own `guides/README.md` manifest — the self-dogfooding acceptance criterion.
 
 ## See also
 

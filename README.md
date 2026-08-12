@@ -1,7 +1,7 @@
 # @orkestrel/guide
 
 A guides-parity **test helper** for `@orkestrel` packages. Add it as a
-devDependency, drop one short test file into `tests/guides/src/parity.test.ts`,
+devDependency, drop one short test file into `tests/guides.test.ts`,
 wire a vitest `guides` project, and thereafter every guide is proven —
 mechanically, in CI, as ordinary vitest assertions — to be in **bijection**
 with the code it documents: every documented export exists in source and
@@ -24,12 +24,12 @@ npm install -D @orkestrel/guide
 ## Usage
 
 The entire consumer-side footprint is one short test file. An excerpt of the
-drop-in pattern (`tests/guides/src/parity.test.ts`):
+drop-in pattern (`tests/guides.test.ts`):
 
 The consumer supplies the file inventory `Source` reflects over. The inventory
 below is an illustrative, non-runnable placeholder until the consumer supplies
 real workspace text; the complete runnable implementation is
-[`tests/guides/src/parity.test.ts`](tests/guides/src/parity.test.ts).
+[`tests/guides.test.ts`](tests/guides.test.ts).
 
 ```ts
 import { expect, it } from 'vitest'
