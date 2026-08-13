@@ -4,13 +4,16 @@ import type {
 	ManifestEntry,
 	MethodGroup,
 	SourceInterface,
+	SourceManagerInterface,
+	SourceManagerOptions,
 	SourceOptions,
 	SurfaceSymbol,
 } from './types.js'
 import { createContract } from '@orkestrel/contract'
 import { Guide } from './Guide.js'
-import { Source } from './Source.js'
 import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shapers.js'
+import { Source } from './sources/Source.js'
+import { SourceManager } from './sources/SourceManager.js'
 
 /**
  * Create a structured {@link GuideInterface} view over one guide's markdown
@@ -52,6 +55,28 @@ export function createGuide(source: string): GuideInterface {
  */
 export function createSource(options: SourceOptions): SourceInterface {
 	return new Source(options)
+}
+
+/**
+ * Create a {@link SourceManagerInterface} that resolves the consumer's local
+ * import specifiers and shares one source view per module.
+ *
+ * @param options - The shared file inventory and specifier-to-module policy
+ * @returns A source manager over the supplied policy
+ *
+ * @example
+ * ```ts
+ * import { createSourceManager } from '@orkestrel/guide'
+ *
+ * const sources = createSourceManager({
+ * 	files: { 'src/core/index.ts': "export * from './types.js'" },
+ * 	modules: { '@scope/package': 'src/core' },
+ * })
+ * sources.source('@scope/package')?.surface()
+ * ```
+ */
+export function createSourceManager(options: SourceManagerOptions): SourceManagerInterface {
+	return new SourceManager(options)
 }
 
 /**

@@ -7,10 +7,10 @@ import {
 	symbolKey,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { readInventory, requireText } from '../../setupServer.js'
+import { readInventory, requireText } from '../../../setupServer.js'
 
-const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
-const GOOD_FILES = readInventory(new URL('../../fixtures/good/', import.meta.url), ['.'])
+const FIXTURES = readInventory(new URL('../../../fixtures/', import.meta.url), ['.'])
+const GOOD_FILES = readInventory(new URL('../../../fixtures/good/', import.meta.url), ['.'])
 
 // The pure Source view over a consumer-supplied file inventory — exports(),
 // surface(), methods(name), and exists(relative). Constructed from the good fixture
@@ -363,7 +363,7 @@ describe('Source', () => {
 
 	it('stranded-export: surface() reveals a direct declaration omitted from the conventional barrel', () => {
 		const source = new Source({
-			files: readInventory(new URL('../../fixtures/broken/stranded-export/', import.meta.url), [
+			files: readInventory(new URL('../../../fixtures/broken/stranded-export/', import.meta.url), [
 				'.',
 			]),
 			module: 'module',
@@ -767,9 +767,10 @@ describe('Source', () => {
 
 	it('class-extra-method: methods(Widget) includes the extra method the interface does not document', () => {
 		const source = new Source({
-			files: readInventory(new URL('../../fixtures/broken/class-extra-method/', import.meta.url), [
-				'.',
-			]),
+			files: readInventory(
+				new URL('../../../fixtures/broken/class-extra-method/', import.meta.url),
+				['.'],
+			),
 			module: 'module',
 		})
 		expect(source.methods('Widget')).toContain('extra')
@@ -781,7 +782,7 @@ describe('Source', () => {
 			...GOOD_FILES,
 			...Object.fromEntries(
 				Object.entries(
-					readInventory(new URL('../../fixtures/broken/class-extra-method/', import.meta.url), [
+					readInventory(new URL('../../../fixtures/broken/class-extra-method/', import.meta.url), [
 						'.',
 					]),
 				).map(([key, value]) => [`extra/${key}`, value]),
@@ -814,9 +815,10 @@ describe('Source', () => {
 	// Surface row; hidden() is the only reflection that catches it.
 	it('hidden-declaration: hidden() reports the one non-exported function', () => {
 		const source = new Source({
-			files: readInventory(new URL('../../fixtures/broken/hidden-declaration/', import.meta.url), [
-				'.',
-			]),
+			files: readInventory(
+				new URL('../../../fixtures/broken/hidden-declaration/', import.meta.url),
+				['.'],
+			),
 			module: 'module',
 		})
 		expect(source.hidden()).toEqual([{ name: 'secretHelper', kind: 'function' }])
@@ -839,7 +841,7 @@ describe('Source', () => {
 
 	it('missing-example: examples() reports only greet (the @example-carrying function)', () => {
 		const source = new Source({
-			files: readInventory(new URL('../../fixtures/broken/missing-example/', import.meta.url), [
+			files: readInventory(new URL('../../../fixtures/broken/missing-example/', import.meta.url), [
 				'.',
 			]),
 			module: 'module',

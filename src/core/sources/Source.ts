@@ -1,4 +1,4 @@
-import type { SourceInterface, SourceOptions, SurfaceSymbol } from './types.js'
+import type { SourceInterface, SourceOptions, SurfaceSymbol } from '../types.js'
 import {
 	declarationBody,
 	exampleMethods,
@@ -13,7 +13,7 @@ import {
 	resolvePath,
 	selectModuleKeys,
 	symbolKey,
-} from './helpers.js'
+} from '../helpers.js'
 
 /**
  * A pure `SourceInterface` — reflects a module scope's intentional direct

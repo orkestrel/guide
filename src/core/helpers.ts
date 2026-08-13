@@ -590,6 +590,24 @@ export function normalizeDirectories(module: GuideModule): readonly string[] {
 }
 
 /**
+ * The stable cache key for a {@link GuideModule}. Directories normalize before
+ * joining, so equivalent module spellings share one key. The NUL separator
+ * cannot occur in filesystem-backed canonical-segment inventory keys, so no
+ * directory boundary can collide with directory text.
+ *
+ * @param module - The module scope to key
+ * @returns The normalized directories joined by NUL
+ *
+ * @example
+ * ```ts
+ * moduleKey(['src/core', 'src/browser']) // 'src/core\0src/browser'
+ * ```
+ */
+export function moduleKey(module: GuideModule): string {
+	return normalizeDirectories(module).join('\0')
+}
+
+/**
  * The exact opaque file-inventory keys belonging under any canonical
  * {@link GuideModule} directory, sorted. `'.'` selects canonical root-relative
  * keys without accepting `/`, `./`, or `../` aliases. Every selected exact

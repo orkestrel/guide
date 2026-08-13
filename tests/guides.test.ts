@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	createGuide,
 	createSource,
+	createSourceManager,
 	fenceImports,
 	findMissing,
 	findUnexampled,
@@ -17,7 +18,6 @@ import {
 } from '@src/core'
 import { readInventory, requireText } from './setupServer.js'
 
-const SELF_SPECIFIERS = ['@orkestrel/guide', '@src/core']
 const FENCE_LANGUAGES = Object.freeze(['ts'])
 const EXAMPLE_LANGUAGE = 'ts'
 const files = readInventory(
@@ -26,6 +26,10 @@ const files = readInventory(
 	['.ts', '.md'],
 )
 const manifest = parseManifest(requireText(files, 'guides/README.md'), 'guides')
+const sources = createSourceManager({
+	files,
+	modules: { '@orkestrel/guide': 'src/core' },
+})
 
 it('manifest lists at least one guide', () => {
 	expect(manifest.length).toBeGreaterThan(0)
@@ -111,12 +115,13 @@ for (const entry of manifest) {
 		}
 
 		it('imports only real exports in every ```ts fence', () => {
-			const exportNames = source.surface().map((symbol) => symbol.name)
 			const fences = guide.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
 			for (const fence of fences) {
 				for (const { specifier, names } of fenceImports(fence.code)) {
-					if (!SELF_SPECIFIERS.includes(specifier)) continue
-					expect(findMissing(names, exportNames)).toEqual([])
+					const imported = sources.source(specifier)
+					if (imported === undefined) continue
+					const surface = imported.surface().map((symbol) => symbol.name)
+					expect(findMissing(names, surface)).toEqual([])
 				}
 			}
 		})

@@ -235,6 +235,28 @@ export interface SourceOptions {
 }
 
 /**
+ * The construction input for a {@link SourceManager}: one shared file inventory
+ * plus the consumer's specifier-to-module policy.
+ */
+export interface SourceManagerOptions {
+	/** The workspace's exact canonical-segment opaque inventory keys, root-relative path → text. */
+	readonly files: Readonly<Record<string, string>>
+	/** Each local import specifier mapped to the source module it exposes. */
+	readonly modules: Readonly<Record<string, GuideModule>>
+}
+
+/** A specifier resolver that shares one {@link SourceInterface} per module. */
+export interface SourceManagerInterface {
+	/**
+	 * Resolve a mapped specifier to its shared source view.
+	 *
+	 * @param specifier - The import specifier to resolve
+	 * @returns Its source view, or `undefined` when the specifier is not mapped
+	 */
+	source(specifier: string): SourceInterface | undefined
+}
+
+/**
  * A declaration head joined into a single line, plus the index of the line
  * carrying its opening `{` — how a head that oxfmt wrapped across lines
  * (printWidth 100) is matched as if it were written on one.
