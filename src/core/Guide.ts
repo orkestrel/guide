@@ -1,9 +1,9 @@
 import { createMarkdown, flattenText, isHeadingNode } from '@orkestrel/markdown'
-import type { GuideInterface, MethodGroup, SurfaceSymbol } from './types.js'
+import type { GuideFence, GuideInterface, MethodGroup, SurfaceSymbol } from './types.js'
 import {
+	extractFences,
 	extractLinks,
 	extractMethods,
-	extractPatterns,
 	extractSurface,
 	extractTests,
 } from './helpers.js'
@@ -11,7 +11,7 @@ import {
 /**
  * A stateful, structured view over one parsed guide — the six documented
  * projections (`sections` / `surface` / `methods` / `links` / `tests` /
- * `patterns`) are extracted once at construction and cached.
+ * `fences`) are extracted once at construction and cached.
  *
  * @remarks
  * Pure: parses `source` once via `@orkestrel/markdown` and never touches the
@@ -33,7 +33,7 @@ export class Guide implements GuideInterface {
 	readonly #methods: readonly MethodGroup[]
 	readonly #links: readonly string[]
 	readonly #tests: readonly string[]
-	readonly #patterns: readonly string[]
+	readonly #fences: readonly GuideFence[]
 
 	constructor(source: string) {
 		const document = createMarkdown(source).document
@@ -46,7 +46,7 @@ export class Guide implements GuideInterface {
 		this.#methods = extractMethods(document)
 		this.#links = extractLinks(document)
 		this.#tests = extractTests(document)
-		this.#patterns = extractPatterns(document)
+		this.#fences = extractFences(document)
 	}
 
 	sections(): readonly string[] {
@@ -69,7 +69,7 @@ export class Guide implements GuideInterface {
 		return this.#tests
 	}
 
-	patterns(): readonly string[] {
-		return this.#patterns
+	fences(): readonly GuideFence[] {
+		return this.#fences
 	}
 }

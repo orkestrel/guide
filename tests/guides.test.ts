@@ -8,6 +8,7 @@ import {
 	fenceImports,
 	findMissing,
 	findUnexampled,
+	findUnlisted,
 	isExternalLink,
 	missingSymbols,
 	parseManifest,
@@ -17,6 +18,8 @@ import {
 import { readInventory, requireText } from './setupServer.js'
 
 const SELF_SPECIFIERS = ['@orkestrel/guide', '@src/core']
+const FENCE_LANGUAGES = Object.freeze(['ts'])
+const EXAMPLE_LANGUAGE = 'ts'
 const files = readInventory(
 	new URL('../', import.meta.url),
 	['src', 'guides', 'tests'],
@@ -33,6 +36,10 @@ for (const entry of manifest) {
 	const source = createSource({ files, module: entry.source })
 
 	describe(`${entry.concept}`, () => {
+		it('uses only listed fence languages', () => {
+			expect(findUnlisted(guide.fences(), FENCE_LANGUAGES)).toEqual([])
+		})
+
 		it('extracts a non-empty documented surface', () => {
 			expect(guide.surface().length).toBeGreaterThan(0)
 		})
@@ -75,7 +82,10 @@ for (const entry of manifest) {
 		}
 
 		it('documents an example for every Surface function', () => {
-			const fences = guide.patterns()
+			const fences = guide
+				.fences()
+				.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
+				.map((fence) => fence.code)
 			const names = guide
 				.surface()
 				.filter((symbol) => symbol.kind === 'function')
@@ -87,7 +97,10 @@ for (const entry of manifest) {
 			const entity = group.interface.replace(/Interface$/, '')
 			describe(`${group.interface} examples`, () => {
 				it('documents an example for every method', () => {
-					const fences = guide.patterns()
+					const fences = guide
+						.fences()
+						.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
+						.map((fence) => fence.code)
 					const examples =
 						entity === group.interface
 							? source.examples(group.interface)
@@ -99,8 +112,9 @@ for (const entry of manifest) {
 
 		it('imports only real exports in every ```ts fence', () => {
 			const exportNames = source.surface().map((symbol) => symbol.name)
-			for (const fence of guide.patterns()) {
-				for (const { specifier, names } of fenceImports(fence)) {
+			const fences = guide.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
+			for (const fence of fences) {
+				for (const { specifier, names } of fenceImports(fence.code)) {
 					if (!SELF_SPECIFIERS.includes(specifier)) continue
 					expect(findMissing(names, exportNames)).toEqual([])
 				}

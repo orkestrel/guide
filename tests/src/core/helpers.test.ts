@@ -9,13 +9,14 @@ import {
 	extractExampleLines,
 	extractLinks,
 	extractMethods,
-	extractPatterns,
+	extractFences,
 	extractSourceLines,
 	extractSurface,
 	extractTests,
 	fenceImports,
 	findMissing,
 	findUnexampled,
+	findUnlisted,
 	firstCode,
 	identifierOf,
 	isExternalLink,
@@ -438,6 +439,28 @@ describe('findMissing', () => {
 
 	it('drops a duplicate name once it appears in source', () => {
 		expect(findMissing(['a', 'a', 'b'], ['a'])).toEqual(['b'])
+	})
+})
+
+describe('findUnlisted', () => {
+	it('returns fences whose language is absent from the allowed list', () => {
+		const document = createMarkdown('```typescript\nwalk()\n```\n').document
+		const fences = extractFences(document)
+		expect(findUnlisted(fences, ['ts'])).toEqual([{ language: 'typescript', code: 'walk()' }])
+	})
+
+	it('always returns an untagged fence', () => {
+		const document = createMarkdown('```\nwalk()\n```\n').document
+		const fences = extractFences(document)
+		expect(findUnlisted(fences, [])).toEqual([{ language: undefined, code: 'walk()' }])
+		expect(findUnlisted(fences, ['ts', 'typescript'])).toEqual([
+			{ language: undefined, code: 'walk()' },
+		])
+	})
+
+	it('returns an empty array when every fence language is listed', () => {
+		const document = createMarkdown('```ts\nwalk()\n```\n\n```json\n{}\n```\n').document
+		expect(findUnlisted(extractFences(document), ['ts', 'json'])).toEqual([])
 	})
 })
 
@@ -1569,30 +1592,48 @@ describe('exampleMethods', () => {
 	})
 })
 
-describe('extractPatterns', () => {
-	it("extracts a ```ts fence's code body", () => {
+describe('extractFences', () => {
+	it("extracts a ```ts fence's language and code body", () => {
 		const document = createMarkdown('## Patterns\n\n```ts\nwalk()\n```\n').document
-		expect(extractPatterns(document)).toEqual(['walk()'])
+		expect(extractFences(document)).toEqual([{ language: 'ts', code: 'walk()' }])
 	})
 
-	it('returns an empty array when the document has no ts fence', () => {
+	it('returns an empty array when the document has no fence', () => {
 		const document = createMarkdown('## Patterns\n\nno fences here\n').document
-		expect(extractPatterns(document)).toEqual([])
+		expect(extractFences(document)).toEqual([])
 	})
 
-	it('ignores a fence with a different lang tag', () => {
-		const document = createMarkdown('```json\n{}\n```\n').document
-		expect(extractPatterns(document)).toEqual([])
+	it('extracts an untagged fence with an undefined language', () => {
+		const document = createMarkdown('```\nwalk()\n```\n').document
+		expect(extractFences(document)).toEqual([{ language: undefined, code: 'walk()' }])
 	})
 
-	it('collects every ts fence in the document, in walk order', () => {
-		const document = createMarkdown('```ts\na()\n```\n\n```ts\nb()\n```\n').document
-		expect(extractPatterns(document)).toEqual(['a()', 'b()'])
+	it('uses the first info-string word as the language', () => {
+		const document = createMarkdown('```ts twoslash\nwalk()\n```\n').document
+		expect(extractFences(document)).toEqual([{ language: 'ts', code: 'walk()' }])
 	})
 
-	it("extracts the good fixture guide's Patterns fence bodies", () => {
+	it('preserves an uppercase language tag', () => {
+		const document = createMarkdown('```TS\nwalk()\n```\n').document
+		expect(extractFences(document)).toEqual([{ language: 'TS', code: 'walk()' }])
+	})
+
+	it('collects a fence nested inside a blockquote during the full AST walk', () => {
+		const document = createMarkdown('> ```ts\n> walk()\n> ```\n').document
+		expect(extractFences(document)).toEqual([{ language: 'ts', code: 'walk()' }])
+	})
+
+	it('collects every fence in the document, in walk order', () => {
+		const document = createMarkdown('```ts\na()\n```\n\n```json\n{}\n```\n').document
+		expect(extractFences(document)).toEqual([
+			{ language: 'ts', code: 'a()' },
+			{ language: 'json', code: '{}' },
+		])
+	})
+
+	it("extracts the good fixture guide's empty fence list", () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
-		expect(extractPatterns(document)).toEqual([])
+		expect(extractFences(document)).toEqual([])
 	})
 })
 
@@ -1603,7 +1644,7 @@ describe('broken fixture: missing-example', () => {
 		const guideDocument = createMarkdown(
 			requireText(FIXTURES, 'broken/missing-example/guides/src/widget.md'),
 		).document
-		const fences = extractPatterns(guideDocument)
+		const fences = extractFences(guideDocument).map((fence) => fence.code)
 		const surfaceNames = ['greet', 'farewell']
 		const examples = examplesFrom(requireText(FIXTURES, 'broken/missing-example/module/helpers.ts'))
 
@@ -1621,7 +1662,7 @@ describe('broken fixture: phantom-import', () => {
 		const guideDocument = createMarkdown(
 			requireText(FIXTURES, 'broken/phantom-import/guides/src/widget.md'),
 		).document
-		const fences = extractPatterns(guideDocument)
+		const fences = extractFences(guideDocument).map((fence) => fence.code)
 		const exportNames = exportsFrom(
 			requireText(FIXTURES, 'broken/phantom-import/module/helpers.ts'),
 		).map((symbol) => symbol.name)

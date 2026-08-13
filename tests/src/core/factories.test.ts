@@ -24,6 +24,7 @@ describe('createGuide', () => {
 		const guide = createGuide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.surface()).toHaveLength(6)
 		expect(guide.sections()).toEqual(['Surface', 'Methods', 'Tests'])
+		expect(guide.fences()).toEqual([])
 	})
 })
 

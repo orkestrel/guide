@@ -15,7 +15,7 @@ import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shap
 /**
  * Create a structured {@link GuideInterface} view over one guide's markdown
  * source — parses once and caches its `sections` / `surface` / `methods` /
- * `links` / `tests` / `patterns` projections.
+ * `links` / `tests` / `fences` projections.
  *
  * @param source - The guide's markdown source text
  * @returns A working {@link GuideInterface}

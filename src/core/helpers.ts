@@ -13,6 +13,7 @@ import {
 import { isNonEmptyString } from '@orkestrel/contract'
 import type {
 	DeclarationHead,
+	GuideFence,
 	GuideModule,
 	MethodGroup,
 	SourceLine,
@@ -663,6 +664,28 @@ export function findMissing(
 ): readonly string[] {
 	const existing = new Set(source)
 	return names.filter((name) => !existing.has(name))
+}
+
+/**
+ * The fences whose language is absent from the caller's listed languages.
+ * Untagged fences are always returned because they have no language to list.
+ *
+ * @param fences - The guide fences to check
+ * @param languages - The listed language tags
+ * @returns The unlisted fences in input order
+ *
+ * @example
+ * ```ts
+ * findUnlisted([{ language: 'typescript', code: 'walk()' }], ['ts'])
+ * // [{ language: 'typescript', code: 'walk()' }]
+ * ```
+ */
+export function findUnlisted(
+	fences: readonly GuideFence[],
+	languages: readonly string[],
+): readonly GuideFence[] {
+	const listed = new Set(languages)
+	return fences.filter((fence) => fence.language === undefined || !listed.has(fence.language))
 }
 
 /**
@@ -1438,21 +1461,21 @@ export function exampleMethods(lines: readonly string[]): readonly string[] {
 }
 
 /**
- * Every ```ts fenced code block's body text anywhere in the guide document —
- * a full AST walk so a fence nested inside a blockquote or list still counts.
+ * Every fenced code block anywhere in the guide document. A full AST walk
+ * includes fences nested inside blockquotes and lists.
  *
  * @param document - The parsed guide document
- * @returns Every `ts`-lang fence's verbatim code, in walk order
+ * @returns Every fence's language and verbatim code, in document order
  *
  * @example
  * ```ts
- * extractPatterns(document) // ["import { X } from './x.js'\nX()"]
+ * extractFences(document) // [{ language: 'ts', code: "import { X } from './x.js'\nX()" }]
  * ```
  */
-export function extractPatterns(document: MarkdownDocument): readonly string[] {
-	const patterns: string[] = []
+export function extractFences(document: MarkdownDocument): readonly GuideFence[] {
+	const fences: GuideFence[] = []
 	for (const node of walkNodes(document)) {
-		if (isCodeBlockNode(node) && node.lang === 'ts') patterns.push(node.code)
+		if (isCodeBlockNode(node)) fences.push({ language: node.lang, code: node.code })
 	}
-	return patterns
+	return fences
 }

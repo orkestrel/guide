@@ -66,6 +66,14 @@ export interface MethodGroup {
 	readonly methods: readonly string[]
 }
 
+/** One fenced code block projected from a guide document. */
+export interface GuideFence {
+	/** The info-string language tag, or `undefined` when the fence is untagged. */
+	readonly language: string | undefined
+	/** The fence's verbatim code body. */
+	readonly code: string
+}
+
 /**
  * The structured, pure view of one parsed guide — every projection extracted and
  * cached once at construction (see {@link createGuide}).
@@ -96,14 +104,15 @@ export interface GuideInterface {
 	 */
 	tests(): readonly string[]
 	/**
-	 * Every fenced `ts` code block's body text, whole document.
+	 * Every fenced code block in the whole document, in document order — no
+	 * language filter, so a consumer decides which languages its checks read.
 	 *
 	 * @example
 	 * ```ts
-	 * guide.patterns() // ["import { createGuide } from '@orkestrel/guide'"]
+	 * guide.fences() // [{ language: 'ts', code: "import { createGuide } from '@orkestrel/guide'" }]
 	 * ```
 	 */
-	patterns(): readonly string[]
+	fences(): readonly GuideFence[]
 }
 
 /**
@@ -205,7 +214,7 @@ export interface SourceInterface {
 	 *
 	 * @example
 	 * ```ts
-	 * source.examples('GuideInterface') // ['links', 'tests', 'patterns']
+	 * source.examples('GuideInterface') // ['fences', 'links', 'tests']
 	 * ```
 	 */
 	examples(name: string): readonly string[]
