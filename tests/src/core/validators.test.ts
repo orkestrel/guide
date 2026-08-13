@@ -8,7 +8,8 @@ import {
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
-import { readInventory, requireText } from '../../setupServer.js'
+import { readInventory } from '@orkestrel/test/server'
+import { requireText } from '../../setupServer.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 

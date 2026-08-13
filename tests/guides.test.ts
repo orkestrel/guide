@@ -16,15 +16,14 @@ import {
 	resolveLink,
 	symbolKey,
 } from '@src/core'
-import { readInventory, requireText } from './setupServer.js'
+import { readInventory } from '@orkestrel/test/server'
+import { requireText } from './setupServer.js'
 
 const FENCE_LANGUAGES = Object.freeze(['ts'])
 const EXAMPLE_LANGUAGE = 'ts'
-const files = readInventory(
-	new URL('../', import.meta.url),
-	['src', 'guides', 'tests'],
-	['.ts', '.md'],
-)
+const files = readInventory(new URL('../', import.meta.url), ['src', 'guides', 'tests'], {
+	extensions: ['.ts', '.md'],
+})
 const manifest = parseManifest(requireText(files, 'guides/README.md'), 'guides')
 const sources = createSourceManager({
 	files,

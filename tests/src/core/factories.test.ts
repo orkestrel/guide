@@ -8,7 +8,8 @@ import {
 import { seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
-import { readInventory, requireText } from '../../setupServer.js'
+import { readInventory } from '@orkestrel/test/server'
+import { requireText } from '../../setupServer.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 

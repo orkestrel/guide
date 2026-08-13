@@ -7,7 +7,8 @@ import {
 	symbolKey,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { readInventory, requireText } from '../../../setupServer.js'
+import { readInventory } from '@orkestrel/test/server'
+import { requireText } from '../../../setupServer.js'
 
 const FIXTURES = readInventory(new URL('../../../fixtures/', import.meta.url), ['.'])
 const GOOD_FILES = readInventory(new URL('../../../fixtures/good/', import.meta.url), ['.'])
