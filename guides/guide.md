@@ -1,8 +1,8 @@
 # Guide
 
 > A pure, I/O-free guides-parity toolkit: `Guide` extracts a markdown guide's documented
-> surface, method groups, links, and test links; `Source` reflects direct declarations and
-> conventional barrel reachability from a consumer-supplied file inventory via pure text
+> surface, method groups, links, test links, and fenced code blocks; `Source` reflects direct
+> declarations and conventional barrel reachability from a consumer-supplied file inventory via pure text
 > scanners (no filesystem or TypeScript compiler API); runtime dependencies provide markdown
 > and contract primitives, while comparison helpers (`missingSymbols`, `findMissing`,
 > `resolveLink`, …) reduce every guides-parity check to `expect([]).toEqual([])`
@@ -10,8 +10,9 @@
 
 The doctrine: a guide is a contract, not prose. `createGuide(markdown)` parses a guide's
 source once (via `@orkestrel/markdown`) into a `GuideInterface` — its `## Surface` identifiers
-(kind-tagged), its `## Methods` interface/method groups, every link, and its `## Tests`
-links, each cached at construction. `createSource({ files, module })` builds a
+(kind-tagged), its `## Methods` interface/method groups, every link, its `## Tests`
+links, and every fenced code block, each cached at construction.
+`createSource({ files, module })` builds a
 `SourceInterface` that reflects intentional direct declarations, conventional barrel-reachable
 declarations, and interface/class methods by scanning a consumer-gathered file inventory with
 plain-text line scanners, never touching disk itself. A guides-parity test asserts direct
@@ -34,7 +35,8 @@ The manifest/extraction shapes every check is built from, from [`types.ts`](../s
 | `SourceLine`      | interface | `{ source, code, jsdoc }` — one terminator-free physical source line with exact raw text, equal-length projections, and every genuine JSDoc span at its physical column or `undefined`.             |
 | `ManifestEntry`   | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                                                                          |
 | `MethodGroup`     | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                                                                                |
-| `GuideInterface`  | interface | `{ sections, surface, methods, links, tests, patterns }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                           |
+| `GuideFence`      | interface | `{ language, code }` — one fenced code block; `language` is its info-string tag, or `undefined` when the fence is untagged.                                                                         |
+| `GuideInterface`  | interface | `{ sections, surface, methods, links, tests, fences }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                             |
 | `SourceInterface` | interface | `{ exports, surface, methods, exists, hidden, examples }` — direct declarations, conventional barrel reachability, members, paths, discipline, and examples. See [`## Methods`](#methods).          |
 | `SourceOptions`   | interface | `{ files, module }` — exact canonical-segment opaque workspace-relative inventory keys plus the canonicalized module scope to reflect.                                                              |
 | `DeclarationHead` | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`.                                                             |
@@ -59,38 +61,39 @@ the declaration, member, JSDoc, and guide-document grammars built on it, and the
 path primitives `Guide`, `Source`, `parsers.ts`, and a consumer's parity test all reach for
 directly.
 
-| Name                   | Kind     | Signature                                                                                                 | Behavior                                                                                                                                           |
-| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `normalizeDirectories` | function | `(module: GuideModule) => readonly string[]`                                                              | Canonicalizes through `resolvePath`, uses `'.'` for root, and removes duplicates in first-seen order.                                              |
-| `selectModuleKeys`     | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`                     | Selects exact canonical-segment opaque `.ts` keys under any scope and excludes every selected exact `index.ts` plus `*.test.ts`; sorted.           |
-| `hasCanonicalSegments` | function | `(key: string) => boolean`                                                                                | Rejects empty, `.` and `..` slash-separated segments without normalization while retaining ordinary dotfiles.                                      |
-| `symbolKey`            | function | `(symbol: SurfaceSymbol) => string`                                                                       | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.                     |
-| `findMissing`          | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`                              | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                           |
-| `missingSymbols`       | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]`              | The `symbolKey` set-difference between two symbol lists.                                                                                           |
-| `extractSourceLines`   | function | `(source: string) => readonly SourceLine[]`                                                               | Equal-length physical source, code, and JSDoc projection with bounded literal Unicode identifier slash state.                                      |
-| `exportsFrom`          | function | `(source: string) => readonly SurfaceSymbol[]`                                                            | Direct five-kind exports over projected lines with an uninterrupted column-zero head; projection never widens membership.                          |
-| `hiddenFrom`           | function | `(source: string) => readonly SurfaceSymbol[]`                                                            | The non-exported mirror with the same projected, uninterrupted column-zero head and five-kind population.                                          |
-| `joinHead`             | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`                               | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.                         |
-| `declarationBody`      | function | `(source: string, keyword: 'class' \| 'interface', name: string) => readonly string[]`                    | Selects a real head/close from projected lines and returns the aligned raw body for JSDoc evidence.                                                |
-| `memberMethods`        | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members on one projection of the body; commented candidates, getters, setters, `static`, and `#` privates never count.            |
-| `extractExampleLines`  | function | `(lines: readonly SourceLine[]) => readonly SourceLine[]`                                                 | The next physical candidate after the authoritative exact `@example` span in a leading chain.                                                      |
-| `examplesFrom`         | function | `(source: string) => readonly string[]`                                                                   | Matches exported functions against shared eligible genuine JSDoc adjacency and aligned code.                                                       |
-| `exampleMethods`       | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members against the same shared eligible genuine JSDoc adjacency and aligned code.                                                |
-| `sectionBlocks`        | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                                   | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                                         |
-| `extractSurface`       | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                                                | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `symbolKey`.                                 |
-| `extractMethods`       | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                                                  | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods. |
-| `extractLinks`         | function | `(document: MarkdownDocument) => readonly string[]`                                                       | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                                       |
-| `extractTests`         | function | `(document: MarkdownDocument) => readonly string[]`                                                       | The relative test links declared under `## Tests`.                                                                                                 |
-| `extractPatterns`      | function | `(document: MarkdownDocument) => readonly string[]`                                                       | Every fenced `ts` code block's body text anywhere in the guide document — a full AST walk.                                                         |
-| `isExternalLink`       | function | `(href: string) => boolean`                                                                               | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.               |
-| `resolveLink`          | function | `(file: string, target: string) => string`                                                                | Derives a declaring file's directory, including workspace-root files, then delegates to `resolvePath`.                                             |
-| `resolvePath`          | function | `(directory: string, target: string) => string`                                                           | Sole dot-segment reducer; returns `'.'` when no segment remains and preserves every excess leading parent.                                         |
-| `firstCode`            | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                                   | The first code-span value found by descending an inline node list, following into `emphasis` / `link` children.                                    |
-| `identifierOf`         | function | `(code: string) => string`                                                                                | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                        |
-| `kindIndex`            | function | `(table: TableNode) => number \| undefined`                                                               | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                   |
-| `cellLinks`            | function | `(cell: readonly InlineNode[]) => readonly string[]`                                                      | The link hrefs found within one table cell's inline content, in walk order.                                                                        |
-| `findUnexampled`       | function | `(names: readonly string[], fences: readonly string[], examples: readonly string[]) => readonly string[]` | The names with no fence mention (word boundary) and no `@example` membership — the EX check's core comparison.                                     |
-| `fenceImports`         | function | `(fence: string) => readonly { specifier: string, names: readonly string[] }[]`                           | Parses a fence's `import` statements into per-specifier imported identifier names — the FI check's core comparison.                                |
+| Name                   | Kind     | Signature                                                                                                 | Behavior                                                                                                                                                                                                                                          |
+| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `normalizeDirectories` | function | `(module: GuideModule) => readonly string[]`                                                              | Canonicalizes through `resolvePath`, uses `'.'` for root, and removes duplicates in first-seen order.                                                                                                                                             |
+| `selectModuleKeys`     | function | `(files: Readonly<Record<string, string>>, module: GuideModule) => readonly string[]`                     | Selects exact canonical-segment opaque `.ts` keys under any scope and excludes every selected exact `index.ts` plus `*.test.ts`; sorted.                                                                                                          |
+| `hasCanonicalSegments` | function | `(key: string) => boolean`                                                                                | Rejects empty, `.` and `..` slash-separated segments without normalization while retaining ordinary dotfiles.                                                                                                                                     |
+| `symbolKey`            | function | `(symbol: SurfaceSymbol) => string`                                                                       | The bijection key for a surface symbol — `${kind} ${name}` — so a symbol comparison diffs (name, kind) pairs, not names alone.                                                                                                                    |
+| `findMissing`          | function | `(names: readonly string[], source: readonly string[]) => readonly string[]`                              | The names present in `names` but absent from `source` — the set-difference behind a both-directions bijection assertion.                                                                                                                          |
+| `missingSymbols`       | function | `(symbols: readonly SurfaceSymbol[], source: readonly SurfaceSymbol[]) => readonly string[]`              | The `symbolKey` set-difference between two symbol lists.                                                                                                                                                                                          |
+| `extractSourceLines`   | function | `(source: string) => readonly SourceLine[]`                                                               | Equal-length physical source, code, and JSDoc projection with bounded literal Unicode identifier slash state.                                                                                                                                     |
+| `exportsFrom`          | function | `(source: string) => readonly SurfaceSymbol[]`                                                            | Direct five-kind exports over projected lines with an uninterrupted column-zero head; projection never widens membership.                                                                                                                         |
+| `hiddenFrom`           | function | `(source: string) => readonly SurfaceSymbol[]`                                                            | The non-exported mirror with the same projected, uninterrupted column-zero head and five-kind population.                                                                                                                                         |
+| `joinHead`             | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`                               | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.                                                                                                                        |
+| `declarationBody`      | function | `(source: string, keyword: 'class' \| 'interface', name: string) => readonly string[]`                    | Selects a real head/close from projected lines and returns the aligned raw body for JSDoc evidence.                                                                                                                                               |
+| `memberMethods`        | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members on one projection of the body; commented candidates, getters, setters, `static`, and `#` privates never count.                                                                                                           |
+| `extractExampleLines`  | function | `(lines: readonly SourceLine[]) => readonly SourceLine[]`                                                 | The next physical candidate after the authoritative exact `@example` span in a leading chain.                                                                                                                                                     |
+| `examplesFrom`         | function | `(source: string) => readonly string[]`                                                                   | Matches exported functions against shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                                      |
+| `exampleMethods`       | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members against the same shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                               |
+| `sectionBlocks`        | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                                   | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                                                                                                                                        |
+| `extractSurface`       | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                                                | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `symbolKey`.                                                                                                                                |
+| `extractMethods`       | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                                                  | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods.                                                                                                |
+| `extractLinks`         | function | `(document: MarkdownDocument) => readonly string[]`                                                       | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                                                                                                                                      |
+| `extractTests`         | function | `(document: MarkdownDocument) => readonly string[]`                                                       | The relative test links declared under `## Tests`.                                                                                                                                                                                                |
+| `extractFences`        | function | `(document: MarkdownDocument) => readonly GuideFence[]`                                                   | Every fenced code block anywhere in the guide document, tagged or not — a full AST walk with no language filter.                                                                                                                                  |
+| `isExternalLink`       | function | `(href: string) => boolean`                                                                               | Whether a link `href` should be skipped by guides-parity link checks — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.                                                                                                              |
+| `resolveLink`          | function | `(file: string, target: string) => string`                                                                | Derives a declaring file's directory, including workspace-root files, then delegates to `resolvePath`.                                                                                                                                            |
+| `resolvePath`          | function | `(directory: string, target: string) => string`                                                           | Sole dot-segment reducer; returns `'.'` when no segment remains and preserves every excess leading parent.                                                                                                                                        |
+| `firstCode`            | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                                   | The first code-span value found by descending an inline node list, following into `emphasis`, `link`, and `image` children.                                                                                                                       |
+| `identifierOf`         | function | `(code: string) => string`                                                                                | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                                                                                                       |
+| `kindIndex`            | function | `(table: TableNode) => number \| undefined`                                                               | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                                                                                                  |
+| `cellLinks`            | function | `(cell: readonly InlineNode[]) => readonly string[]`                                                      | The link hrefs found within one table cell's inline content, in walk order.                                                                                                                                                                       |
+| `findUnexampled`       | function | `(names: readonly string[], fences: readonly string[], examples: readonly string[]) => readonly string[]` | The names with no fence mention (word boundary) and no `@example` membership — the EX check's core comparison.                                                                                                                                    |
+| `findUnlisted`         | function | `(fences: readonly GuideFence[], languages: readonly string[]) => readonly GuideFence[]`                  | The fences whose language the caller did not list, plus every untagged fence — an untagged fence has no language to list.                                                                                                                         |
+| `fenceImports`         | function | `(fence: string) => readonly { specifier: string, names: readonly string[] }[]`                           | Parses a fence's brace `import` statements into per-specifier imported identifier names — the FI check's core comparison. Brace bindings only: a default, namespace, side-effect, or mixed `import Default, { named }` statement is not surfaced. |
 
 ### Parsers
 
@@ -175,7 +178,7 @@ backticked name (AGENTS §22).
 | `methods`  | `readonly MethodGroup[]`   | One `MethodGroup` per documented behavioral interface in `## Methods`.                      |
 | `links`    | `readonly string[]`        | Every link href in the guide, including table cells.                                        |
 | `tests`    | `readonly string[]`        | The relative test links declared under `## Tests`.                                          |
-| `patterns` | `readonly string[]`        | Every fenced `ts` code block's body text, whole document.                                   |
+| `fences`   | `readonly GuideFence[]`    | Every fenced code block in the whole document, tagged or not — no language filter.          |
 
 #### `SourceInterface`
 
@@ -192,7 +195,7 @@ backticked name (AGENTS §22).
 
 `Guide` parses a guide's markdown once (via `@orkestrel/markdown`'s `createMarkdown`) and
 caches six projections at construction — `sections`, `surface`, `methods`, `links`, `tests`,
-`patterns` — so every accessor is a cheap array return, not a re-parse. `extractSurface` scopes to the
+`fences` — so every accessor is a cheap array return, not a re-parse. `extractSurface` scopes to the
 `## Surface` section (`sectionBlocks`) and unions two sources of identifiers: every table's
 column-0 code span (kind read from the column whose header text is `Kind`, located
 positionally so it survives reordering) and every backticked H3 entity heading (a class
@@ -202,8 +205,15 @@ table becomes that interface's `MethodGroup`. Both extractors normalize every id
 through `identifierOf`, stripping a generic-parameter annotation (`` `WidgetInterface<T>` ``
 → `WidgetInterface`) so the bijection key is always the bare name. `extractLinks` walks the
 whole AST for every `link` node (table cells included); `extractTests` does the same walk
-scoped to the `## Tests` section only; and `extractPatterns` walks the whole AST for every
-fenced `ts` code block.
+scoped to the `## Tests` section only; and `extractFences` walks the whole AST for every
+fenced code block, tagged or not, keeping each fence's info-string language and verbatim body.
+
+The fence projection is total on purpose. `Guide` reports what the document contains, and each
+consumer decides which languages its own checks read: `findUnlisted` states the list a package
+allows, and the example and import checks filter to the language they parse. A package documenting
+`sql` or `sh` examples can therefore feed those fences to its own checks. A `ts` filter inside
+`Guide` would have discarded them before the consumer ever saw them, and an untagged fence would
+have vanished with no language to report.
 
 `parseManifest(markdown, directory)` resolves every Spec, Source, and Tests link through
 `resolvePath(directory, target)`, so root, nested, and dotted directory names are ordinary path
@@ -305,16 +315,20 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
   missing.
 - **NV — Non-vacuousness.** `parseManifest` yields at least one entry; each guide's
   `surface()` and every `MethodGroup` is non-empty — the guard behind every other check.
+- **FL — Fence-language listing.** `findUnlisted(guide.fences(), LANGUAGES)` keeps every fence
+  whose language the package did not list, plus every untagged fence. The list is the package's
+  own — `Guide` never decides it — so a package documenting `sh` or `sql` examples lists those
+  languages and keeps its remaining checks scoped to the one they parse.
 - **EX — Examples presence.** A documented symbol "has an example" when its bare name
-  appears (word boundary) in any of `guide.patterns()`'s fence bodies, OR its source has
-  an immediately preceding eligible leading JSDoc chain whose final authoritative span carries
-  an exact block-position `@example` tag, with optional title text,
+  appears (word boundary) in any fence body from `guide.fences()` filtered to the example
+  language, OR its source has an immediately preceding eligible leading JSDoc chain whose final
+  authoritative span carries an exact block-position `@example` tag, with optional title text,
   (`source.examples()` / `source.examples(name)`).
   Applies to every `function`-kind `Surface` symbol and every `MethodGroup` member.
   Presence-only — fence and JSDoc CONTENT are never checked. `findUnexampled` is the
   comparison. Guard: the SB/MB extractions this check reuses already prove non-vacuous.
-- **FI — Fence-import reality.** Every `import { ... } from 'specifier'` in a
-  `guide.patterns()` fence, for a SELF specifier (this repo's own package name / path
+- **FI — Fence-import reality.** Every `import { ... } from 'specifier'` in a `guide.fences()`
+  fence of the checked language, for a SELF specifier (this repo's own package name / path
   alias), imports only names that exist in `source.surface()`. `fenceImports` parses the
   statement; `findMissing` diffs the imported names against the public/barrel surface's names.
 
@@ -347,6 +361,17 @@ const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` |
 guide.surface() // [{ name: 'X', kind: 'class' }]
 guide.sections() // ['Surface']
 ```
+
+### List the fence languages a package allows
+
+````ts
+import { createGuide, findUnlisted } from '@orkestrel/guide'
+
+const guide = createGuide('```ts\nconst a = 1\n```\n\n```sh\nnpm test\n```\n')
+guide.fences() // [{ language: 'ts', code: 'const a = 1' }, { language: 'sh', code: 'npm test' }]
+findUnlisted(guide.fences(), ['ts']) // [{ language: 'sh', code: 'npm test' }]
+findUnlisted(guide.fences(), ['ts', 'sh']) // []
+````
 
 ### Construct a `Source` from an inline files record
 
