@@ -73,7 +73,7 @@
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.12",
 		"@orkestrel/scaffold": "^0.0.30",
-		"@orkestrel/test": "^0.0.1",
+		"@orkestrel/test": "^0.0.2",
 		"@types/node": "^26.1.2",
 		"@vitest/browser-playwright": "^4.1.10",
 		"oxfmt": "^0.62.0",
