@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/guide",
-	"version": "0.0.13",
+	"version": "0.0.14",
 	"description": "Guides-parity test helpers — prove a package's guides are in bijection with the code they document: surface and methods bijection, link integrity, and non-vacuous extraction, built on @orkestrel/markdown. Part of the @orkestrel line.",
 	"keywords": [
 		"bijection",
@@ -73,11 +73,11 @@
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.13",
-		"@orkestrel/markdown": "^0.0.10"
+		"@orkestrel/markdown": "^0.0.11"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.59.0",
-		"@orkestrel/probe": "^0.0.5",
+		"@orkestrel/probe": "^0.0.6",
 		"@orkestrel/scaffold": "^0.0.52",
 		"@orkestrel/test": "^0.0.11",
 		"@types/node": "^26.3.0",
