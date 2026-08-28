@@ -1,6 +1,6 @@
+import type { ManifestEntry } from './types.js'
 import { createMarkdown, flattenText, isTableNode } from '@orkestrel/markdown'
 import { isEmptyString, isNonEmptyArray } from '@orkestrel/contract'
-import type { ManifestEntry } from './types.js'
 import { MANIFEST } from './constants.js'
 import { cellLinks, normalizeDirectories, resolvePath, sectionBlocks } from './helpers.js'
 

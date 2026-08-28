@@ -1,4 +1,10 @@
-import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from '@src/core'
+import {
+	EXPORT_KINDS,
+	isExportKind,
+	manifestEntryShape,
+	methodGroupShape,
+	surfaceSymbolShape,
+} from '@src/core'
 import { createContract, seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
@@ -23,13 +29,16 @@ describe('surfaceSymbolShape', () => {
 		expect(contract.schema.required).toEqual(['name', 'kind'])
 		expect(contract.schema.additionalProperties).toBe(false)
 		expect(contract.schema.properties?.name?.type).toBe('string')
-		expect(contract.schema.properties?.kind?.enum).toEqual([
-			'type',
-			'interface',
-			'const',
-			'function',
-			'class',
-		])
+		expect(contract.schema.properties?.kind?.enum).toEqual(EXPORT_KINDS)
+	})
+
+	it('is: agrees with isExportKind on every declared kind and on a non-member', () => {
+		for (const kind of EXPORT_KINDS) {
+			expect(isExportKind(kind)).toBe(true)
+			expect(contract.is({ name: 'Widget', kind })).toBe(true)
+		}
+		expect(isExportKind('enum')).toBe(false)
+		expect(contract.is({ name: 'Widget', kind: 'enum' })).toBe(false)
 	})
 
 	it('generate: round-trips through is and parse', () => {

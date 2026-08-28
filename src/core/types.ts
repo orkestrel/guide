@@ -1,13 +1,22 @@
+import type { EXPORT_KINDS } from './constants.js'
+
 /**
  * The declaration kind a documented / exported symbol carries — exactly the
- * five reflected `type`, `interface`, `const`, `function`, and `class` heads.
- * Comment/template payload is excluded before reflection. `enum` is outside
- * this population, not forbidden by general package policy.
+ * five reflected `type`, `interface`, `const`, `function`, and `class` heads,
+ * derived from {@link EXPORT_KINDS} so the type, the guard, and the shape name
+ * one population. Comment/template payload is excluded before reflection.
+ * `enum` is outside this population, not forbidden by general package policy.
  */
-export type ExportKind = 'type' | 'interface' | 'const' | 'function' | 'class'
+export type ExportKind = (typeof EXPORT_KINDS)[number]
 
 /**
  * One documented / exported symbol — its identifier plus its declaration kind.
+ *
+ * @remarks
+ * `kind` mirrors the guide Surface table's own `Kind` column header, which this
+ * package locates by that exact text (`kindIndex`) and cannot rename. The
+ * property keeps the column's spelling so the documented table and the
+ * reflected symbol name one axis.
  */
 export interface SurfaceSymbol {
 	/** Its identifier. */
@@ -66,6 +75,17 @@ export interface MethodGroup {
 	readonly methods: readonly string[]
 }
 
+/**
+ * One brace `import` statement projected from a guide fence — its specifier
+ * paired with the exported names it binds.
+ */
+export interface FenceImport {
+	/** The module specifier the statement imports from. */
+	readonly specifier: string
+	/** The imported names, each alias resolved to the original exported name. */
+	readonly names: readonly string[]
+}
+
 /** One fenced code block projected from a guide document. */
 export interface GuideFence {
 	/** The info-string language tag, or `undefined` when the fence is untagged. */
@@ -79,11 +99,23 @@ export interface GuideFence {
  * cached once at construction (see {@link createGuide}).
  */
 export interface GuideInterface {
-	/** The `##` heading names, in document order — the non-vacuousness guard for section presence. */
+	/**
+	 * The `##` heading names, in document order — the non-vacuousness guard for section presence.
+	 *
+	 * @returns The document's `##` heading names, in document order
+	 */
 	sections(): readonly string[]
-	/** Every `## Surface` identifier + kind — table rows union backticked entity headings. */
+	/**
+	 * Every `## Surface` identifier + kind — table rows union backticked entity headings.
+	 *
+	 * @returns The documented surface symbols, in encounter order
+	 */
 	surface(): readonly SurfaceSymbol[]
-	/** One {@link MethodGroup} per documented behavioral interface in `## Methods`. */
+	/**
+	 * One {@link MethodGroup} per documented behavioral interface in `## Methods`.
+	 *
+	 * @returns One group per documented behavioral interface, in document order
+	 */
 	methods(): readonly MethodGroup[]
 	/**
 	 * Every link href in the guide, including table cells.
@@ -132,6 +164,8 @@ export interface SourceInterface {
 	 * uninterrupted column-zero declaration-head grammar. `enum`
 	 * and other TypeScript export forms are outside this five-kind reflection
 	 * population, not forbidden by general package policy.
+	 *
+	 * @returns The selected modules' direct declarations, deduplicated and sorted by name
 	 */
 	exports(): readonly SurfaceSymbol[]
 	/**
@@ -174,9 +208,19 @@ export interface SourceInterface {
 	 * ```
 	 */
 	surface(): readonly SurfaceSymbol[]
-	/** The call-signature members of the `class` / `interface` named `name`. */
+	/**
+	 * The call-signature members of the `class` / `interface` named `name`.
+	 *
+	 * @param name - The declaration's identifier
+	 * @returns Its declared method names, deduplicated and sorted, a class `constructor` excluded
+	 */
 	methods(name: string): readonly string[]
-	/** Whether a workspace-root-relative path exists in the inventory. */
+	/**
+	 * Whether a workspace-root-relative path exists in the inventory.
+	 *
+	 * @param relative - The workspace-root-relative path to look up
+	 * @returns True if the inventory holds that exact key; false otherwise
+	 */
 	exists(relative: string): boolean
 	/**
 	 * Every module-scope declaration LACKING the `export` keyword (AGENTS §5's

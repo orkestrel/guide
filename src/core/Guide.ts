@@ -1,5 +1,5 @@
-import { createMarkdown, flattenText, isHeadingNode } from '@orkestrel/markdown'
 import type { GuideFence, GuideInterface, MethodGroup, SurfaceSymbol } from './types.js'
+import { createMarkdown, flattenText, isHeadingNode } from '@orkestrel/markdown'
 import {
 	extractFences,
 	extractLinks,

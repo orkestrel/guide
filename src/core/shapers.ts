@@ -1,4 +1,5 @@
 import { arrayShape, literalShape, objectShape, stringShape, unionShape } from '@orkestrel/contract'
+import { EXPORT_KINDS } from './constants.js'
 
 // AGENTS section 14 / 4.6.1: shapers are `ContractShape` VALUES, not functions
 // or types - a JSON-Schema blueprint the compilers (factories.ts) turn into a
@@ -20,7 +21,7 @@ import { arrayShape, literalShape, objectShape, stringShape, unionShape } from '
  */
 export const surfaceSymbolShape = objectShape({
 	name: stringShape(),
-	kind: literalShape(['type', 'interface', 'const', 'function', 'class']),
+	kind: literalShape(EXPORT_KINDS),
 })
 
 /**

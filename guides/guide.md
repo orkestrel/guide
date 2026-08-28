@@ -29,34 +29,36 @@ iterates to run this check once per documented concept.
 
 The manifest/extraction shapes every check is built from, from [`types.ts`](../src/core/types.ts).
 
-| Name                     | Kind      | Shape                                                                                                                                                                                               |
-| ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExportKind`             | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the five-kind reflection population. Comment/template payload and enums are outside it; general package policy does not forbid enums. |
-| `SurfaceSymbol`          | interface | `{ name, kind }` — one documented / exported symbol.                                                                                                                                                |
-| `GuideModule`            | type      | `string \| readonly string[]` — one source directory, or several; `'.'` is the canonical workspace root.                                                                                            |
-| `SourceLine`             | interface | `{ source, code, jsdoc }` — one terminator-free physical source line with exact raw text, equal-length projections, and every genuine JSDoc span at its physical column or `undefined`.             |
-| `ManifestEntry`          | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                                                                          |
-| `MethodGroup`            | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                                                                                |
-| `GuideFence`             | interface | `{ language, code }` — one fenced code block; `language` is its info-string tag, or `undefined` when the fence is untagged.                                                                         |
-| `GuideInterface`         | interface | `{ sections, surface, methods, links, tests, fences }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                             |
-| `SourceInterface`        | interface | `{ exports, surface, methods, exists, hidden, examples }` — direct declarations, conventional barrel reachability, members, paths, discipline, and examples. See [`## Methods`](#methods).          |
-| `SourceManagerInterface` | interface | `{ source }` — resolves one import specifier to the shared source view of the module it names. See [`## Methods`](#methods).                                                                        |
-| `SourceOptions`          | interface | `{ files, module }` — exact canonical-segment opaque workspace-relative inventory keys plus the canonicalized module scope to reflect.                                                              |
-| `SourceManagerOptions`   | interface | `{ files, modules }` — one shared inventory plus the consumer's own specifier-to-module policy.                                                                                                     |
-| `DeclarationHead`        | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`.                                                             |
+| Name                     | Kind      | Shape                                                                                                                                                                                                                            |
+| ------------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExportKind`             | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the five-kind reflection population, derived from `EXPORT_KINDS`. Comment/template payload and enums are outside it; general package policy does not forbid enums. |
+| `SurfaceSymbol`          | interface | `{ name, kind }` — one documented / exported symbol. `kind` mirrors this table's own `Kind` column header, which the package locates by that exact text (`kindIndex`) and cannot rename.                                         |
+| `GuideModule`            | type      | `string \| readonly string[]` — one source directory, or several; `'.'` is the canonical workspace root.                                                                                                                         |
+| `SourceLine`             | interface | `{ source, code, jsdoc }` — one terminator-free physical source line with exact raw text, equal-length projections, and every genuine JSDoc span at its physical column or `undefined`.                                          |
+| `ManifestEntry`          | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                                                                                                       |
+| `MethodGroup`            | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                                                                                                             |
+| `FenceImport`            | interface | `{ specifier, names }` — one brace `import` statement projected from a guide fence, each alias resolved to the original exported name.                                                                                           |
+| `GuideFence`             | interface | `{ language, code }` — one fenced code block; `language` is its info-string tag, or `undefined` when the fence is untagged.                                                                                                      |
+| `GuideInterface`         | interface | `{ sections, surface, methods, links, tests, fences }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                                                          |
+| `SourceInterface`        | interface | `{ exports, surface, methods, exists, hidden, examples }` — direct declarations, conventional barrel reachability, members, paths, discipline, and examples. See [`## Methods`](#methods).                                       |
+| `SourceManagerInterface` | interface | `{ source }` — resolves one import specifier to the shared source view of the module it names. See [`## Methods`](#methods).                                                                                                     |
+| `SourceOptions`          | interface | `{ files, module }` — exact canonical-segment opaque workspace-relative inventory keys plus the canonicalized module scope to reflect.                                                                                           |
+| `SourceManagerOptions`   | interface | `{ files, modules }` — one shared inventory plus the consumer's own specifier-to-module policy.                                                                                                                                  |
+| `DeclarationHead`        | interface | `{ text, end }` — a declaration head joined into one line (across an oxfmt-wrapped signature) plus the index of the line ending in `{`.                                                                                          |
 
 ### Constants
 
-The section-heading keys and external-link schemes every extractor and link check is keyed
-on, from [`constants.ts`](../src/core/constants.ts).
+The declaration-kind population, the section-heading keys, and the external-link schemes every
+extractor and link check is keyed on, from [`constants.ts`](../src/core/constants.ts).
 
-| Name               | Kind  | Behavior                                                                                                                        |
-| ------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `SURFACE`          | const | `'Surface'` — the `## Surface` heading text.                                                                                    |
-| `METHODS`          | const | `'Methods'` — the `## Methods` heading text.                                                                                    |
-| `TESTS`            | const | `'Tests'` — the `## Tests` heading text.                                                                                        |
-| `MANIFEST`         | const | `'By concept'` — the `## By concept` manifest heading text.                                                                     |
-| `EXTERNAL_SCHEMES` | const | `readonly string[]` — `['http:', 'https:', 'mailto:', 'tel:']`; a link with one of these prefixes is never filesystem-resolved. |
+| Name               | Kind  | Behavior                                                                                                                                              |
+| ------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXPORT_KINDS`     | const | `['type', 'interface', 'const', 'function', 'class']` — the frozen population `ExportKind`, `isExportKind`, and `surfaceSymbolShape` all derive from. |
+| `SURFACE`          | const | `'Surface'` — the `## Surface` heading text.                                                                                                          |
+| `METHODS`          | const | `'Methods'` — the `## Methods` heading text.                                                                                                          |
+| `TESTS`            | const | `'Tests'` — the `## Tests` heading text.                                                                                                              |
+| `MANIFEST`         | const | `'By concept'` — the `## By concept` manifest heading text.                                                                                           |
+| `EXTERNAL_SCHEMES` | const | `readonly string[]` — `['http:', 'https:', 'mailto:', 'tel:']`; a link with one of these prefixes is never filesystem-resolved.                       |
 
 ### Helpers
 
@@ -98,7 +100,7 @@ directly.
 | `cellLinks`            | function | `(cell: readonly InlineNode[]) => readonly string[]`                                                      | The link hrefs found within one table cell's inline content, in walk order.                                                                                                                                                                       |
 | `findUnexampled`       | function | `(names: readonly string[], fences: readonly string[], examples: readonly string[]) => readonly string[]` | The names with no fence mention (word boundary) and no `@example` membership — the EX check's core comparison.                                                                                                                                    |
 | `findUnlisted`         | function | `(fences: readonly GuideFence[], languages: readonly string[]) => readonly GuideFence[]`                  | The fences whose language the caller did not list, plus every untagged fence — an untagged fence has no language to list.                                                                                                                         |
-| `fenceImports`         | function | `(fence: string) => readonly { specifier: string, names: readonly string[] }[]`                           | Parses a fence's brace `import` statements into per-specifier imported identifier names — the FI check's core comparison. Brace bindings only: a default, namespace, side-effect, or mixed `import Default, { named }` statement is not surfaced. |
+| `fenceImports`         | function | `(fence: string) => readonly FenceImport[]`                                                               | Parses a fence's brace `import` statements into per-specifier imported identifier names — the FI check's core comparison. Brace bindings only: a default, namespace, side-effect, or mixed `import Default, { named }` statement is not surfaced. |
 
 ### Parsers
 

@@ -1,6 +1,7 @@
 import type { Guard } from '@orkestrel/contract'
 import type { ExportKind, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
 import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/contract'
+import { EXPORT_KINDS } from './constants.js'
 
 // AGENTS section 14: guards are total. Every guard here validates an arbitrary
 // `unknown` value crossing an untrusted boundary (parsed guide/manifest data)
@@ -20,13 +21,7 @@ import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/cont
  * isExportKind('enum')  // false
  * ```
  */
-export const isExportKind: Guard<ExportKind> = literalOf(
-	'type',
-	'interface',
-	'const',
-	'function',
-	'class',
-)
+export const isExportKind: Guard<ExportKind> = literalOf(EXPORT_KINDS)
 
 /**
  * Whether `value` is a well-formed {@link SurfaceSymbol} — a `name` string

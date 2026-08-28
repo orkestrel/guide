@@ -1,4 +1,13 @@
 import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkestrel/markdown'
+import type {
+	DeclarationHead,
+	FenceImport,
+	GuideFence,
+	GuideModule,
+	MethodGroup,
+	SourceLine,
+	SurfaceSymbol,
+} from './types.js'
 import {
 	flattenText,
 	isCodeBlockNode,
@@ -11,14 +20,6 @@ import {
 	walkNodes,
 } from '@orkestrel/markdown'
 import { isNonEmptyString } from '@orkestrel/contract'
-import type {
-	DeclarationHead,
-	GuideFence,
-	GuideModule,
-	MethodGroup,
-	SourceLine,
-	SurfaceSymbol,
-} from './types.js'
 import { EXTERNAL_SCHEMES, METHODS, SURFACE, TESTS } from './constants.js'
 import { isExportKind } from './validators.js'
 
@@ -770,10 +771,8 @@ export function findUnexampled(
  * fenceImports("import { a, b as c } from 'x'\n") // [{ specifier: 'x', names: ['a', 'b'] }]
  * ```
  */
-export function fenceImports(
-	fence: string,
-): ReadonlyArray<{ specifier: string; names: readonly string[] }> {
-	const results: Array<{ specifier: string; names: readonly string[] }> = []
+export function fenceImports(fence: string): readonly FenceImport[] {
+	const results: FenceImport[] = []
 	const pattern = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gs
 
 	let match: RegExpExecArray | null

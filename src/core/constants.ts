@@ -1,4 +1,23 @@
 /**
+ * Lists the five declaration kinds a documented or exported symbol carries, in
+ * the order the reflection grammar names them.
+ *
+ * @remarks
+ * One frozen list feeds the `ExportKind` type, the `isExportKind` guard, and
+ * `surfaceSymbolShape`, so a kind cannot be admitted by one and refused by
+ * another. Comment and template payload is excluded before reflection, and
+ * `enum` is outside this population rather than forbidden by general package
+ * policy.
+ */
+export const EXPORT_KINDS = Object.freeze([
+	'type',
+	'interface',
+	'const',
+	'function',
+	'class',
+] as const)
+
+/**
  * The `## Surface` heading text a guide's documented exports section is keyed on.
  */
 export const SURFACE: string = 'Surface'
