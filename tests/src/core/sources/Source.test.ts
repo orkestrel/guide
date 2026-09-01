@@ -843,6 +843,71 @@ describe('Source', () => {
 		expect(source.methods('CursorStoreInterface')).toEqual(['cursor'])
 	})
 
+	it('methods() reads the first declaring file and ignores a later file declaring the same name', () => {
+		const source = new Source({
+			files: {
+				'module/first.ts': [
+					'export interface ReadInterface {',
+					'\tread(): string',
+					'}',
+					'export interface StoreInterface extends ReadInterface {',
+					'\topen(): void',
+					'}',
+					'',
+				].join('\n'),
+				'module/second.ts': [
+					'export interface StoreInterface {',
+					'\twrite(value: string): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('StoreInterface')).toEqual(['open', 'read'])
+	})
+
+	it('methods() keeps its keyword and reads no member from a same-named class base', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface StoreInterface extends Store {',
+					'\topen(): void',
+					'}',
+					'',
+				].join('\n'),
+				'module/Store.ts': [
+					'export class Store {',
+					'\tread(): string {',
+					"\t\treturn ''",
+					'\t}',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('StoreInterface')).toEqual(['open'])
+	})
+
+	it('methods() reads no member from a qualified base', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface StoreInterface extends external.Store {',
+					'\topen(): void',
+					'}',
+					'export interface Store {',
+					'\tread(): string',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('StoreInterface')).toEqual(['open'])
+	})
+
 	it('methods() walks a class chain and still excludes the constructor', () => {
 		const source = new Source({
 			files: {
@@ -984,6 +1049,29 @@ describe('Source', () => {
 		}
 		const source = new Source({ files, module: 'src/core' })
 		expect(source.examples('WidgetInterface')).toEqual(['walk'])
+	})
+
+	it('examples(name) reads only the named body and follows no extends clause', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface ReadInterface {',
+					'\t/** @example */',
+					'\tread(): string',
+					'}',
+					'export interface StoreInterface extends ReadInterface {',
+					'\t/** @example */',
+					'\topen(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect({
+			own: source.examples('StoreInterface'),
+			inherited: source.methods('StoreInterface'),
+		}).toEqual({ own: ['open'], inherited: ['open', 'read'] })
 	})
 
 	it("examples(name) reads the class body's @example members under the implementer's own name", () => {

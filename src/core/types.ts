@@ -213,14 +213,17 @@ export interface SourceInterface {
 	 * unioned with the members of every declaration it extends.
 	 *
 	 * @remarks
-	 * Resolution reads each `extends` clause out of the located declaration head
-	 * and follows it through this same module scope, keeping the keyword it
-	 * started from: an `interface` chain resolves through interfaces and a
-	 * `class` chain through classes, so a class's `implements` clause is outside
-	 * the walk. A base the scope does not declare — imported from another
-	 * package, written as a qualified name, or declared outside the selected
-	 * directories — contributes no members and is not an error. One visited set
-	 * per call collapses a cycle and a diamond to a single visit.
+	 * One declaration answers for `name`: the module scope's files are read in
+	 * sorted key order and the first one declaring that head supplies both the
+	 * members and the bases, so a second file declaring the same name adds
+	 * nothing. Resolution reads that head's `extends` clause and follows it
+	 * through this same module scope, keeping the keyword it started from: an
+	 * `interface` chain resolves through interfaces and a `class` chain through
+	 * classes, so a class's `implements` clause is outside the walk. A base the
+	 * scope does not declare — imported from another package, written as a
+	 * qualified name, or declared outside the selected directories —
+	 * contributes no members and is not an error. One visited set per call
+	 * collapses a cycle and a diamond to a single visit.
 	 *
 	 * @param name - The declaration's identifier
 	 * @returns Its declared and inherited method names, deduplicated and sorted, a class `constructor` excluded
@@ -266,6 +269,12 @@ export interface SourceInterface {
 	 * allowed; intervening material severs association. Declaration and callable
 	 * member eligibility comes from aligned projected code while genuine JSDoc
 	 * evidence retains its source columns.
+	 *
+	 * @remarks
+	 * This overload reads only the named declaration's own body, in the first
+	 * file that declares it, under each keyword. Unlike {@link methods}, the
+	 * overload follows no `extends` clause, so an inherited member's `@example`
+	 * belongs to the base that declares it.
 	 *
 	 * @example
 	 * ```ts
@@ -321,4 +330,17 @@ export interface DeclarationHead {
 	readonly text: string
 	/** The index (within the source `lines`) of the line ending in `{`. */
 	readonly end: number
+}
+
+/**
+ * One located `export class` / `export interface` declaration — the body lines
+ * and the base identifiers read from the same head, so a consumer never pairs
+ * one declaration's body with another declaration's heritage (see
+ * {@link extractDeclaration}).
+ */
+export interface Declaration {
+	/** Its raw body lines, between the head and the column-zero closing `}`. */
+	readonly body: readonly string[]
+	/** The base identifiers its head extends, in head order. */
+	readonly bases: readonly string[]
 }

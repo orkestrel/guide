@@ -1,8 +1,7 @@
-import type { SourceInterface, SourceOptions, SurfaceSymbol } from '../types.js'
+import type { Declaration, SourceInterface, SourceOptions, SurfaceSymbol } from '../types.js'
 import {
 	computeSymbolKey,
-	extractDeclarationBases,
-	extractDeclarationBody,
+	extractDeclaration,
 	extractExampleMethods,
 	extractExamples,
 	extractExports,
@@ -31,9 +30,11 @@ import {
  * inventory entrances after relative-row reduction; canonical parent hops
  * remain valid. `methods` resolves a declaration's members through its
  * `extends` chain within the same module scope, keeping the keyword it started
- * from; a base the scope does not declare contributes nothing. Source
- * projection preserves columns without widening direct/hidden column-zero
- * heads. Literal ECMAScript Unicode identifiers
+ * from; a base the scope does not declare contributes nothing. One declaration
+ * answers for a name: the first file in sorted key order that declares the head
+ * supplies its members and its bases, and a second file declaring the same name
+ * adds nothing. Source projection preserves columns without widening
+ * direct/hidden column-zero heads. Literal ECMAScript Unicode identifiers
  * participate in bounded slash-state recognition without escape decoding.
  * Regex recognition is bounded: slash after bare `}` is division, so a
  * post-brace regex statement requires an explicit `;`. General semicolonless
@@ -199,11 +200,9 @@ export class Source implements SourceInterface {
 	// body named `name`, unioning both shapes (an implementer may carry its
 	// own `@example` a documented interface member does not, or vice versa).
 	#exampleMembers(name: string): readonly string[] {
-		const interfaceBody = this.#body('interface', name)
-		const classBody = this.#body('class', name)
 		const members = new Set<string>([
-			...extractExampleMethods(interfaceBody),
-			...extractExampleMethods(classBody),
+			...extractExampleMethods(this.#locate('interface', name)?.body ?? []),
+			...extractExampleMethods(this.#locate('class', name)?.body ?? []),
 		])
 		return Array.from(members).sort()
 	}
@@ -232,50 +231,42 @@ export class Source implements SourceInterface {
 	}
 
 	// The declared method names of the `keyword` declaration named `name`
-	// unioned with those of every declaration it extends, or `undefined` when
-	// the module scope declares no such head — which is what sends `methods()`
-	// on to the class shape. A base the scope does not declare contributes
-	// nothing, and `visited` collapses a cycle or a diamond to one visit.
+	// unioned with those of every declaration it extends. `undefined` states one
+	// fact only — the module scope declares no such head — which is what sends
+	// `methods()` on to the class shape; a name already on the visit path is
+	// declared and returns an empty union, so a cycle and a diamond each collapse
+	// to one visit. A base the scope does not declare contributes nothing.
 	#members(
 		keyword: 'class' | 'interface',
 		name: string,
 		visited: Set<string>,
 	): readonly string[] | undefined {
-		if (visited.has(name)) return undefined
+		if (visited.has(name)) return []
 		visited.add(name)
 
-		const methods = new Set<string>()
-		let declared = false
+		const declaration = this.#locate(keyword, name)
+		if (declaration === undefined) return undefined
 
-		for (const key of selectModuleKeys(this.#files, this.#directories)) {
-			const text = this.#files[key]
-			if (text === undefined) continue
-
-			const body = extractDeclarationBody(text, keyword, name)
-			const bases = extractDeclarationBases(text, keyword, name)
-			if (body.length === 0 && bases.length === 0) continue
-
-			declared = true
-			for (const method of extractMemberMethods(body)) methods.add(method)
-			for (const base of bases) {
-				for (const member of this.#members(keyword, base, visited) ?? []) methods.add(member)
-			}
+		const methods = new Set<string>(extractMemberMethods(declaration.body))
+		for (const base of declaration.bases) {
+			for (const member of this.#members(keyword, base, visited) ?? []) methods.add(member)
 		}
 
-		return declared ? Array.from(methods).sort() : undefined
+		return Array.from(methods).sort()
 	}
 
-	// The first non-empty declaration body found across the module scope's
-	// files, searched in sorted file order until one file declares `name`.
-	#body(keyword: 'class' | 'interface', name: string): readonly string[] {
+	// The one declaration that answers for `name` — the first file in sorted key
+	// order that declares the head, whose body and bases are read together, so a
+	// later file declaring the same name contributes nothing.
+	#locate(keyword: 'class' | 'interface', name: string): Declaration | undefined {
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			const body = extractDeclarationBody(text, keyword, name)
-			if (body.length > 0) return body
+			const declaration = extractDeclaration(text, keyword, name)
+			if (declaration !== undefined) return declaration
 		}
 
-		return []
+		return undefined
 	}
 }

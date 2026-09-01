@@ -2,8 +2,7 @@ import type { SourceLine, SurfaceSymbol } from '@src/core'
 import * as core from '@src/core'
 import {
 	extractCellLinks,
-	extractDeclarationBases,
-	extractDeclarationBody,
+	extractDeclaration,
 	extractExampleMethods,
 	extractExamples,
 	extractExports,
@@ -24,7 +23,7 @@ import {
 	hasCanonicalSegments,
 	extractHidden,
 	joinHead,
-	matchesDeclaration,
+	escapeRegExp,
 	findKindIndex,
 	extractMemberMethods,
 	findMissingSymbols,
@@ -822,6 +821,14 @@ describe('findUnexampled', () => {
 	it('returns an empty array when every name is exampled', () => {
 		expect(findUnexampled(['a', 'b'], [], ['a', 'b'])).toEqual([])
 	})
+
+	it('reads a regex metacharacter in a name as literal text', () => {
+		expect(findUnexampled(['widget.render'], ['widgetxrender()'], [])).toEqual(['widget.render'])
+	})
+
+	it('keeps a name carrying a bracket instead of throwing', () => {
+		expect(findUnexampled(['widget['], ['widget()'], [])).toEqual(['widget['])
+	})
 })
 
 describe('extractFenceImports', () => {
@@ -947,7 +954,7 @@ describe('successor lexical and reflection boundaries', () => {
 		])
 	})
 
-	it('extractDeclarationBody ignores commented declarations and commented closes', () => {
+	it('extractDeclaration ignores commented declarations and commented closes', () => {
 		const source = [
 			'/*',
 			'export interface Ghost {',
@@ -961,7 +968,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'\tvisible(): void',
 			'}',
 		].join('\n')
-		expect(extractDeclarationBody(source, 'interface', 'Ghost')).toEqual([
+		expect(extractDeclaration(source, 'interface', 'Ghost')?.body).toEqual([
 			'\t/*',
 			'}',
 			'\t*/',
@@ -1303,24 +1310,54 @@ describe('joinHead', () => {
 	})
 })
 
-describe('extractDeclarationBody', () => {
-	it('extracts an interface body', () => {
+describe('escapeRegExp', () => {
+	it('escapes every regex metacharacter', () => {
+		expect(escapeRegExp('a.b+c*d?e^f$g(h)i[j]k{l}m|n\\o')).toBe(
+			'a\\.b\\+c\\*d\\?e\\^f\\$g\\(h\\)i\\[j\\]k\\{l\\}m\\|n\\\\o',
+		)
+	})
+
+	it('leaves an ordinary identifier unchanged', () => {
+		expect(escapeRegExp('WidgetInterface')).toBe('WidgetInterface')
+	})
+
+	it('makes an escaped string match itself and nothing else', () => {
+		const pattern = new RegExp(`^${escapeRegExp('A.B')}$`)
+		expect({ literal: pattern.test('A.B'), wildcard: pattern.test('AxB') }).toEqual({
+			literal: true,
+			wildcard: false,
+		})
+	})
+
+	it('escapes a metacharacter-only name into a pattern that matches that text', () => {
+		expect(new RegExp(`^${escapeRegExp('.*')}$`).test('.*')).toBe(true)
+	})
+})
+
+describe('extractDeclaration', () => {
+	it('reads an interface body', () => {
 		const source = 'export interface X {\n\twalk(): void\n}\n'
-		expect(extractDeclarationBody(source, 'interface', 'X')).toEqual(['\twalk(): void'])
+		expect(extractDeclaration(source, 'interface', 'X')).toEqual({
+			body: ['\twalk(): void'],
+			bases: [],
+		})
 	})
 
-	it('extracts a class body', () => {
+	it('reads a class body', () => {
 		const source = 'export class X {\n\twalk(): void {}\n}\n'
-		expect(extractDeclarationBody(source, 'class', 'X')).toEqual(['\twalk(): void {}'])
+		expect(extractDeclaration(source, 'class', 'X')).toEqual({
+			body: ['\twalk(): void {}'],
+			bases: [],
+		})
 	})
 
-	it('extracts a body from the fixture types.ts text', () => {
-		const body = extractDeclarationBody(
+	it('reads a body from the fixture types.ts text', () => {
+		const declaration = extractDeclaration(
 			requireText(FIXTURES, 'good/module/types.ts'),
 			'interface',
 			'WidgetInterface',
 		)
-		expect(body).toEqual([
+		expect(declaration?.body).toEqual([
 			'\treadonly count: number',
 			'\tinspect(): string',
 			'\trender(label: string, data?: T): string',
@@ -1328,69 +1365,99 @@ describe('extractDeclarationBody', () => {
 		])
 	})
 
-	it('returns an empty array when the named declaration is missing', () => {
-		expect(extractDeclarationBody('export class X {\n}\n', 'interface', 'Y')).toEqual([])
+	it('reads the body and the bases from one head', () => {
+		const source = 'export interface B extends A {\n\twalk(): void\n}\n'
+		expect(extractDeclaration(source, 'interface', 'B')).toEqual({
+			body: ['\twalk(): void'],
+			bases: ['A'],
+		})
 	})
-})
 
-describe('matchesDeclaration', () => {
-	it('accepts a plain head', () => {
-		expect(matchesDeclaration('export interface X {', 'interface', 'X')).toBe(true)
+	it('returns undefined when the named declaration is missing', () => {
+		expect(extractDeclaration('export class X {\n}\n', 'interface', 'Y')).toBeUndefined()
+	})
+
+	it('separates an empty declared body from an absent declaration', () => {
+		expect({
+			declared: extractDeclaration('export interface X {\n}\n', 'interface', 'X'),
+			absent: extractDeclaration('export interface X {\n}\n', 'interface', 'Y'),
+		}).toEqual({ declared: { body: [], bases: [] }, absent: undefined })
 	})
 
 	it('accepts a generic head', () => {
-		expect(matchesDeclaration('export interface X<T> {', 'interface', 'X')).toBe(true)
-	})
-
-	it('accepts an extends head', () => {
-		expect(matchesDeclaration('export interface X extends Y {', 'interface', 'X')).toBe(true)
+		expect(extractDeclaration('export interface X<T> {\n}\n', 'interface', 'X')).toEqual({
+			body: [],
+			bases: [],
+		})
 	})
 
 	it('rejects a longer identifier sharing the prefix', () => {
-		expect(matchesDeclaration('export interface Xtra {', 'interface', 'X')).toBe(false)
+		expect(extractDeclaration('export interface Xtra {\n}\n', 'interface', 'X')).toBeUndefined()
 	})
 
 	it('rejects the other keyword', () => {
-		expect(matchesDeclaration('export class X {', 'interface', 'X')).toBe(false)
+		expect(extractDeclaration('export class X {\n}\n', 'interface', 'X')).toBeUndefined()
 	})
 
 	it('rejects a head that opens no body', () => {
-		expect(matchesDeclaration('export interface X', 'interface', 'X')).toBe(false)
-	})
-})
-
-describe('extractDeclarationBases', () => {
-	it('returns an empty array when the declaration extends nothing', () => {
-		expect(extractDeclarationBases('export interface X {\n}\n', 'interface', 'X')).toEqual([])
+		expect(extractDeclaration('export interface X\n', 'interface', 'X')).toBeUndefined()
 	})
 
-	it('returns an empty array when the declaration is absent', () => {
-		expect(extractDeclarationBases('export interface X {\n}\n', 'interface', 'Y')).toEqual([])
+	it('reads a regex metacharacter in the name as literal text', () => {
+		expect(
+			extractDeclaration('export interface Anything {\n}\n', 'interface', '.*'),
+		).toBeUndefined()
 	})
 
-	it('returns one base', () => {
-		const source = 'export interface B extends A {\n}\n'
-		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A'])
+	it('reads a qualified name literally rather than as a wildcard', () => {
+		expect({
+			literal: extractDeclaration('export interface A.B {\n}\n', 'interface', 'A.B'),
+			wildcard: extractDeclaration('export interface AxB {\n}\n', 'interface', 'A.B'),
+		}).toEqual({ literal: { body: [], bases: [] }, wildcard: undefined })
+	})
+
+	it('returns undefined rather than throwing for a name carrying an unbalanced bracket', () => {
+		expect(
+			extractDeclaration('export interface Widget {\n}\n', 'interface', 'Widget['),
+		).toBeUndefined()
+	})
+
+	it('returns undefined rather than throwing for a name carrying an open group', () => {
+		expect(
+			extractDeclaration('export interface Widget {\n}\n', 'interface', 'Widget('),
+		).toBeUndefined()
+	})
+
+	it('reads a name carrying a dollar sign', () => {
+		const source = 'export interface Widget$ {\n\twalk(): void\n}\n'
+		expect(extractDeclaration(source, 'interface', 'Widget$')).toEqual({
+			body: ['\twalk(): void'],
+			bases: [],
+		})
+	})
+
+	it('returns no base when the declaration extends nothing', () => {
+		expect(extractDeclaration('export interface X {\n}\n', 'interface', 'X')?.bases).toEqual([])
 	})
 
 	it('returns every base in head order and strips generic arguments', () => {
 		const source = 'export interface B extends A, C<T, U> {\n}\n'
-		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A', 'C'])
+		expect(extractDeclaration(source, 'interface', 'B')?.bases).toEqual(['A', 'C'])
 	})
 
 	it('reads past a type parameter that carries its own extends', () => {
 		const source = 'export interface B<T extends A> extends C {\n}\n'
-		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['C'])
+		expect(extractDeclaration(source, 'interface', 'B')?.bases).toEqual(['C'])
 	})
 
 	it('excludes a class implements clause', () => {
 		const source = 'export class B extends A implements I, J {\n}\n'
-		expect(extractDeclarationBases(source, 'class', 'B')).toEqual(['A'])
+		expect(extractDeclaration(source, 'class', 'B')?.bases).toEqual(['A'])
 	})
 
 	it('reads a head oxfmt wrapped across lines', () => {
 		const source = ['export interface B', '\textends A,', '\t\tC {', '}', ''].join('\n')
-		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A', 'C'])
+		expect(extractDeclaration(source, 'interface', 'B')?.bases).toEqual(['A', 'C'])
 	})
 
 	it('ignores a commented declaration', () => {
@@ -1403,7 +1470,26 @@ describe('extractDeclarationBases', () => {
 			'}',
 			'',
 		].join('\n')
-		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A'])
+		expect(extractDeclaration(source, 'interface', 'B')?.bases).toEqual(['A'])
+	})
+
+	it('pairs the body and the bases of the one head it locates', () => {
+		const source = [
+			'export interface B extends Ghost {',
+			'export interface B extends A {',
+			'\twalk(): void',
+			'}',
+			'',
+		].join('\n')
+		expect(extractDeclaration(source, 'interface', 'B')).toEqual({
+			body: ['export interface B extends A {', '\twalk(): void'],
+			bases: ['Ghost'],
+		})
+	})
+
+	it('reports no declaration for a head that opens no column-zero close', () => {
+		const source = ['export interface B extends A {', '\twalk(): void', ''].join('\n')
+		expect(extractDeclaration(source, 'interface', 'B')).toBeUndefined()
 	})
 })
 
@@ -1460,16 +1546,14 @@ describe('extractMemberMethods', () => {
 	})
 
 	it("reproduces the good fixture Widget class's exact three methods (excluding the trap members)", () => {
-		const body = extractDeclarationBody(
+		const declaration = extractDeclaration(
 			requireText(FIXTURES, 'good/module/Widget.ts'),
 			'class',
 			'Widget',
 		)
-		expect(extractMemberMethods(body).filter((method) => method !== 'constructor')).toEqual([
-			'inspect',
-			'render',
-			'reset',
-		])
+		expect(
+			extractMemberMethods(declaration?.body ?? []).filter((method) => method !== 'constructor'),
+		).toEqual(['inspect', 'render', 'reset'])
 	})
 })
 
@@ -1792,29 +1876,5 @@ describe('successor runtime surface', () => {
 			moduleDirs: false,
 			moduleKeys: false,
 		})
-	})
-
-	it('exposes every verb-first helper and retires its noun-phrase predecessor', () => {
-		const renamed = {
-			computeModuleKey: 'moduleKey',
-			computeSymbolKey: 'symbolKey',
-			extractCellLinks: 'cellLinks',
-			extractDeclarationBody: 'declarationBody',
-			extractExampleMethods: 'exampleMethods',
-			extractExamples: 'examplesFrom',
-			extractExports: 'exportsFrom',
-			extractFenceImports: 'fenceImports',
-			extractHidden: 'hiddenFrom',
-			extractMemberMethods: 'memberMethods',
-			findFirstCode: 'firstCode',
-			findKindIndex: 'kindIndex',
-			findMissingSymbols: 'missingSymbols',
-			normalizeIdentifier: 'identifierOf',
-			selectSectionBlocks: 'sectionBlocks',
-		}
-		expect({
-			absent: Object.keys(renamed).filter((name) => !Object.hasOwn(core, name)),
-			surviving: Object.values(renamed).filter((name) => Object.hasOwn(core, name)),
-		}).toEqual({ absent: [], surviving: [] })
 	})
 })
