@@ -2,7 +2,12 @@ import type { ManifestEntry } from './types.js'
 import { createMarkdown, flattenText, isTableNode } from '@orkestrel/markdown'
 import { isEmptyString, isNonEmptyArray } from '@orkestrel/contract'
 import { MANIFEST } from './constants.js'
-import { cellLinks, normalizeDirectories, resolvePath, sectionBlocks } from './helpers.js'
+import {
+	extractCellLinks,
+	normalizeDirectories,
+	resolvePath,
+	selectSectionBlocks,
+} from './helpers.js'
 
 /**
  * Parse a `## By concept` manifest table into its {@link ManifestEntry} rows —
@@ -26,7 +31,7 @@ export function parseManifest(markdown: string, directory: string): readonly Man
 	const document = createMarkdown(markdown).document
 	const entries: ManifestEntry[] = []
 
-	for (const block of sectionBlocks(document, MANIFEST)) {
+	for (const block of selectSectionBlocks(document, MANIFEST)) {
 		if (!isTableNode(block)) continue
 
 		for (const row of block.rows) {
@@ -46,12 +51,12 @@ export function parseManifest(markdown: string, directory: string): readonly Man
 			const concept = flattenText({ element: 'paragraph', children: conceptCell }).trim()
 			if (isEmptyString(concept)) continue
 
-			const specHref = cellLinks(specCell)[0]
-			const testsHref = cellLinks(testsCell)[0]
+			const specHref = extractCellLinks(specCell)[0]
+			const testsHref = extractCellLinks(testsCell)[0]
 			if (specHref === undefined || testsHref === undefined) continue
 
 			const sourceHrefs = normalizeDirectories(
-				cellLinks(sourceCell).map((href) => resolvePath(directory, href)),
+				extractCellLinks(sourceCell).map((href) => resolvePath(directory, href)),
 			)
 			if (!isNonEmptyArray<string>(sourceHrefs)) continue
 			const [firstSource] = sourceHrefs

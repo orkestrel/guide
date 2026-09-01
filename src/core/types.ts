@@ -14,7 +14,7 @@ export type ExportKind = (typeof EXPORT_KINDS)[number]
  *
  * @remarks
  * `kind` mirrors the guide Surface table's own `Kind` column header, which this
- * package locates by that exact text (`kindIndex`) and cannot rename. The
+ * package locates by that exact text (`findKindIndex`) and cannot rename. The
  * property keeps the column's spelling so the documented table and the
  * reflected symbol name one axis.
  */
@@ -193,11 +193,11 @@ export interface SourceInterface {
 	 * reduce to canonical keys remain valid. Exact workspace-root `index.ts` and
 	 * nested targets ending `/index.ts` recurse as barrels, with a
 	 * per-computation visited set terminating cycles; other targets contribute
-	 * direct declarations from `exportsFrom()`. Missing roots, missing targets, and
+	 * direct declarations from `extractExports()`. Missing roots, missing targets, and
 	 * unsupported export forms contribute no symbols while valid siblings continue.
 	 * Repository policy, typechecking, and builds own validation; this is not
 	 * filesystem or TypeScript resolution. The result is deduplicated by
-	 * `symbolKey()`, retains same-name/different-kind symbols, sorts by name,
+	 * `computeSymbolKey()`, retains same-name/different-kind symbols, sorts by name,
 	 * computes lazily, and caches the same readonly array instance.
 	 *
 	 * @returns The conventional barrel-reachable surface
@@ -209,10 +209,21 @@ export interface SourceInterface {
 	 */
 	surface(): readonly SurfaceSymbol[]
 	/**
-	 * The call-signature members of the `class` / `interface` named `name`.
+	 * The call-signature members of the `class` / `interface` named `name`,
+	 * unioned with the members of every declaration it extends.
+	 *
+	 * @remarks
+	 * Resolution reads each `extends` clause out of the located declaration head
+	 * and follows it through this same module scope, keeping the keyword it
+	 * started from: an `interface` chain resolves through interfaces and a
+	 * `class` chain through classes, so a class's `implements` clause is outside
+	 * the walk. A base the scope does not declare — imported from another
+	 * package, written as a qualified name, or declared outside the selected
+	 * directories — contributes no members and is not an error. One visited set
+	 * per call collapses a cycle and a diamond to a single visit.
 	 *
 	 * @param name - The declaration's identifier
-	 * @returns Its declared method names, deduplicated and sorted, a class `constructor` excluded
+	 * @returns Its declared and inherited method names, deduplicated and sorted, a class `constructor` excluded
 	 */
 	methods(name: string): readonly string[]
 	/**

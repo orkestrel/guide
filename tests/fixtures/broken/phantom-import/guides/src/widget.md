@@ -2,7 +2,7 @@
 
 > Fixture guide (BROKEN: phantom-import) — a Patterns fence imports `ghost`
 > alongside `real`, but the module does not export `ghost`; FI's
-> `fenceImports` + `findMissing` catches it with `['ghost']`.
+> `extractFenceImports` + `findMissing` catches it with `['ghost']`.
 
 ## Surface
 

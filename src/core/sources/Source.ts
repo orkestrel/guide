@@ -1,18 +1,19 @@
 import type { SourceInterface, SourceOptions, SurfaceSymbol } from '../types.js'
 import {
-	declarationBody,
-	exampleMethods,
-	examplesFrom,
-	exportsFrom,
+	computeSymbolKey,
+	extractDeclarationBases,
+	extractDeclarationBody,
+	extractExampleMethods,
+	extractExamples,
+	extractExports,
+	extractHidden,
+	extractMemberMethods,
 	extractSourceLines,
 	hasCanonicalSegments,
-	hiddenFrom,
-	memberMethods,
 	normalizeDirectories,
 	resolveLink,
 	resolvePath,
 	selectModuleKeys,
-	symbolKey,
 } from '../helpers.js'
 
 /**
@@ -28,8 +29,11 @@ import {
  * construction, and exact opaque inventory keys are never rewritten; keys with
  * empty, `.` or `..` segments stay outside both initial and resolved barrel
  * inventory entrances after relative-row reduction; canonical parent hops
- * remain valid. Source projection preserves columns without widening
- * direct/hidden column-zero heads. Literal ECMAScript Unicode identifiers
+ * remain valid. `methods` resolves a declaration's members through its
+ * `extends` chain within the same module scope, keeping the keyword it started
+ * from; a base the scope does not declare contributes nothing. Source
+ * projection preserves columns without widening direct/hidden column-zero
+ * heads. Literal ECMAScript Unicode identifiers
  * participate in bounded slash-state recognition without escape decoding.
  * Regex recognition is bounded: slash after bare `}` is division, so a
  * post-brace regex statement requires an explicit `;`. General semicolonless
@@ -70,7 +74,7 @@ export class Source implements SourceInterface {
 	// The module's exports are computed once on first access and cached —
 	// every subsequent call reuses the same scan of an immutable inventory.
 	exports(): readonly SurfaceSymbol[] {
-		if (this.#exports === undefined) this.#exports = this.#scanSymbols(exportsFrom)
+		if (this.#exports === undefined) this.#exports = this.#scanSymbols(extractExports)
 		return this.#exports
 	}
 
@@ -82,11 +86,11 @@ export class Source implements SourceInterface {
 	}
 
 	methods(name: string): readonly string[] {
-		const interfaceBody = this.#declarationBody('interface', name)
-		if (interfaceBody.length > 0) return memberMethods(interfaceBody)
+		const declared = this.#members('interface', name, new Set<string>())
+		if (declared !== undefined) return declared
 
-		const classBody = this.#declarationBody('class', name)
-		return memberMethods(classBody).filter((method) => method !== 'constructor')
+		const inherited = this.#members('class', name, new Set<string>())
+		return inherited === undefined ? [] : inherited.filter((method) => method !== 'constructor')
 	}
 
 	exists(relative: string): boolean {
@@ -97,7 +101,7 @@ export class Source implements SourceInterface {
 	// The module's hidden declarations are computed once on first access and
 	// cached — mirrors `exports()`'s caching.
 	hidden(): readonly SurfaceSymbol[] {
-		if (this.#hidden === undefined) this.#hidden = this.#scanSymbols(hiddenFrom)
+		if (this.#hidden === undefined) this.#hidden = this.#scanSymbols(extractHidden)
 		return this.#hidden
 	}
 
@@ -114,7 +118,7 @@ export class Source implements SourceInterface {
 
 	// The union of exported-function `@example` names across the module's
 	// files, deduped in first-seen order — mirrors `#scanSymbols`, but over a
-	// plain string scanner (`examplesFrom`) rather than a `SurfaceSymbol` one.
+	// plain string scanner (`extractExamples`) rather than a `SurfaceSymbol` one.
 	#scanExamples(): readonly string[] {
 		const names: string[] = []
 		const seen = new Set<string>()
@@ -123,7 +127,7 @@ export class Source implements SourceInterface {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			for (const name of examplesFrom(text)) {
+			for (const name of extractExamples(text)) {
 				if (seen.has(name)) continue
 				seen.add(name)
 				names.push(name)
@@ -182,8 +186,8 @@ export class Source implements SourceInterface {
 
 			const text = this.#files[path]
 			if (text === undefined) continue
-			for (const symbol of exportsFrom(text)) {
-				const identity = symbolKey(symbol)
+			for (const symbol of extractExports(text)) {
+				const identity = computeSymbolKey(symbol)
 				if (seen.has(identity)) continue
 				seen.add(identity)
 				symbols.push(symbol)
@@ -195,11 +199,11 @@ export class Source implements SourceInterface {
 	// body named `name`, unioning both shapes (an implementer may carry its
 	// own `@example` a documented interface member does not, or vice versa).
 	#exampleMembers(name: string): readonly string[] {
-		const interfaceBody = this.#declarationBody('interface', name)
-		const classBody = this.#declarationBody('class', name)
+		const interfaceBody = this.#body('interface', name)
+		const classBody = this.#body('class', name)
 		const members = new Set<string>([
-			...exampleMethods(interfaceBody),
-			...exampleMethods(classBody),
+			...extractExampleMethods(interfaceBody),
+			...extractExampleMethods(classBody),
 		])
 		return Array.from(members).sort()
 	}
@@ -217,7 +221,7 @@ export class Source implements SourceInterface {
 			if (text === undefined) continue
 
 			for (const symbol of scan(text)) {
-				const identity = symbolKey(symbol)
+				const identity = computeSymbolKey(symbol)
 				if (seen.has(identity)) continue
 				seen.add(identity)
 				symbols.push(symbol)
@@ -227,14 +231,48 @@ export class Source implements SourceInterface {
 		return symbols.sort((a, b) => (a.name === b.name ? 0 : a.name < b.name ? -1 : 1))
 	}
 
-	// The first non-empty declaration body found across the module scope's
-	// files, searched in sorted file order until one file declares `name`.
-	#declarationBody(keyword: 'class' | 'interface', name: string): readonly string[] {
+	// The declared method names of the `keyword` declaration named `name`
+	// unioned with those of every declaration it extends, or `undefined` when
+	// the module scope declares no such head — which is what sends `methods()`
+	// on to the class shape. A base the scope does not declare contributes
+	// nothing, and `visited` collapses a cycle or a diamond to one visit.
+	#members(
+		keyword: 'class' | 'interface',
+		name: string,
+		visited: Set<string>,
+	): readonly string[] | undefined {
+		if (visited.has(name)) return undefined
+		visited.add(name)
+
+		const methods = new Set<string>()
+		let declared = false
+
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			const body = declarationBody(text, keyword, name)
+			const body = extractDeclarationBody(text, keyword, name)
+			const bases = extractDeclarationBases(text, keyword, name)
+			if (body.length === 0 && bases.length === 0) continue
+
+			declared = true
+			for (const method of extractMemberMethods(body)) methods.add(method)
+			for (const base of bases) {
+				for (const member of this.#members(keyword, base, visited) ?? []) methods.add(member)
+			}
+		}
+
+		return declared ? Array.from(methods).sort() : undefined
+	}
+
+	// The first non-empty declaration body found across the module scope's
+	// files, searched in sorted file order until one file declares `name`.
+	#body(keyword: 'class' | 'interface', name: string): readonly string[] {
+		for (const key of selectModuleKeys(this.#files, this.#directories)) {
+			const text = this.#files[key]
+			if (text === undefined) continue
+
+			const body = extractDeclarationBody(text, keyword, name)
 			if (body.length > 0) return body
 		}
 

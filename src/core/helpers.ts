@@ -601,10 +601,10 @@ export function normalizeDirectories(module: GuideModule): readonly string[] {
  *
  * @example
  * ```ts
- * moduleKey(['src/core', 'src/browser']) // 'src/core\0src/browser'
+ * computeModuleKey(['src/core', 'src/browser']) // 'src/core\0src/browser'
  * ```
  */
-export function moduleKey(module: GuideModule): string {
+export function computeModuleKey(module: GuideModule): string {
 	return normalizeDirectories(module).join('\0')
 }
 
@@ -657,10 +657,10 @@ export function selectModuleKeys(
  *
  * @example
  * ```ts
- * symbolKey({ name: 'Markdown', kind: 'class' }) // 'class Markdown'
+ * computeSymbolKey({ name: 'Markdown', kind: 'class' }) // 'class Markdown'
  * ```
  */
-export function symbolKey(symbol: SurfaceSymbol): string {
+export function computeSymbolKey(symbol: SurfaceSymbol): string {
 	return `${symbol.kind} ${symbol.name}`
 }
 
@@ -709,7 +709,7 @@ export function findUnlisted(
 
 /**
  * The symbol-key set-difference between two symbol lists — `symbols` present but
- * absent from `source`, compared by {@link symbolKey} so a symbol can drift in
+ * absent from `source`, compared by {@link computeSymbolKey} so a symbol can drift in
  * neither name nor kind.
  *
  * @param symbols - The candidate symbols
@@ -718,14 +718,14 @@ export function findUnlisted(
  *
  * @example
  * ```ts
- * missingSymbols([{ name: 'X', kind: 'class' }], []) // ['class X']
+ * findMissingSymbols([{ name: 'X', kind: 'class' }], []) // ['class X']
  * ```
  */
-export function missingSymbols(
+export function findMissingSymbols(
 	symbols: readonly SurfaceSymbol[],
 	source: readonly SurfaceSymbol[],
 ): readonly string[] {
-	return findMissing(symbols.map(symbolKey), source.map(symbolKey))
+	return findMissing(symbols.map(computeSymbolKey), source.map(computeSymbolKey))
 }
 
 /**
@@ -768,10 +768,10 @@ export function findUnexampled(
  *
  * @example
  * ```ts
- * fenceImports("import { a, b as c } from 'x'\n") // [{ specifier: 'x', names: ['a', 'b'] }]
+ * extractFenceImports("import { a, b as c } from 'x'\n") // [{ specifier: 'x', names: ['a', 'b'] }]
  * ```
  */
-export function fenceImports(fence: string): readonly FenceImport[] {
+export function extractFenceImports(fence: string): readonly FenceImport[] {
 	const results: FenceImport[] = []
 	const pattern = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gs
 
@@ -881,14 +881,14 @@ export function resolveLink(file: string, target: string): string {
  *
  * @example
  * ```ts
- * firstCode([{ element: 'codeSpan', value: 'Markdown' }]) // 'Markdown'
+ * findFirstCode([{ element: 'codeSpan', value: 'Markdown' }]) // 'Markdown'
  * ```
  */
-export function firstCode(nodes: readonly InlineNode[]): string | undefined {
+export function findFirstCode(nodes: readonly InlineNode[]): string | undefined {
 	for (const node of nodes) {
 		if (isCodeSpanNode(node)) return node.value
 		if (isEmphasisNode(node) || isLinkNode(node) || isImageNode(node)) {
-			const value = firstCode(node.children)
+			const value = findFirstCode(node.children)
 			if (value !== undefined) return value
 		}
 	}
@@ -903,10 +903,10 @@ export function firstCode(nodes: readonly InlineNode[]): string | undefined {
  *
  * @example
  * ```ts
- * cellLinks([{ element: 'link', href: 'x.ts', children: [] }]) // ['x.ts']
+ * extractCellLinks([{ element: 'link', href: 'x.ts', children: [] }]) // ['x.ts']
  * ```
  */
-export function cellLinks(cell: readonly InlineNode[]): readonly string[] {
+export function extractCellLinks(cell: readonly InlineNode[]): readonly string[] {
 	const links: string[] = []
 	for (const node of walkNodes({ element: 'paragraph', children: cell })) {
 		if (isLinkNode(node)) links.push(node.href)
@@ -926,11 +926,11 @@ export function cellLinks(cell: readonly InlineNode[]): readonly string[] {
  *
  * @example
  * ```ts
- * identifierOf('MarkdownHandler<TNode, T>') // 'MarkdownHandler'
- * identifierOf('fold')                      // 'fold'
+ * normalizeIdentifier('MarkdownHandler<TNode, T>') // 'MarkdownHandler'
+ * normalizeIdentifier('fold')                      // 'fold'
  * ```
  */
-export function identifierOf(code: string): string {
+export function normalizeIdentifier(code: string): string {
 	const index = code.indexOf('<')
 	return (index < 0 ? code : code.slice(0, index)).trim()
 }
@@ -945,10 +945,10 @@ export function identifierOf(code: string): string {
  *
  * @example
  * ```ts
- * kindIndex(table) // 1, or undefined
+ * findKindIndex(table) // 1, or undefined
  * ```
  */
-export function kindIndex(table: TableNode): number | undefined {
+export function findKindIndex(table: TableNode): number | undefined {
 	for (let index = 0; index < table.header.length; index += 1) {
 		const cell = table.header[index]
 		if (
@@ -977,11 +977,11 @@ export function kindIndex(table: TableNode): number | undefined {
  *
  * @example
  * ```ts
- * exportsFrom('export class Markdown {}\n') // [{ name: 'Markdown', kind: 'class' }]
- * exportsFrom('export function* walk() {}\n') // [{ name: 'walk', kind: 'function' }]
+ * extractExports('export class Markdown {}\n') // [{ name: 'Markdown', kind: 'class' }]
+ * extractExports('export function* walk() {}\n') // [{ name: 'walk', kind: 'function' }]
  * ```
  */
-export function exportsFrom(source: string): readonly SurfaceSymbol[] {
+export function extractExports(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
 
@@ -1005,7 +1005,7 @@ export function exportsFrom(source: string): readonly SurfaceSymbol[] {
 
 /**
  * The module-scope declarations LACKING the `export` keyword in one file's
- * source text — the mirror image of {@link exportsFrom}'s grammar, anchored
+ * source text — the mirror image of {@link extractExports}'s grammar, anchored
  * the same way (column 0, so an indented inner declaration never matches).
  * Scans only the five {@link ExportKind} keywords (`function` / `class` /
  * `const` / `interface` / `type`) — a module-scope `let` or `var` is a
@@ -1021,11 +1021,11 @@ export function exportsFrom(source: string): readonly SurfaceSymbol[] {
  *
  * @example
  * ```ts
- * hiddenFrom('function secretHelper() {}\n') // [{ name: 'secretHelper', kind: 'function' }]
- * hiddenFrom('export class X {}\n') // []
+ * extractHidden('function secretHelper() {}\n') // [{ name: 'secretHelper', kind: 'function' }]
+ * extractHidden('export class X {}\n') // []
  * ```
  */
-export function hiddenFrom(source: string): readonly SurfaceSymbol[] {
+export function extractHidden(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
 
@@ -1073,6 +1073,33 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 }
 
 /**
+ * Whether a joined declaration head declares the named `export class` /
+ * `export interface` — the one head grammar {@link extractDeclarationBody} and
+ * {@link extractDeclarationBases} share, so a head one of them accepts the
+ * other accepts too. An optional generic parameter list and an optional
+ * `extends` / `implements` clause may sit between the identifier and the
+ * opening `{`, and the identifier itself must match exactly.
+ *
+ * @param head - A declaration head joined into one line (see {@link joinHead})
+ * @param keyword - Whether the head must declare a `class` or an `interface`
+ * @param name - The declaration's identifier
+ * @returns True when `head` declares that exact `export {keyword} {name}`; false otherwise
+ *
+ * @example
+ * ```ts
+ * matchesDeclaration('export interface X extends Y {', 'interface', 'X') // true
+ * matchesDeclaration('export interface Xtra {', 'interface', 'X') // false
+ * ```
+ */
+export function matchesDeclaration(
+	head: string,
+	keyword: 'class' | 'interface',
+	name: string,
+): boolean {
+	return new RegExp(`^export ${keyword} ${name}(?:<.*>)?(?: .*)? \\{$`).test(head)
+}
+
+/**
  * The body lines of the named `export class` / `export interface` declaration
  * within one file's source text — everything between a projected real head and
  * projected column-0 closing `}`. Structural eligibility is projected while the
@@ -1085,16 +1112,15 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
  *
  * @example
  * ```ts
- * declarationBody('export interface X {\n\twalk(): void\n}\n', 'interface', 'X') // ['\twalk(): void']
+ * extractDeclarationBody('export interface X {\n\twalk(): void\n}\n', 'interface', 'X') // ['\twalk(): void']
  * ```
  */
-export function declarationBody(
+export function extractDeclarationBody(
 	source: string,
 	keyword: 'class' | 'interface',
 	name: string,
 ): readonly string[] {
 	const opener = `export ${keyword} ${name}`
-	const declaration = new RegExp(`^export ${keyword} ${name}(?:<.*>)?(?: .*)? \\{$`)
 	const lines = extractSourceLines(source)
 	const projected = lines.map((line) => line.code)
 
@@ -1103,7 +1129,7 @@ export function declarationBody(
 		if (line === undefined || !line.startsWith(opener)) continue
 
 		const head = joinHead(projected, index)
-		if (head === undefined || !declaration.test(head.text)) continue
+		if (head === undefined || !matchesDeclaration(head.text, keyword, name)) continue
 
 		for (let close = head.end + 1; close < projected.length; close += 1) {
 			if (projected[close] === '}') {
@@ -1112,6 +1138,63 @@ export function declarationBody(
 		}
 
 		// Unterminated body — keep scanning in case a later match succeeds.
+	}
+
+	return []
+}
+
+/**
+ * The base identifiers the named `export class` / `export interface`
+ * declaration extends, in head order — the `extends` clause behind
+ * `Source.methods`' inherited-member resolution. The head is
+ * located by {@link extractDeclarationBody}'s grammar through
+ * {@link matchesDeclaration}. Every balanced `<...>` span is removed before the
+ * clause is read, so a `T extends Base` type parameter never reads as a base
+ * and `Base<T>` reads as `Base`; a class's `implements` clause and everything
+ * after it is excluded. A qualified base such as `namespace.Base` is returned
+ * verbatim and matches no reflected declaration.
+ *
+ * @param source - The file's source text to search
+ * @param keyword - Whether to look for a `class` or an `interface`
+ * @param name - The declaration's identifier
+ * @returns The base identifiers, or an empty array when the head extends nothing
+ *
+ * @example
+ * ```ts
+ * extractDeclarationBases('export interface B extends A, C<T> {\n}\n', 'interface', 'B') // ['A', 'C']
+ * ```
+ */
+export function extractDeclarationBases(
+	source: string,
+	keyword: 'class' | 'interface',
+	name: string,
+): readonly string[] {
+	const opener = `export ${keyword} ${name}`
+	const projected = extractSourceLines(source).map((line) => line.code)
+
+	for (let index = 0; index < projected.length; index += 1) {
+		const line = projected[index]
+		if (line === undefined || !line.startsWith(opener)) continue
+
+		const head = joinHead(projected, index)
+		if (head === undefined || !matchesDeclaration(head.text, keyword, name)) continue
+
+		let depth = 0
+		let flat = ''
+		for (const character of head.text.slice(opener.length, -1)) {
+			if (character === '<') depth += 1
+			else if (character === '>') depth = Math.max(0, depth - 1)
+			else if (depth === 0) flat += character
+		}
+
+		const listed = flat.replace(/\bimplements\b[\s\S]*$/, '').match(/\bextends\b([\s\S]*)$/)
+		const clause = listed?.[1]
+		if (clause === undefined) return []
+
+		return clause
+			.split(',')
+			.map((base) => base.trim())
+			.filter(isNonEmptyString)
 	}
 
 	return []
@@ -1129,10 +1212,10 @@ export function declarationBody(
  *
  * @example
  * ```ts
- * memberMethods(['\tmap(): void', '\tfilter(): void']) // ['filter', 'map']
+ * extractMemberMethods(['\tmap(): void', '\tfilter(): void']) // ['filter', 'map']
  * ```
  */
-export function memberMethods(lines: readonly string[]): readonly string[] {
+export function extractMemberMethods(lines: readonly string[]): readonly string[] {
 	const methods: string[] = []
 
 	for (const line of extractSourceLines(lines.join('\n'))) {
@@ -1154,10 +1237,13 @@ export function memberMethods(lines: readonly string[]): readonly string[] {
  *
  * @example
  * ```ts
- * sectionBlocks(document, 'Surface') // the blocks between `## Surface` and the next `##`
+ * selectSectionBlocks(document, 'Surface') // the blocks between `## Surface` and the next `##`
  * ```
  */
-export function sectionBlocks(document: MarkdownDocument, heading: string): readonly BlockNode[] {
+export function selectSectionBlocks(
+	document: MarkdownDocument,
+	heading: string,
+): readonly BlockNode[] {
 	const blocks: BlockNode[] = []
 	let active = false
 
@@ -1180,7 +1266,7 @@ export function sectionBlocks(document: MarkdownDocument, heading: string): read
  * Every `## Surface` identifier the guide documents — each table row's column 0
  * code span (the name) paired with its `Kind` column (located by header text)
  * UNION every backticked H3 entity heading in the section
- * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link symbolKey}. A row with
+ * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link computeSymbolKey}. A row with
  * no code-span name, or an unrecognized `Kind` text, is skipped.
  *
  * @param document - The parsed guide document
@@ -1195,13 +1281,13 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
 
-	for (const block of sectionBlocks(document, SURFACE)) {
+	for (const block of selectSectionBlocks(document, SURFACE)) {
 		if (isTableNode(block)) {
-			const column = kindIndex(block)
+			const column = findKindIndex(block)
 			for (const row of block.rows) {
 				const nameCell = row[0]
-				const rawName = nameCell === undefined ? undefined : firstCode(nameCell)
-				const name = rawName === undefined ? undefined : identifierOf(rawName)
+				const rawName = nameCell === undefined ? undefined : findFirstCode(nameCell)
+				const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
 				if (name === undefined) continue
 
 				const kindCell = column === undefined ? undefined : row[column]
@@ -1212,7 +1298,7 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 				if (!isExportKind(kindText)) continue
 
 				const symbol: SurfaceSymbol = { name, kind: kindText }
-				const key = symbolKey(symbol)
+				const key = computeSymbolKey(symbol)
 				if (seen.has(key)) continue
 				seen.add(key)
 				symbols.push(symbol)
@@ -1221,11 +1307,11 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 		}
 
 		if (isHeadingNode(block) && block.level === 3) {
-			const rawName = firstCode(block.children)
-			const name = rawName === undefined ? undefined : identifierOf(rawName)
+			const rawName = findFirstCode(block.children)
+			const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
 			if (name === undefined) continue
 			const symbol: SurfaceSymbol = { name, kind: 'class' }
-			const key = symbolKey(symbol)
+			const key = computeSymbolKey(symbol)
 			if (seen.has(key)) continue
 			seen.add(key)
 			symbols.push(symbol)
@@ -1252,10 +1338,10 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 	const groups: MethodGroup[] = []
 	let current: string | undefined
 
-	for (const block of sectionBlocks(document, METHODS)) {
+	for (const block of selectSectionBlocks(document, METHODS)) {
 		if (isHeadingNode(block) && block.level === 4) {
-			const rawInterface = firstCode(block.children)
-			current = rawInterface === undefined ? undefined : identifierOf(rawInterface)
+			const rawInterface = findFirstCode(block.children)
+			current = rawInterface === undefined ? undefined : normalizeIdentifier(rawInterface)
 			continue
 		}
 
@@ -1263,8 +1349,8 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 			const methods: string[] = []
 			for (const row of block.rows) {
 				const cell = row[0]
-				const rawName = cell === undefined ? undefined : firstCode(cell)
-				const name = rawName === undefined ? undefined : identifierOf(rawName)
+				const rawName = cell === undefined ? undefined : findFirstCode(cell)
+				const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
 				if (name !== undefined) methods.push(name)
 			}
 			groups.push({ interface: current, methods })
@@ -1309,7 +1395,7 @@ export function extractLinks(document: MarkdownDocument): readonly string[] {
  */
 export function extractTests(document: MarkdownDocument): readonly string[] {
 	const links: string[] = []
-	for (const block of sectionBlocks(document, TESTS)) {
+	for (const block of selectSectionBlocks(document, TESTS)) {
 		for (const node of walkNodes(block)) {
 			if (isLinkNode(node)) links.push(node.href)
 		}
@@ -1426,11 +1512,11 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
  * @example
  * ```ts
  * const block = ['/**', ' * @example', ' *' + '/', 'export function walk() {}', ''].join('\n')
- * examplesFrom(block) // ['walk']
- * examplesFrom('export function walk() {}\n') // []
+ * extractExamples(block) // ['walk']
+ * extractExamples('export function walk() {}\n') // []
  * ```
  */
-export function examplesFrom(source: string): readonly string[] {
+export function extractExamples(source: string): readonly string[] {
 	const names: string[] = []
 	const seen = new Set<string>()
 
@@ -1447,7 +1533,7 @@ export function examplesFrom(source: string): readonly string[] {
 }
 
 /**
- * The callable-member names in a declaration body (per {@link memberMethods}'
+ * The callable-member names in a declaration body (per {@link extractMemberMethods}'
  * grammar) whose immediately preceding eligible genuine JSDoc block, within
  * the same body, carries `@example`. Shared adjacency comes from
  * {@link extractExampleLines}; member membership is matched against aligned
@@ -1458,10 +1544,10 @@ export function examplesFrom(source: string): readonly string[] {
  *
  * @example
  * ```ts
- * exampleMethods(['\t/**', '\t * @example', '\t *' + '/', '\twalk(): void']) // ['walk']
+ * extractExampleMethods(['\t/**', '\t * @example', '\t *' + '/', '\twalk(): void']) // ['walk']
  * ```
  */
-export function exampleMethods(lines: readonly string[]): readonly string[] {
+export function extractExampleMethods(lines: readonly string[]): readonly string[] {
 	const methods: string[] = []
 	const seen = new Set<string>()
 

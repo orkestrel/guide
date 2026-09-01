@@ -1,11 +1,12 @@
 import type { SourceLine, SurfaceSymbol } from '@src/core'
 import * as core from '@src/core'
 import {
-	cellLinks,
-	declarationBody,
-	exampleMethods,
-	examplesFrom,
-	exportsFrom,
+	extractCellLinks,
+	extractDeclarationBases,
+	extractDeclarationBody,
+	extractExampleMethods,
+	extractExamples,
+	extractExports,
 	extractExampleLines,
 	extractLinks,
 	extractMethods,
@@ -13,25 +14,26 @@ import {
 	extractSourceLines,
 	extractSurface,
 	extractTests,
-	fenceImports,
+	extractFenceImports,
 	findMissing,
 	findUnexampled,
 	findUnlisted,
-	firstCode,
-	identifierOf,
+	findFirstCode,
+	normalizeIdentifier,
 	isExternalLink,
 	hasCanonicalSegments,
-	hiddenFrom,
+	extractHidden,
 	joinHead,
-	kindIndex,
-	memberMethods,
-	missingSymbols,
+	matchesDeclaration,
+	findKindIndex,
+	extractMemberMethods,
+	findMissingSymbols,
 	normalizeDirectories,
 	resolveLink,
 	resolvePath,
-	sectionBlocks,
+	selectSectionBlocks,
 	selectModuleKeys,
-	symbolKey,
+	computeSymbolKey,
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
@@ -359,13 +361,15 @@ describe('extractSourceLines', () => {
 	})
 })
 
-describe('symbolKey', () => {
+describe('computeSymbolKey', () => {
 	it('joins kind and name with a space', () => {
-		expect(symbolKey({ name: 'Markdown', kind: 'class' })).toBe('class Markdown')
+		expect(computeSymbolKey({ name: 'Markdown', kind: 'class' })).toBe('class Markdown')
 	})
 
 	it('differs when kind differs', () => {
-		expect(symbolKey({ name: 'X', kind: 'type' })).not.toBe(symbolKey({ name: 'X', kind: 'class' }))
+		expect(computeSymbolKey({ name: 'X', kind: 'type' })).not.toBe(
+			computeSymbolKey({ name: 'X', kind: 'class' }),
+		)
 	})
 })
 
@@ -465,26 +469,26 @@ describe('findUnlisted', () => {
 	})
 })
 
-describe('missingSymbols', () => {
+describe('findMissingSymbols', () => {
 	const widget: SurfaceSymbol = { name: 'Widget', kind: 'class' }
 	const kind: SurfaceSymbol = { name: 'WidgetKind', kind: 'type' }
 
 	it('returns an empty array when symbols is empty', () => {
-		expect(missingSymbols([], [widget])).toEqual([])
+		expect(findMissingSymbols([], [widget])).toEqual([])
 	})
 
 	it('returns symbol keys present in symbols but absent from source', () => {
-		expect(missingSymbols([widget, kind], [widget])).toEqual(['type WidgetKind'])
+		expect(findMissingSymbols([widget, kind], [widget])).toEqual(['type WidgetKind'])
 	})
 
 	it('treats same-name different-kind symbols as distinct (both directions)', () => {
 		const asConst: SurfaceSymbol = { name: 'Widget', kind: 'const' }
-		expect(missingSymbols([asConst], [widget])).toEqual(['const Widget'])
-		expect(missingSymbols([widget], [asConst])).toEqual(['class Widget'])
+		expect(findMissingSymbols([asConst], [widget])).toEqual(['const Widget'])
+		expect(findMissingSymbols([widget], [asConst])).toEqual(['class Widget'])
 	})
 
 	it('returns an empty array when both lists match exactly', () => {
-		expect(missingSymbols([widget, kind], [widget, kind])).toEqual([])
+		expect(findMissingSymbols([widget, kind], [widget, kind])).toEqual([])
 	})
 })
 
@@ -567,53 +571,53 @@ describe('resolveLink', () => {
 	})
 })
 
-describe('identifierOf', () => {
+describe('normalizeIdentifier', () => {
 	it('returns a bare identifier unchanged', () => {
-		expect(identifierOf('fold')).toBe('fold')
+		expect(normalizeIdentifier('fold')).toBe('fold')
 	})
 
 	it('strips a single generic parameter list', () => {
-		expect(identifierOf('MarkdownHandler<TNode, T>')).toBe('MarkdownHandler')
+		expect(normalizeIdentifier('MarkdownHandler<TNode, T>')).toBe('MarkdownHandler')
 	})
 
 	it('strips nested generic parameter lists', () => {
-		expect(identifierOf('A<B<C>>')).toBe('A')
+		expect(normalizeIdentifier('A<B<C>>')).toBe('A')
 	})
 
 	it('trims whitespace around the identifier', () => {
-		expect(identifierOf('  Widget  <T>')).toBe('Widget')
+		expect(normalizeIdentifier('  Widget  <T>')).toBe('Widget')
 	})
 
 	it('returns an empty string for empty input', () => {
-		expect(identifierOf('')).toBe('')
+		expect(normalizeIdentifier('')).toBe('')
 	})
 })
 
-describe('kindIndex', () => {
+describe('findKindIndex', () => {
 	it('finds the Kind column when present', () => {
 		const table = requireTable('| Name | Kind |\n| --- | --- |\n| `X` | class |\n')
-		expect(kindIndex(table)).toBe(1)
+		expect(findKindIndex(table)).toBe(1)
 	})
 
 	it('returns undefined when no Kind header exists', () => {
 		const table = requireTable('| Name | Description |\n| --- | --- |\n| `X` | none |\n')
-		expect(kindIndex(table)).toBeUndefined()
+		expect(findKindIndex(table)).toBeUndefined()
 	})
 
 	it('finds the Kind column when the header is reordered', () => {
 		const table = requireTable('| Kind | Name |\n| --- | --- |\n| class | `X` |\n')
-		expect(kindIndex(table)).toBe(0)
+		expect(findKindIndex(table)).toBe(0)
 	})
 })
 
-describe('firstCode', () => {
+describe('findFirstCode', () => {
 	it('returns a plain code span value', () => {
-		expect(firstCode([{ element: 'codeSpan', value: 'Widget' }])).toBe('Widget')
+		expect(findFirstCode([{ element: 'codeSpan', value: 'Widget' }])).toBe('Widget')
 	})
 
 	it('finds a code span nested inside emphasis', () => {
 		expect(
-			firstCode([
+			findFirstCode([
 				{
 					element: 'emphasis',
 					strong: false,
@@ -625,7 +629,7 @@ describe('firstCode', () => {
 
 	it('finds a code span nested inside a link', () => {
 		expect(
-			firstCode([
+			findFirstCode([
 				{
 					element: 'link',
 					href: 'widget.md',
@@ -637,7 +641,7 @@ describe('firstCode', () => {
 
 	it('finds a code span nested inside an image', () => {
 		expect(
-			firstCode([
+			findFirstCode([
 				{
 					element: 'image',
 					src: 'widget.png',
@@ -648,20 +652,22 @@ describe('firstCode', () => {
 	})
 
 	it('returns undefined when no code span is present', () => {
-		expect(firstCode([{ element: 'text', value: 'Widget' }])).toBeUndefined()
+		expect(findFirstCode([{ element: 'text', value: 'Widget' }])).toBeUndefined()
 	})
 })
 
-describe('cellLinks', () => {
+describe('extractCellLinks', () => {
 	it('returns a plain link cell href', () => {
 		expect(
-			cellLinks([{ element: 'link', href: 'x.ts', children: [{ element: 'text', value: 'x' }] }]),
+			extractCellLinks([
+				{ element: 'link', href: 'x.ts', children: [{ element: 'text', value: 'x' }] },
+			]),
 		).toEqual(['x.ts'])
 	})
 
 	it('returns multiple link hrefs in order', () => {
 		expect(
-			cellLinks([
+			extractCellLinks([
 				{ element: 'link', href: 'a.ts', children: [{ element: 'text', value: 'a' }] },
 				{ element: 'text', value: ' ' },
 				{ element: 'link', href: 'b.ts', children: [{ element: 'text', value: 'b' }] },
@@ -670,12 +676,12 @@ describe('cellLinks', () => {
 	})
 
 	it('returns an empty array when the cell has no links', () => {
-		expect(cellLinks([{ element: 'text', value: 'plain' }])).toEqual([])
+		expect(extractCellLinks([{ element: 'text', value: 'plain' }])).toEqual([])
 	})
 
 	it('finds a link nested inside emphasis', () => {
 		expect(
-			cellLinks([
+			extractCellLinks([
 				{
 					element: 'emphasis',
 					strong: false,
@@ -818,77 +824,81 @@ describe('findUnexampled', () => {
 	})
 })
 
-describe('fenceImports', () => {
+describe('extractFenceImports', () => {
 	it('parses a single named import', () => {
-		expect(fenceImports("import { a } from 'x'\n")).toEqual([{ specifier: 'x', names: ['a'] }])
+		expect(extractFenceImports("import { a } from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['a'] },
+		])
 	})
 
 	it('parses multiple names from one specifier', () => {
-		expect(fenceImports("import { a, b } from 'x'\n")).toEqual([
+		expect(extractFenceImports("import { a, b } from 'x'\n")).toEqual([
 			{ specifier: 'x', names: ['a', 'b'] },
 		])
 	})
 
 	it('strips the type keyword from a mixed import', () => {
-		expect(fenceImports("import { type A, b } from 'x'\n")).toEqual([
+		expect(extractFenceImports("import { type A, b } from 'x'\n")).toEqual([
 			{ specifier: 'x', names: ['A', 'b'] },
 		])
 	})
 
 	it('resolves import type { ... } to the plain names', () => {
-		expect(fenceImports("import type { A, B } from 'x'\n")).toEqual([
+		expect(extractFenceImports("import type { A, B } from 'x'\n")).toEqual([
 			{ specifier: 'x', names: ['A', 'B'] },
 		])
 	})
 
 	it('resolves an aliased import to its original exported name', () => {
-		expect(fenceImports("import { a as c } from 'x'\n")).toEqual([{ specifier: 'x', names: ['a'] }])
+		expect(extractFenceImports("import { a as c } from 'x'\n")).toEqual([
+			{ specifier: 'x', names: ['a'] },
+		])
 	})
 
 	it('parses a multiline import statement', () => {
-		expect(fenceImports("import {\n\ta,\n\tb,\n} from 'x'\n")).toEqual([
+		expect(extractFenceImports("import {\n\ta,\n\tb,\n} from 'x'\n")).toEqual([
 			{ specifier: 'x', names: ['a', 'b'] },
 		])
 	})
 
 	it('returns one entry per specifier across multiple import statements', () => {
-		expect(fenceImports("import { a } from 'x'\nimport { b } from 'y'\n")).toEqual([
+		expect(extractFenceImports("import { a } from 'x'\nimport { b } from 'y'\n")).toEqual([
 			{ specifier: 'x', names: ['a'] },
 			{ specifier: 'y', names: ['b'] },
 		])
 	})
 
 	it('returns an empty array for a fence with no imports', () => {
-		expect(fenceImports('const x = 1\n')).toEqual([])
+		expect(extractFenceImports('const x = 1\n')).toEqual([])
 	})
 })
 
-describe('sectionBlocks', () => {
+describe('selectSectionBlocks', () => {
 	it('scopes to the blocks between a heading and the next ## heading', () => {
 		const document = createMarkdown('## A\n\npara-a\n\n## B\n\npara-b\n').document
-		const blocks = sectionBlocks(document, 'A')
+		const blocks = selectSectionBlocks(document, 'A')
 		expect(blocks).toHaveLength(1)
 	})
 
 	it('runs to the document end when no later ## heading exists', () => {
 		const document = createMarkdown('## A\n\npara-a\n\npara-a2\n').document
-		expect(sectionBlocks(document, 'A')).toHaveLength(2)
+		expect(selectSectionBlocks(document, 'A')).toHaveLength(2)
 	})
 
 	it('returns an empty array when the heading is missing', () => {
 		const document = createMarkdown('## A\n\npara-a\n').document
-		expect(sectionBlocks(document, 'B')).toEqual([])
+		expect(selectSectionBlocks(document, 'B')).toEqual([])
 	})
 
 	it('stops at a level-1 or level-2 heading but not a level-3 heading', () => {
 		const document = createMarkdown('## A\n\n### Sub\n\npara\n\n## B\n\npara-b\n').document
-		const blocks = sectionBlocks(document, 'A')
+		const blocks = selectSectionBlocks(document, 'A')
 		expect(blocks).toHaveLength(2)
 	})
 })
 
 describe('successor lexical and reflection boundaries', () => {
-	it('exportsFrom carries every hostile lexical transition to direct reflection', () => {
+	it('extractExports carries every hostile lexical transition to direct reflection', () => {
 		for (const source of [
 			'const ratio = count++ / total /* open\nexport const ghost = true\n*/\nexport const visible = true',
 			'const ratio = count-- / total /* open\nexport const ghost = true\n*/\nexport const visible = true',
@@ -897,28 +907,28 @@ describe('successor lexical and reflection boundaries', () => {
 			'const values = [... /[/*]/]\nexport const visible = true',
 			'for (const value of /[/*]/) value\nexport const visible = true',
 		]) {
-			expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+			expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
 		}
 	})
 
-	it('exportsFrom excludes comments after ordinary and private literal Unicode identifiers', () => {
+	it('extractExports excludes comments after ordinary and private literal Unicode identifiers', () => {
 		const sources = [
 			'const ratio = object.\u03c0 / 2 /* open\nexport const ghost = true\n*/\nexport const visible = true',
 			'class Counter {\n\t#\u03c0 = 1\n\tratio(): number { return this.#\u03c0 / 2 /* open\nexport const ghost = true\n*/ }\n}\nexport const visible = true',
 		]
-		expect(sources.map(exportsFrom)).toEqual(
+		expect(sources.map(extractExports)).toEqual(
 			sources.map(() => [{ name: 'visible', kind: 'const' }]),
 		)
 	})
 
-	it('exportsFrom preserves declarations after empty and elided for-of bindings', () => {
+	it('extractExports preserves declarations after empty and elided for-of bindings', () => {
 		const sources = [
 			'for (const {} of /[/*]/ as unknown as readonly object[]) {}\nexport const visible = true',
 			'for (const [] of /[/*]/ as unknown as readonly unknown[][]) {}\nexport const visible = true',
 			'for (const [,,] of /[/*]/ as unknown as readonly unknown[][]) {}\nexport const visible = true',
 			'for (const [{}, []] of /[/*]/ as unknown as readonly [object, unknown[]][]) {}\nexport const visible = true',
 		]
-		expect(sources.map(exportsFrom)).toEqual(
+		expect(sources.map(extractExports)).toEqual(
 			sources.map(() => [{ name: 'visible', kind: 'const' }]),
 		)
 	})
@@ -931,13 +941,13 @@ describe('successor lexical and reflection boundaries', () => {
 			'*/',
 			'export const visible = true /* trailing */',
 		].join('\n')
-		expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
-		expect(hiddenFrom(source.replaceAll('export ', ''))).toEqual([
+		expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractHidden(source.replaceAll('export ', ''))).toEqual([
 			{ name: 'visible', kind: 'const' },
 		])
 	})
 
-	it('declarationBody ignores commented declarations and commented closes', () => {
+	it('extractDeclarationBody ignores commented declarations and commented closes', () => {
 		const source = [
 			'/*',
 			'export interface Ghost {',
@@ -951,7 +961,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'\tvisible(): void',
 			'}',
 		].join('\n')
-		expect(declarationBody(source, 'interface', 'Ghost')).toEqual([
+		expect(extractDeclarationBody(source, 'interface', 'Ghost')).toEqual([
 			'\t/*',
 			'}',
 			'\t*/',
@@ -959,20 +969,20 @@ describe('successor lexical and reflection boundaries', () => {
 		])
 	})
 
-	it('memberMethods excludes commented candidates', () => {
-		expect(memberMethods(['\t/*', '\tghost(): void', '\t*/', '\tvisible(): void'])).toEqual([
+	it('extractMemberMethods excludes commented candidates', () => {
+		expect(extractMemberMethods(['\t/*', '\tghost(): void', '\t*/', '\tvisible(): void'])).toEqual([
 			'visible',
 		])
 	})
 
-	it('exampleMethods keeps raw JSDoc evidence but rejects commented candidates', () => {
+	it('extractExampleMethods keeps raw JSDoc evidence but rejects commented candidates', () => {
 		const lines = [
 			'\t/** @example */',
 			'\tvisible(): void',
 			'\t/** @example */',
 			'\t/* ghost(): void */',
 		]
-		expect(exampleMethods(lines)).toEqual(['visible'])
+		expect(extractExampleMethods(lines)).toEqual(['visible'])
 	})
 })
 
@@ -1080,7 +1090,7 @@ describe('extractTests', () => {
 	})
 })
 
-describe('exportsFrom', () => {
+describe('extractExports', () => {
 	it('excludes five-kind declarations inside a multiline block comment', () => {
 		const source = [
 			'/*',
@@ -1093,7 +1103,7 @@ describe('exportsFrom', () => {
 			'export const visible = true',
 			'',
 		].join('\n')
-		expect(exportsFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
 	})
 
 	it('retains five-kind code with literal initializers and comments while excluding enum', () => {
@@ -1107,7 +1117,7 @@ describe('exportsFrom', () => {
 			'export class VisibleClass {} // note',
 			'export enum Outside { Value }',
 		].join('\n')
-		expect(exportsFrom(source)).toEqual([
+		expect(extractExports(source)).toEqual([
 			{ name: 'VisibleType', kind: 'type' },
 			{ name: 'VisibleInterface', kind: 'interface' },
 			{ name: 'stringValue', kind: 'const' },
@@ -1119,7 +1129,7 @@ describe('exportsFrom', () => {
 	})
 
 	it('scans all five ExportKind declarations from the good fixture types.ts', () => {
-		const symbols = exportsFrom(requireText(FIXTURES, 'good/module/types.ts'))
+		const symbols = extractExports(requireText(FIXTURES, 'good/module/types.ts'))
 		expect(symbols).toEqual([
 			{ name: 'WidgetInterface', kind: 'interface' },
 			{ name: 'WidgetKind', kind: 'type' },
@@ -1129,7 +1139,7 @@ describe('exportsFrom', () => {
 	it('scans a plain function, an async function, a class, and a const', () => {
 		const source =
 			'export function a() {}\nexport async function b() {}\nexport class C {}\nexport const D = 1\n'
-		expect(exportsFrom(source)).toEqual([
+		expect(extractExports(source)).toEqual([
 			{ name: 'a', kind: 'function' },
 			{ name: 'b', kind: 'function' },
 			{ name: 'C', kind: 'class' },
@@ -1138,23 +1148,23 @@ describe('exportsFrom', () => {
 	})
 
 	it('scans a generator function as kind function', () => {
-		expect(exportsFrom('export function* walk() {}\n')).toEqual([
+		expect(extractExports('export function* walk() {}\n')).toEqual([
 			{ name: 'walk', kind: 'function' },
 		])
 	})
 
 	it('dedupes a repeated (kind, name) pair', () => {
 		const source = 'export class X {}\nexport class X {}\n'
-		expect(exportsFrom(source)).toEqual([{ name: 'X', kind: 'class' }])
+		expect(extractExports(source)).toEqual([{ name: 'X', kind: 'class' }])
 	})
 
 	it('ignores non-export lines', () => {
 		const source = 'const local = 1\nfunction helper() {}\nexport class Real {}\n'
-		expect(exportsFrom(source)).toEqual([{ name: 'Real', kind: 'class' }])
+		expect(extractExports(source)).toEqual([{ name: 'Real', kind: 'class' }])
 	})
 })
 
-describe('hiddenFrom', () => {
+describe('extractHidden', () => {
 	it('excludes five-kind declarations inside a multiline block comment', () => {
 		const source = [
 			'/*',
@@ -1167,7 +1177,7 @@ describe('hiddenFrom', () => {
 			'const visible = true',
 			'',
 		].join('\n')
-		expect(hiddenFrom(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractHidden(source)).toEqual([{ name: 'visible', kind: 'const' }])
 	})
 
 	it('retains hidden five-kind code with literal initializers and comments while excluding enum', () => {
@@ -1181,7 +1191,7 @@ describe('hiddenFrom', () => {
 			'class VisibleClass {} // note',
 			'enum Outside { Value }',
 		].join('\n')
-		expect(hiddenFrom(source)).toEqual([
+		expect(extractHidden(source)).toEqual([
 			{ name: 'VisibleType', kind: 'type' },
 			{ name: 'VisibleInterface', kind: 'interface' },
 			{ name: 'stringValue', kind: 'const' },
@@ -1193,55 +1203,57 @@ describe('hiddenFrom', () => {
 	})
 
 	it('detects a hidden function declaration', () => {
-		expect(hiddenFrom('function secretHelper() {}\n')).toEqual([
+		expect(extractHidden('function secretHelper() {}\n')).toEqual([
 			{ name: 'secretHelper', kind: 'function' },
 		])
 	})
 
 	it('detects a hidden async function declaration', () => {
-		expect(hiddenFrom('async function loadSecret() {}\n')).toEqual([
+		expect(extractHidden('async function loadSecret() {}\n')).toEqual([
 			{ name: 'loadSecret', kind: 'function' },
 		])
 	})
 
 	it('detects a hidden generator declaration as kind function', () => {
-		expect(hiddenFrom('function* walkSecret() {}\n')).toEqual([
+		expect(extractHidden('function* walkSecret() {}\n')).toEqual([
 			{ name: 'walkSecret', kind: 'function' },
 		])
 	})
 
 	it('detects a hidden class declaration', () => {
-		expect(hiddenFrom('class Secret {}\n')).toEqual([{ name: 'Secret', kind: 'class' }])
+		expect(extractHidden('class Secret {}\n')).toEqual([{ name: 'Secret', kind: 'class' }])
 	})
 
 	it('detects a hidden const declaration', () => {
-		expect(hiddenFrom('const SECRET = 1\n')).toEqual([{ name: 'SECRET', kind: 'const' }])
+		expect(extractHidden('const SECRET = 1\n')).toEqual([{ name: 'SECRET', kind: 'const' }])
 	})
 
 	it('detects a hidden interface declaration', () => {
-		expect(hiddenFrom('interface Secret {}\n')).toEqual([{ name: 'Secret', kind: 'interface' }])
+		expect(extractHidden('interface Secret {}\n')).toEqual([{ name: 'Secret', kind: 'interface' }])
 	})
 
 	it('detects a hidden type declaration', () => {
-		expect(hiddenFrom('type Secret = string\n')).toEqual([{ name: 'Secret', kind: 'type' }])
+		expect(extractHidden('type Secret = string\n')).toEqual([{ name: 'Secret', kind: 'type' }])
 	})
 
 	it('ignores exported lines', () => {
 		const source = 'export function a() {}\nexport class C {}\nexport const D = 1\n'
-		expect(hiddenFrom(source)).toEqual([])
+		expect(extractHidden(source)).toEqual([])
 	})
 
 	it('ignores an indented declaration inside a body (column-0 anchor)', () => {
 		const source = 'export class X {\n\tfunction inner() {}\n}\n'
-		expect(hiddenFrom(source)).toEqual([])
+		expect(extractHidden(source)).toEqual([])
 	})
 
 	it('returns empty for the good fixture types.ts (fully exported)', () => {
-		expect(hiddenFrom(requireText(FIXTURES, 'good/module/types.ts'))).toEqual([])
+		expect(extractHidden(requireText(FIXTURES, 'good/module/types.ts'))).toEqual([])
 	})
 
 	it('finds the hidden-declaration fixture Widget.ts secretHelper', () => {
-		const symbols = hiddenFrom(requireText(FIXTURES, 'broken/hidden-declaration/module/Widget.ts'))
+		const symbols = extractHidden(
+			requireText(FIXTURES, 'broken/hidden-declaration/module/Widget.ts'),
+		)
 		expect(symbols).toEqual([{ name: 'secretHelper', kind: 'function' }])
 	})
 })
@@ -1291,19 +1303,19 @@ describe('joinHead', () => {
 	})
 })
 
-describe('declarationBody', () => {
+describe('extractDeclarationBody', () => {
 	it('extracts an interface body', () => {
 		const source = 'export interface X {\n\twalk(): void\n}\n'
-		expect(declarationBody(source, 'interface', 'X')).toEqual(['\twalk(): void'])
+		expect(extractDeclarationBody(source, 'interface', 'X')).toEqual(['\twalk(): void'])
 	})
 
 	it('extracts a class body', () => {
 		const source = 'export class X {\n\twalk(): void {}\n}\n'
-		expect(declarationBody(source, 'class', 'X')).toEqual(['\twalk(): void {}'])
+		expect(extractDeclarationBody(source, 'class', 'X')).toEqual(['\twalk(): void {}'])
 	})
 
 	it('extracts a body from the fixture types.ts text', () => {
-		const body = declarationBody(
+		const body = extractDeclarationBody(
 			requireText(FIXTURES, 'good/module/types.ts'),
 			'interface',
 			'WidgetInterface',
@@ -1317,65 +1329,143 @@ describe('declarationBody', () => {
 	})
 
 	it('returns an empty array when the named declaration is missing', () => {
-		expect(declarationBody('export class X {\n}\n', 'interface', 'Y')).toEqual([])
+		expect(extractDeclarationBody('export class X {\n}\n', 'interface', 'Y')).toEqual([])
 	})
 })
 
-describe('memberMethods', () => {
+describe('matchesDeclaration', () => {
+	it('accepts a plain head', () => {
+		expect(matchesDeclaration('export interface X {', 'interface', 'X')).toBe(true)
+	})
+
+	it('accepts a generic head', () => {
+		expect(matchesDeclaration('export interface X<T> {', 'interface', 'X')).toBe(true)
+	})
+
+	it('accepts an extends head', () => {
+		expect(matchesDeclaration('export interface X extends Y {', 'interface', 'X')).toBe(true)
+	})
+
+	it('rejects a longer identifier sharing the prefix', () => {
+		expect(matchesDeclaration('export interface Xtra {', 'interface', 'X')).toBe(false)
+	})
+
+	it('rejects the other keyword', () => {
+		expect(matchesDeclaration('export class X {', 'interface', 'X')).toBe(false)
+	})
+
+	it('rejects a head that opens no body', () => {
+		expect(matchesDeclaration('export interface X', 'interface', 'X')).toBe(false)
+	})
+})
+
+describe('extractDeclarationBases', () => {
+	it('returns an empty array when the declaration extends nothing', () => {
+		expect(extractDeclarationBases('export interface X {\n}\n', 'interface', 'X')).toEqual([])
+	})
+
+	it('returns an empty array when the declaration is absent', () => {
+		expect(extractDeclarationBases('export interface X {\n}\n', 'interface', 'Y')).toEqual([])
+	})
+
+	it('returns one base', () => {
+		const source = 'export interface B extends A {\n}\n'
+		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A'])
+	})
+
+	it('returns every base in head order and strips generic arguments', () => {
+		const source = 'export interface B extends A, C<T, U> {\n}\n'
+		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A', 'C'])
+	})
+
+	it('reads past a type parameter that carries its own extends', () => {
+		const source = 'export interface B<T extends A> extends C {\n}\n'
+		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['C'])
+	})
+
+	it('excludes a class implements clause', () => {
+		const source = 'export class B extends A implements I, J {\n}\n'
+		expect(extractDeclarationBases(source, 'class', 'B')).toEqual(['A'])
+	})
+
+	it('reads a head oxfmt wrapped across lines', () => {
+		const source = ['export interface B', '\textends A,', '\t\tC {', '}', ''].join('\n')
+		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A', 'C'])
+	})
+
+	it('ignores a commented declaration', () => {
+		const source = [
+			'/*',
+			'export interface B extends Ghost {',
+			'}',
+			'*/',
+			'export interface B extends A {',
+			'}',
+			'',
+		].join('\n')
+		expect(extractDeclarationBases(source, 'interface', 'B')).toEqual(['A'])
+	})
+})
+
+describe('extractMemberMethods', () => {
 	it('counts a plain method', () => {
-		expect(memberMethods(['\tmap(): void'])).toEqual(['map'])
+		expect(extractMemberMethods(['\tmap(): void'])).toEqual(['map'])
 	})
 
 	it('counts an async method', () => {
-		expect(memberMethods(['\tasync load(): Promise<void>'])).toEqual(['load'])
+		expect(extractMemberMethods(['\tasync load(): Promise<void>'])).toEqual(['load'])
 	})
 
 	it('counts a generator method', () => {
-		expect(memberMethods(['\t*walk(): Generator<void>'])).toEqual(['walk'])
+		expect(extractMemberMethods(['\t*walk(): Generator<void>'])).toEqual(['walk'])
 	})
 
 	it('counts an optional method', () => {
-		expect(memberMethods(['\trecords?(): void'])).toEqual(['records'])
+		expect(extractMemberMethods(['\trecords?(): void'])).toEqual(['records'])
 	})
 
 	it('counts a method whose type params nest generics', () => {
-		expect(memberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual(['fold'])
+		expect(extractMemberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual(['fold'])
 	})
 
 	it('excludes a getter', () => {
-		expect(memberMethods(['\tget label(): string'])).toEqual([])
+		expect(extractMemberMethods(['\tget label(): string'])).toEqual([])
 	})
 
 	it('excludes a setter', () => {
-		expect(memberMethods(['\tset label(value: string)'])).toEqual([])
+		expect(extractMemberMethods(['\tset label(value: string)'])).toEqual([])
 	})
 
 	it('excludes a static member', () => {
-		expect(memberMethods(['\tstatic create(): X'])).toEqual([])
+		expect(extractMemberMethods(['\tstatic create(): X'])).toEqual([])
 	})
 
 	it('excludes a #-private member', () => {
-		expect(memberMethods(['\t#describe(): string'])).toEqual([])
+		expect(extractMemberMethods(['\t#describe(): string'])).toEqual([])
 	})
 
-	it('counts a constructor line as a member (Source excludes it downstream, not memberMethods)', () => {
-		expect(memberMethods(['\tconstructor(label: string)'])).toEqual(['constructor'])
+	it('counts a constructor line as a member (Source excludes it downstream, not extractMemberMethods)', () => {
+		expect(extractMemberMethods(['\tconstructor(label: string)'])).toEqual(['constructor'])
 	})
 
 	it('excludes a plain data member', () => {
-		expect(memberMethods(['\treadonly count: number'])).toEqual([])
+		expect(extractMemberMethods(['\treadonly count: number'])).toEqual([])
 	})
 
 	it('dedupes and sorts the results', () => {
-		expect(memberMethods(['\tzeta(): void', '\talpha(): void', '\tzeta(): void'])).toEqual([
+		expect(extractMemberMethods(['\tzeta(): void', '\talpha(): void', '\tzeta(): void'])).toEqual([
 			'alpha',
 			'zeta',
 		])
 	})
 
 	it("reproduces the good fixture Widget class's exact three methods (excluding the trap members)", () => {
-		const body = declarationBody(requireText(FIXTURES, 'good/module/Widget.ts'), 'class', 'Widget')
-		expect(memberMethods(body).filter((method) => method !== 'constructor')).toEqual([
+		const body = extractDeclarationBody(
+			requireText(FIXTURES, 'good/module/Widget.ts'),
+			'class',
+			'Widget',
+		)
+		expect(extractMemberMethods(body).filter((method) => method !== 'constructor')).toEqual([
 			'inspect',
 			'render',
 			'reset',
@@ -1383,7 +1473,7 @@ describe('memberMethods', () => {
 	})
 })
 
-describe('examplesFrom', () => {
+describe('extractExamples', () => {
 	it('excludes template and outer-comment faux JSDoc while preserving genuine examples', () => {
 		const source = [
 			'export const text = `',
@@ -1401,43 +1491,43 @@ describe('examplesFrom', () => {
 			'export function genuine(): void {}',
 			'',
 		].join('\n')
-		expect(examplesFrom(source)).toEqual(['genuine'])
+		expect(extractExamples(source)).toEqual(['genuine'])
 	})
 
 	it('collects a function immediately preceded by an @example JSDoc block', () => {
 		const source = ['/**', ' * @example', ' */', 'export function walk() {}', ''].join('\n')
-		expect(examplesFrom(source)).toEqual(['walk'])
+		expect(extractExamples(source)).toEqual(['walk'])
 	})
 
 	it('skips a function with no preceding JSDoc block', () => {
-		expect(examplesFrom('export function walk() {}\n')).toEqual([])
+		expect(extractExamples('export function walk() {}\n')).toEqual([])
 	})
 
 	it('skips a function whose JSDoc block has no @example tag', () => {
 		const source = ['/**', ' * Just a description.', ' */', 'export function walk() {}', ''].join(
 			'\n',
 		)
-		expect(examplesFrom(source)).toEqual([])
+		expect(extractExamples(source)).toEqual([])
 	})
 
 	it('resets the pending block on a blank line between the JSDoc and the export', () => {
 		const source = ['/**', ' * @example', ' */', '', 'export function walk() {}', ''].join('\n')
-		expect(examplesFrom(source)).toEqual([])
+		expect(extractExamples(source)).toEqual([])
 	})
 
 	it('collects an async function', () => {
 		const source = ['/**', ' * @example', ' */', 'export async function load() {}', ''].join('\n')
-		expect(examplesFrom(source)).toEqual(['load'])
+		expect(extractExamples(source)).toEqual(['load'])
 	})
 
 	it('collects a generator function', () => {
 		const source = ['/**', ' * @example', ' */', 'export function* walk() {}', ''].join('\n')
-		expect(examplesFrom(source)).toEqual(['walk'])
+		expect(extractExamples(source)).toEqual(['walk'])
 	})
 
 	it('handles a single-line JSDoc comment', () => {
 		const source = '/** @example */\nexport function walk() {}\n'
-		expect(examplesFrom(source)).toEqual(['walk'])
+		expect(extractExamples(source)).toEqual(['walk'])
 	})
 
 	it('dedupes a repeated export', () => {
@@ -1452,7 +1542,7 @@ describe('examplesFrom', () => {
 			'export function walk() {}',
 			'',
 		].join('\n')
-		expect(examplesFrom(source)).toEqual(['walk'])
+		expect(extractExamples(source)).toEqual(['walk'])
 	})
 })
 
@@ -1476,7 +1566,7 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 			[],
 			[],
 		])
-		expect(sources.map(examplesFrom)).toEqual([['exact'], ['titled'], [], [], []])
+		expect(sources.map(extractExamples)).toEqual([['exact'], ['titled'], [], [], []])
 	})
 
 	it('makes the last whitespace-separated leading JSDoc span authoritative', () => {
@@ -1488,23 +1578,25 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 				extractExampleLines(extractSourceLines(source)).map((line) => line.source),
 			),
 		).toEqual([[], ['export function candidate(): void {}']])
-		expect([taggedThenPlain, plainThenTagged].map(examplesFrom)).toEqual([[], ['candidate']])
+		expect([taggedThenPlain, plainThenTagged].map(extractExamples)).toEqual([[], ['candidate']])
 	})
 
 	it('recognizes a later exact span after a minimal JSDoc span', () => {
 		expect(
-			examplesFrom('/**/ /** @example title */\nexport function candidate(): void {}'),
+			extractExamples('/**/ /** @example title */\nexport function candidate(): void {}'),
 		).toEqual(['candidate'])
 	})
 
 	it('replaces a minimal JSDoc span with a next-line exact span', () => {
 		expect(
-			examplesFrom('/**/\n/** @example title */\nexport function candidate(): void {}'),
+			extractExamples('/**/\n/** @example title */\nexport function candidate(): void {}'),
 		).toEqual(['candidate'])
 	})
 
 	it('excludes a tagged span replaced by a final minimal JSDoc span', () => {
-		expect(examplesFrom('/** @example */ /**/\nexport function candidate(): void {}')).toEqual([])
+		expect(extractExamples('/** @example */ /**/\nexport function candidate(): void {}')).toEqual(
+			[],
+		)
 	})
 
 	it('severs or replaces pending association at the next physical record boundary', () => {
@@ -1518,11 +1610,11 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 			'/** @example */\n/** plain */\nexport function candidate(): void {}',
 			'/** plain */\n/**\n * @example title\n */\nexport function candidate(): void {}',
 		]
-		expect(sources.map(examplesFrom)).toEqual([[], [], [], [], [], [], [], ['candidate']])
+		expect(sources.map(extractExamples)).toEqual([[], [], [], [], [], [], [], ['candidate']])
 	})
 })
 
-describe('exampleMethods', () => {
+describe('extractExampleMethods', () => {
 	it('excludes faux JSDoc inside an outer comment while preserving a genuine member example', () => {
 		const lines = [
 			'\t/*',
@@ -1533,16 +1625,16 @@ describe('exampleMethods', () => {
 			'\t */',
 			'\tgenuine(): void',
 		]
-		expect(exampleMethods(lines)).toEqual(['genuine'])
+		expect(extractExampleMethods(lines)).toEqual(['genuine'])
 	})
 
 	it('collects a method immediately preceded by an @example JSDoc block', () => {
 		const lines = ['\t/**', '\t * @example', '\t */', '\twalk(): void']
-		expect(exampleMethods(lines)).toEqual(['walk'])
+		expect(extractExampleMethods(lines)).toEqual(['walk'])
 	})
 
 	it('skips a method with no preceding JSDoc block', () => {
-		expect(exampleMethods(['\twalk(): void'])).toEqual([])
+		expect(extractExampleMethods(['\twalk(): void'])).toEqual([])
 	})
 
 	it('dedupes and sorts the results', () => {
@@ -1556,11 +1648,11 @@ describe('exampleMethods', () => {
 			'\t */',
 			'\talpha(): void',
 		]
-		expect(exampleMethods(lines)).toEqual(['alpha', 'zeta'])
+		expect(extractExampleMethods(lines)).toEqual(['alpha', 'zeta'])
 	})
 
 	it('handles a single-line JSDoc comment on an interface member', () => {
-		expect(exampleMethods(['\t/** @example */', '\twalk(): void'])).toEqual(['walk'])
+		expect(extractExampleMethods(['\t/** @example */', '\twalk(): void'])).toEqual(['walk'])
 	})
 
 	it('uses exact titled tags and last-span authority for members', () => {
@@ -1576,7 +1668,7 @@ describe('exampleMethods', () => {
 			'\t/** plain */ /** @example title */',
 			'\tauthoritative(): void',
 		]
-		expect(exampleMethods(lines)).toEqual(['authoritative', 'exact'])
+		expect(extractExampleMethods(lines)).toEqual(['authoritative', 'exact'])
 	})
 
 	it('applies minimal JSDoc span replacement to members', () => {
@@ -1589,7 +1681,7 @@ describe('exampleMethods', () => {
 			'\t/** @example */ /**/',
 			'\treplaced(): void',
 		]
-		expect(exampleMethods(lines)).toEqual(['nextLine', 'sameLine'])
+		expect(extractExampleMethods(lines)).toEqual(['nextLine', 'sameLine'])
 	})
 })
 
@@ -1647,7 +1739,9 @@ describe('broken fixture: missing-example', () => {
 		).document
 		const fences = extractFences(guideDocument).map((fence) => fence.code)
 		const surfaceNames = ['greet', 'farewell']
-		const examples = examplesFrom(requireText(FIXTURES, 'broken/missing-example/module/helpers.ts'))
+		const examples = extractExamples(
+			requireText(FIXTURES, 'broken/missing-example/module/helpers.ts'),
+		)
 
 		const unexampled = surfaceNames.filter((name) => {
 			if (examples.includes(name)) return false
@@ -1664,12 +1758,12 @@ describe('broken fixture: phantom-import', () => {
 			requireText(FIXTURES, 'broken/phantom-import/guides/src/widget.md'),
 		).document
 		const fences = extractFences(guideDocument).map((fence) => fence.code)
-		const exportNames = exportsFrom(
+		const exportNames = extractExports(
 			requireText(FIXTURES, 'broken/phantom-import/module/helpers.ts'),
 		).map((symbol) => symbol.name)
 
 		const phantom = fences.flatMap((fence) =>
-			fenceImports(fence)
+			extractFenceImports(fence)
 				.filter((entry) => entry.specifier === '@src/core')
 				.flatMap((entry) => findMissing(entry.names, exportNames)),
 		)
@@ -1698,5 +1792,29 @@ describe('successor runtime surface', () => {
 			moduleDirs: false,
 			moduleKeys: false,
 		})
+	})
+
+	it('exposes every verb-first helper and retires its noun-phrase predecessor', () => {
+		const renamed = {
+			computeModuleKey: 'moduleKey',
+			computeSymbolKey: 'symbolKey',
+			extractCellLinks: 'cellLinks',
+			extractDeclarationBody: 'declarationBody',
+			extractExampleMethods: 'exampleMethods',
+			extractExamples: 'examplesFrom',
+			extractExports: 'exportsFrom',
+			extractFenceImports: 'fenceImports',
+			extractHidden: 'hiddenFrom',
+			extractMemberMethods: 'memberMethods',
+			findFirstCode: 'firstCode',
+			findKindIndex: 'kindIndex',
+			findMissingSymbols: 'missingSymbols',
+			normalizeIdentifier: 'identifierOf',
+			selectSectionBlocks: 'sectionBlocks',
+		}
+		expect({
+			absent: Object.keys(renamed).filter((name) => !Object.hasOwn(core, name)),
+			surviving: Object.values(renamed).filter((name) => Object.hasOwn(core, name)),
+		}).toEqual({ absent: [], surviving: [] })
 	})
 })

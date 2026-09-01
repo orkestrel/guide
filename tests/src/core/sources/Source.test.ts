@@ -2,9 +2,9 @@ import {
 	Source,
 	createGuide,
 	findMissing,
-	missingSymbols,
+	findMissingSymbols,
 	parseManifest,
-	symbolKey,
+	computeSymbolKey,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
@@ -313,8 +313,8 @@ describe('Source', () => {
 		const guide = createGuide(
 			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `ghost` | const |\n| `visible` | const |',
 		)
-		expect(missingSymbols(source.surface(), guide.surface())).toEqual([])
-		expect(missingSymbols(guide.surface(), source.surface())).toEqual(['const ghost'])
+		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
+		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual(['const ghost'])
 	})
 
 	it('correlates control-header regex omission in the Source-to-Guide direction', () => {
@@ -330,8 +330,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `kept` | const |')
-		expect(missingSymbols(source.surface(), guide.surface())).toEqual(['const lost'])
-		expect(missingSymbols(guide.surface(), source.surface())).toEqual([])
+		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual(['const lost'])
+		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
 	})
 
 	it('excludes commented methods and reports a correlated Guide phantom', () => {
@@ -355,8 +355,8 @@ describe('Source', () => {
 		)
 		expect(source.methods('Widget')).toEqual(['visible'])
 		expect(source.examples('Widget')).toEqual(['visible'])
-		expect(missingSymbols(source.surface(), guide.surface())).toEqual([])
-		expect(missingSymbols(guide.surface(), source.surface())).toEqual([])
+		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
+		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
 		const documented = guide.methods()[0]?.methods ?? []
 		expect(findMissing(source.methods('Widget'), documented)).toEqual([])
 		expect(findMissing(documented, source.methods('Widget'))).toEqual(['ghost'])
@@ -373,10 +373,10 @@ describe('Source', () => {
 		const surface = source.surface()
 
 		expect(surface).toEqual([{ name: 'publishedExport', kind: 'function' }])
-		expect(missingSymbols(source.exports(), surface)).toEqual(['function strandedExport'])
-		expect(missingSymbols(surface, source.exports())).toEqual([])
-		expect(missingSymbols(surface, guide.surface())).toEqual([])
-		expect(missingSymbols(guide.surface(), surface)).toEqual(['function strandedExport'])
+		expect(findMissingSymbols(source.exports(), surface)).toEqual(['function strandedExport'])
+		expect(findMissingSymbols(surface, source.exports())).toEqual([])
+		expect(findMissingSymbols(surface, guide.surface())).toEqual([])
+		expect(findMissingSymbols(guide.surface(), surface)).toEqual(['function strandedExport'])
 	})
 
 	it("exports() returns the good fixture's exact 6 symbols, sorted by name", () => {
@@ -506,7 +506,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.surface().map(symbolKey)).toEqual(['const root'])
+		expect(source.surface().map(computeSymbolKey)).toEqual(['const root'])
 	})
 
 	it('terminal reflection excludes commented declarations and retains real declarations', () => {
@@ -523,8 +523,8 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.exports().map(symbolKey)).toEqual(['const visible'])
-		expect(source.surface().map(symbolKey)).toEqual(['const visible'])
+		expect(source.exports().map(computeSymbolKey)).toEqual(['const visible'])
+		expect(source.surface().map(computeSymbolKey)).toEqual(['const visible'])
 	})
 
 	it('correlated commented declarations cannot satisfy four-way parity', () => {
@@ -540,10 +540,10 @@ describe('Source', () => {
 		const barrel = source.surface()
 		const documented = guide.surface()
 
-		expect(missingSymbols(direct, barrel)).toEqual([])
-		expect(missingSymbols(barrel, direct)).toEqual([])
-		expect(missingSymbols(barrel, documented)).toEqual([])
-		expect(missingSymbols(documented, barrel)).toEqual(['const ghost'])
+		expect(findMissingSymbols(direct, barrel)).toEqual([])
+		expect(findMissingSymbols(barrel, direct)).toEqual([])
+		expect(findMissingSymbols(barrel, documented)).toEqual([])
+		expect(findMissingSymbols(documented, barrel)).toEqual(['const ghost'])
 	})
 
 	it('barrel-only declarations are visible outside the direct module-key population', () => {
@@ -561,10 +561,10 @@ describe('Source', () => {
 		const barrel = source.surface()
 		const documented = guide.surface()
 
-		expect(missingSymbols(direct, barrel)).toEqual([])
-		expect(missingSymbols(barrel, direct)).toEqual(['const external'])
-		expect(missingSymbols(barrel, documented)).toEqual([])
-		expect(missingSymbols(documented, barrel)).toEqual([])
+		expect(findMissingSymbols(direct, barrel)).toEqual([])
+		expect(findMissingSymbols(barrel, direct)).toEqual(['const external'])
+		expect(findMissingSymbols(barrel, documented)).toEqual([])
+		expect(findMissingSymbols(documented, barrel)).toEqual([])
 	})
 
 	it('surface() does not alias excess ancestors to an unrelated root inventory key', () => {
@@ -743,6 +743,125 @@ describe('Source', () => {
 	it('methods() returns an empty array for a name with no declaration in scope', () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
 		expect(source.methods('Nonexistent')).toEqual([])
+	})
+
+	it('methods() unions an interface pair through its extends clause', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface StoreInterface {',
+					'\tread(key: string): string | undefined',
+					'\twrite(key: string, value: string): void',
+					'}',
+					'',
+					'export interface CursorStoreInterface extends StoreInterface {',
+					'\tcursor(): AsyncIterable<string>',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect({
+			base: source.methods('StoreInterface'),
+			extending: source.methods('CursorStoreInterface'),
+		}).toEqual({ base: ['read', 'write'], extending: ['cursor', 'read', 'write'] })
+	})
+
+	it('methods() reports the inherited members of a declaration that adds none', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface ReadInterface {',
+					'\tread(): string',
+					'}',
+					'export interface StoreInterface extends ReadInterface {',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('StoreInterface')).toEqual(['read'])
+	})
+
+	it('methods() walks a transitive chain and visits a diamond base once', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface ReadInterface {',
+					'\tread(): string',
+					'}',
+					'export interface WriteInterface extends ReadInterface {',
+					'\twrite(value: string): void',
+					'}',
+					'export interface AppendInterface extends ReadInterface {',
+					'\tappend(value: string): void',
+					'}',
+					'export interface StoreInterface extends WriteInterface, AppendInterface {',
+					'\tclose(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('StoreInterface')).toEqual(['append', 'close', 'read', 'write'])
+	})
+
+	it('methods() terminates an extends cycle', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface FirstInterface extends SecondInterface {',
+					'\tfirst(): void',
+					'}',
+					'export interface SecondInterface extends FirstInterface {',
+					'\tsecond(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('FirstInterface')).toEqual(['first', 'second'])
+	})
+
+	it('methods() ignores a base the module scope does not declare', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					"import type { StoreInterface } from '@orkestrel/store'",
+					'export interface CursorStoreInterface extends StoreInterface {',
+					'\tcursor(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('CursorStoreInterface')).toEqual(['cursor'])
+	})
+
+	it('methods() walks a class chain and still excludes the constructor', () => {
+		const source = new Source({
+			files: {
+				'module/Store.ts': [
+					'export class Store {',
+					'\tconstructor(label: string) {}',
+					'\tread(): string {',
+					"\t\treturn ''",
+					'\t}',
+					'}',
+					'export class CursorStore extends Store {',
+					'\tcursor(): void {}',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('CursorStore')).toEqual(['cursor', 'read'])
 	})
 
 	it('exists() is true for an exact key', () => {

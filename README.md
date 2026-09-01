@@ -33,7 +33,7 @@ real workspace text; the complete runnable implementation is
 
 ```ts
 import { expect, it } from 'vitest'
-import { createGuide, createSource, missingSymbols, parseManifest } from '@orkestrel/guide'
+import { createGuide, createSource, findMissingSymbols, parseManifest } from '@orkestrel/guide'
 
 declare const files: Readonly<Record<string, string>> // illustrative root-relative inventory
 declare function readText(relative: string): string // required exact lookup supplied by the consumer
@@ -50,10 +50,10 @@ for (const entry of manifest) {
 
 	it('keeps direct declarations, the public barrel, and the guide equal', () => {
 		expect(guide.surface().length).toBeGreaterThan(0)
-		expect(missingSymbols(source.exports(), source.surface())).toEqual([])
-		expect(missingSymbols(source.surface(), source.exports())).toEqual([])
-		expect(missingSymbols(source.surface(), guide.surface())).toEqual([])
-		expect(missingSymbols(guide.surface(), source.surface())).toEqual([])
+		expect(findMissingSymbols(source.exports(), source.surface())).toEqual([])
+		expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
+		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
+		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
 	})
 }
 ```
@@ -133,7 +133,7 @@ declaration.
   sorted by name.
 - `parseManifest(markdown, directory)` — extracts the `## By concept` rows
   from a manifest directory, including nested directories.
-- `missingSymbols(symbols, source)` — the `(name, kind)` set difference
+- `findMissingSymbols(symbols, source)` — the `(name, kind)` set difference
   driving surface bijection.
 - `extractSourceLines(source)` — returns one `SourceLine` per physical line,
   including the final line, with exact `source`, equal-length masked `code`, and

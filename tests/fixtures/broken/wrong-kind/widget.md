@@ -1,7 +1,7 @@
 # Widget (broken: wrong-kind)
 
 > Variant of the good widget guide where `createLabel` (a real `function`
-> export) is documented with Kind `const` — SB's `symbolKey` bijection drifts
+> export) is documented with Kind `const` — SB's `computeSymbolKey` bijection drifts
 > in both directions: `['function createLabel']` missing from the guide and
 > `['const createLabel']` missing from the source.
 

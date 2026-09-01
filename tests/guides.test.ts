@@ -6,15 +6,15 @@ import {
 	createGuide,
 	createSource,
 	createSourceManager,
-	fenceImports,
+	extractFenceImports,
 	findMissing,
 	findUnexampled,
 	findUnlisted,
 	isExternalLink,
-	missingSymbols,
+	findMissingSymbols,
 	parseManifest,
 	resolveLink,
-	symbolKey,
+	computeSymbolKey,
 } from '@src/core'
 import { readInventory } from '@orkestrel/test/server'
 import { requireText } from './setupServer.js'
@@ -47,20 +47,20 @@ for (const entry of manifest) {
 			expect(guide.surface().length).toBeGreaterThan(0)
 		})
 		it('re-exports every direct declaration', () => {
-			expect(missingSymbols(source.exports(), source.surface())).toEqual([])
+			expect(findMissingSymbols(source.exports(), source.surface())).toEqual([])
 		})
 		it('re-exports only direct declarations', () => {
-			expect(missingSymbols(source.surface(), source.exports())).toEqual([])
+			expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
 		})
 		it('documents every barrel export', () => {
-			expect(missingSymbols(source.surface(), guide.surface())).toEqual([])
+			expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
 		})
 		it('documents only barrel exports', () => {
-			expect(missingSymbols(guide.surface(), source.surface())).toEqual([])
+			expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
 		})
 
 		it('exposes no hidden module-scope declarations', () => {
-			expect(source.hidden().map(symbolKey)).toEqual([])
+			expect(source.hidden().map(computeSymbolKey)).toEqual([])
 		})
 
 		for (const group of guide.methods()) {
@@ -116,7 +116,7 @@ for (const entry of manifest) {
 		it('imports only real exports in every ```ts fence', () => {
 			const fences = guide.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
 			for (const fence of fences) {
-				for (const { specifier, names } of fenceImports(fence.code)) {
+				for (const { specifier, names } of extractFenceImports(fence.code)) {
 					const imported = sources.source(specifier)
 					if (imported === undefined) continue
 					const surface = imported.surface().map((symbol) => symbol.name)

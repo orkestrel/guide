@@ -1,5 +1,5 @@
 import type { SourceInterface, SourceManagerInterface, SourceManagerOptions } from '../types.js'
-import { moduleKey } from '../helpers.js'
+import { computeModuleKey } from '../helpers.js'
 import { Source } from './Source.js'
 
 /**
@@ -33,7 +33,7 @@ export class SourceManager implements SourceManagerInterface {
 		const module = this.#modules[specifier]
 		if (module === undefined) return undefined
 
-		const key = moduleKey(module)
+		const key = computeModuleKey(module)
 		const existing = this.#sources.get(key)
 		if (existing !== undefined) return existing
 

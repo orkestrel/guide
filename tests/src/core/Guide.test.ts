@@ -1,4 +1,4 @@
-import { Guide, createSource, isExternalLink, missingSymbols, resolveLink } from '@src/core'
+import { Guide, createSource, isExternalLink, findMissingSymbols, resolveLink } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
 import { requireText } from '../../setupServer.js'
@@ -103,8 +103,8 @@ describe('bijection matrix', () => {
 
 	it('good: documents every source export and vice versa (both directions empty)', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
-		expect(missingSymbols(goodSource.surface(), guide.surface())).toEqual([])
-		expect(missingSymbols(guide.surface(), goodSource.surface())).toEqual([])
+		expect(findMissingSymbols(goodSource.surface(), guide.surface())).toEqual([])
+		expect(findMissingSymbols(guide.surface(), goodSource.surface())).toEqual([])
 	})
 
 	it('good: WidgetInterface method set equals Widget class method set (green path)', () => {
@@ -116,20 +116,24 @@ describe('bijection matrix', () => {
 
 	it('undocumented-export: source has DEFAULT_COUNT the guide does not document', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/undocumented-export/widget.md'))
-		expect(missingSymbols(goodSource.surface(), guide.surface())).toEqual(['const DEFAULT_COUNT'])
+		expect(findMissingSymbols(goodSource.surface(), guide.surface())).toEqual([
+			'const DEFAULT_COUNT',
+		])
 	})
 
 	it('phantom-row: guide documents missingExport, which the source does not export', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/phantom-row/widget.md'))
-		expect(missingSymbols(guide.surface(), goodSource.surface())).toEqual([
+		expect(findMissingSymbols(guide.surface(), goodSource.surface())).toEqual([
 			'function missingExport',
 		])
 	})
 
 	it('wrong-kind: createLabel drifts kind in both directions', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/wrong-kind/widget.md'))
-		expect(missingSymbols(goodSource.surface(), guide.surface())).toEqual(['function createLabel'])
-		expect(missingSymbols(guide.surface(), goodSource.surface())).toEqual(['const createLabel'])
+		expect(findMissingSymbols(goodSource.surface(), guide.surface())).toEqual([
+			'function createLabel',
+		])
+		expect(findMissingSymbols(guide.surface(), goodSource.surface())).toEqual(['const createLabel'])
 	})
 
 	it('missing-interface-method: the guide is missing the reset row', () => {

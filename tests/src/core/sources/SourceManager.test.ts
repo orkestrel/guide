@@ -1,4 +1,4 @@
-import { createSourceManager, moduleKey } from '@src/core'
+import { createSourceManager, computeModuleKey } from '@src/core'
 import { describe, expect, it } from 'vitest'
 
 const FILES = Object.freeze({
@@ -8,13 +8,13 @@ const FILES = Object.freeze({
 	'browser/value.ts': 'export const browserValue = true\n',
 })
 
-describe('moduleKey', () => {
+describe('computeModuleKey', () => {
 	it('returns the same key for equal array-valued modules', () => {
-		expect(moduleKey(['core', 'browser'])).toBe(moduleKey(['core', 'browser']))
+		expect(computeModuleKey(['core', 'browser'])).toBe(computeModuleKey(['core', 'browser']))
 	})
 
 	it('does not collide between distinct module boundaries', () => {
-		expect(moduleKey(['core', 'browser'])).not.toBe(moduleKey(['core/browser']))
+		expect(computeModuleKey(['core', 'browser'])).not.toBe(computeModuleKey(['core/browser']))
 	})
 })
 
