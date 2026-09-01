@@ -843,6 +843,28 @@ describe('Source', () => {
 		expect(source.methods('CursorStoreInterface')).toEqual(['cursor'])
 	})
 
+	it('methods() skips an empty first-file head with no bases and reads a later declaring file', () => {
+		const source = new Source({
+			files: {
+				'module/first.ts': ['export interface Widget {', '}', ''].join('\n'),
+				'module/second.ts': ['export interface Widget {', '\trender(): void', '}', ''].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget')).toEqual(['render'])
+	})
+
+	it('methods() skips an empty interface head with no bases and reads the same-named class', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': ['export interface Widget {', '}', ''].join('\n'),
+				'module/Widget.ts': ['export class Widget {', '\trender(): void {}', '}', ''].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget')).toEqual(['render'])
+	})
+
 	it('methods() reads the first declaring file and ignores a later file declaring the same name', () => {
 		const source = new Source({
 			files: {

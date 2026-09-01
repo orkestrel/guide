@@ -214,9 +214,12 @@ export interface SourceInterface {
 	 *
 	 * @remarks
 	 * One declaration answers for `name`: the module scope's files are read in
-	 * sorted key order and the first one declaring that head supplies both the
-	 * members and the bases, so a second file declaring the same name adds
-	 * nothing. Resolution reads that head's `extends` clause and follows it
+	 * sorted key order and the first one whose located head has a body or has
+	 * bases supplies both the members and the bases, so a second file
+	 * declaring the same name adds nothing; a head with neither a body nor
+	 * bases does not count as declared, so an empty `export interface X {}`
+	 * is skipped and resolution continues to a later file or falls through to
+	 * a same-named class. Resolution reads that head's `extends` clause and follows it
 	 * through this same module scope, keeping the keyword it started from: an
 	 * `interface` chain resolves through interfaces and a `class` chain through
 	 * classes, so a class's `implements` clause is outside the walk. A base the

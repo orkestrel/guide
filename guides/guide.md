@@ -330,8 +330,11 @@ declaration's own members with those of every declaration it extends, following 
 the same module scope and keeping the keyword it started from — an interface chain resolves through
 interfaces, a class chain through classes, so an interface extending a name only a class declares
 gets nothing from it. One declaration answers for a name: the module scope's files are read in
-sorted key order, the first one declaring that head supplies both the members and the bases, and a
-second file declaring the same name adds nothing. The inventory is the further bound: a base the
+sorted key order, and the first one whose located head has a body or has bases supplies both the
+members and the bases; a head with neither a body nor bases does not count as declared, so an empty
+`export interface X {}` is skipped and the scan continues to a later file or falls through to a
+same-named class, and a second file declaring the same name once one is found adds nothing. The
+inventory is the further bound: a base the
 selected directories do not declare, whether it is imported from another package or written as a
 qualified name such as `external.Store`, contributes no members and is not an error, and one
 visited set per call collapses a cycle and a diamond to a single visit. `Source.examples(name)` is

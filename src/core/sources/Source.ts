@@ -256,15 +256,19 @@ export class Source implements SourceInterface {
 	}
 
 	// The one declaration that answers for `name` — the first file in sorted key
-	// order that declares the head, whose body and bases are read together, so a
-	// later file declaring the same name contributes nothing.
+	// order whose located head has a body or bases, whose body and bases are
+	// read together, so a later file declaring the same name contributes
+	// nothing. A located head with neither a body nor bases does not declare;
+	// the scan continues past it to a later file or falls through unanswered.
 	#locate(keyword: 'class' | 'interface', name: string): Declaration | undefined {
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
 			const declaration = extractDeclaration(text, keyword, name)
-			if (declaration !== undefined) return declaration
+			if (declaration === undefined) continue
+			if (declaration.body.length === 0 && declaration.bases.length === 0) continue
+			return declaration
 		}
 
 		return undefined
