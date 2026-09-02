@@ -7,8 +7,8 @@ import { EXPORT_KINDS } from './constants.js'
 // here is non-recursive, so each shapes directly (no `lazyOf` gate needed).
 
 /**
- * The shape of a {@link SurfaceSymbol} — a documented / exported symbol's
- * `name` paired with its {@link ExportKind}.
+ * Shapes a {@link SurfaceSymbol} — a documented / exported symbol's `name`
+ * paired with its {@link ExportKind}.
  *
  * @example
  * ```ts
@@ -25,8 +25,8 @@ export const surfaceSymbolShape = objectShape({
 })
 
 /**
- * The shape of a {@link MethodGroup} — a backticked `interface` name paired
- * with its documented `methods`.
+ * Shapes a {@link MethodGroup} — a backticked `interface` name paired with
+ * its documented `methods`.
  *
  * @example
  * ```ts
@@ -43,8 +43,8 @@ export const methodGroupShape = objectShape({
 })
 
 /**
- * The shape of a {@link ManifestEntry} — one `## By concept` manifest row,
- * `source` accepting either a single directory or several.
+ * Shapes a {@link ManifestEntry} — one `## By concept` manifest row, `source`
+ * accepting either a single directory or several.
  *
  * @example
  * ```ts

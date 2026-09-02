@@ -16,7 +16,7 @@ import { Source } from './sources/Source.js'
 import { SourceManager } from './sources/SourceManager.js'
 
 /**
- * Create a structured {@link GuideInterface} view over one guide's markdown
+ * Creates a structured {@link GuideInterface} view over one guide's markdown
  * source — parses once and caches its `sections` / `surface` / `methods` /
  * `links` / `tests` / `fences` projections.
  *
@@ -36,7 +36,7 @@ export function createGuide(source: string): GuideInterface {
 }
 
 /**
- * Create a pure {@link SourceInterface} over a consumer-supplied file
+ * Creates a pure {@link SourceInterface} over a consumer-supplied file
  * inventory — see {@link Source}.
  *
  * @param options - The file inventory and module scope to reflect
@@ -58,7 +58,7 @@ export function createSource(options: SourceOptions): SourceInterface {
 }
 
 /**
- * Create a {@link SourceManagerInterface} that resolves the consumer's local
+ * Creates a {@link SourceManagerInterface} that resolves the consumer's local
  * import specifiers and shares one source view per module.
  *
  * @param options - The shared file inventory and specifier-to-module policy
@@ -80,7 +80,7 @@ export function createSourceManager(options: SourceManagerOptions): SourceManage
 }
 
 /**
- * Compile the {@link surfaceSymbolShape} into a {@link ContractInterface} for
+ * Compiles the {@link surfaceSymbolShape} into a {@link ContractInterface} for
  * {@link SurfaceSymbol} — a guard, coercing parser, JSON Schema, and seeded
  * generator from one shape declaration (AGENTS §14).
  *
@@ -99,7 +99,7 @@ export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> 
 }
 
 /**
- * Compile the {@link methodGroupShape} into a {@link ContractInterface} for
+ * Compiles the {@link methodGroupShape} into a {@link ContractInterface} for
  * {@link MethodGroup} — a guard, coercing parser, JSON Schema, and seeded
  * generator from one shape declaration (AGENTS §14).
  *
@@ -118,7 +118,7 @@ export function createMethodGroupContract(): ContractInterface<MethodGroup> {
 }
 
 /**
- * Compile the {@link manifestEntryShape} into a {@link ContractInterface} for
+ * Compiles the {@link manifestEntryShape} into a {@link ContractInterface} for
  * {@link ManifestEntry} — a guard, coercing parser, JSON Schema, and seeded
  * generator from one shape declaration (AGENTS §14).
  *

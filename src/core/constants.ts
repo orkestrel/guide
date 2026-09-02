@@ -18,27 +18,27 @@ export const EXPORT_KINDS = Object.freeze([
 ] as const)
 
 /**
- * The `## Surface` heading text a guide's documented exports section is keyed on.
+ * Names the `## Surface` heading text a guide's documented exports section is keyed on.
  */
 export const SURFACE: string = 'Surface'
 
 /**
- * The `## Methods` heading text a guide's documented interface-methods section is keyed on.
+ * Names the `## Methods` heading text a guide's documented interface-methods section is keyed on.
  */
 export const METHODS: string = 'Methods'
 
 /**
- * The `## Tests` heading text a guide's documented test-link section is keyed on.
+ * Names the `## Tests` heading text a guide's documented test-link section is keyed on.
  */
 export const TESTS: string = 'Tests'
 
 /**
- * The `## By concept` heading text the manifest's run-map table is keyed on.
+ * Names the `## By concept` heading text the manifest's run-map table is keyed on.
  */
 export const MANIFEST: string = 'By concept'
 
 /**
- * The link `href` schemes a guides-parity link check skips as external — a link
+ * Lists the link `href` schemes a guides-parity link check skips as external — a link
  * with one of these prefixes (or a bare `#` anchor, handled separately in
  * `isExternalLink`) is never resolved against the filesystem.
  */

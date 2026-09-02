@@ -9,7 +9,7 @@ import {
 } from './helpers.js'
 
 /**
- * A stateful, structured view over one parsed guide — the six documented
+ * Presents a stateful, structured view over one parsed guide — the six documented
  * projections (`sections` / `surface` / `methods` / `links` / `tests` /
  * `fences`) are extracted once at construction and cached.
  *

@@ -10,7 +10,7 @@ import {
 } from './helpers.js'
 
 /**
- * Parse a `## By concept` manifest table into its {@link ManifestEntry} rows —
+ * Parses a `## By concept` manifest table into its {@link ManifestEntry} rows —
  * each row's Concept cell (flattened text), Spec / Tests cells (a single link
  * href, resolved against `directory`), and Source cell (every link href,
  * resolved against `directory`; Source links canonicalize through

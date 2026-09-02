@@ -16,10 +16,10 @@ import {
 } from '../helpers.js'
 
 /**
- * A pure `SourceInterface` — reflects a module scope's intentional direct
- * declarations, conventional barrel-reachable surface, and member methods over
- * a consumer-supplied file inventory, using text-only line scanners rather than
- * the TypeScript compiler API or the filesystem. `Source` never touches disk:
+ * Reflects, as a pure `SourceInterface`, a module scope's intentional direct declarations,
+ * conventional barrel-reachable surface, and member methods over a consumer-supplied file
+ * inventory, using text-only line scanners rather than the TypeScript compiler API or the
+ * filesystem. `Source` never touches disk:
  * the consumer gathers the inventory however their environment allows
  * (`node:fs` in a Node script, `import.meta.glob` in a browser/vitest run) and
  * passes it in as `files`. Conventional barrel traversal recurses through both

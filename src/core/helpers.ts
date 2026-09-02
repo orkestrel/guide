@@ -25,7 +25,7 @@ import { EXTERNAL_SCHEMES, METHODS, SURFACE, TESTS } from './constants.js'
 import { isExportKind } from './validators.js'
 
 /**
- * Extract aligned physical source-line records in one character traversal.
+ * Extracts aligned physical source-line records in one character traversal.
  * Real line and block comments and complete template tokens become spaces in
  * {@link SourceLine.code}, while ordinary code, quoted strings, and recognized
  * regex literals retain their columns. Genuine JSDoc opened from reflection
@@ -548,12 +548,12 @@ export function extractSourceLines(source: string): readonly SourceLine[] {
 }
 
 /**
- * Whether an opaque inventory key contains only canonical slash-separated
+ * Checks whether an opaque inventory key contains only canonical slash-separated
  * segments. Empty, `.` and `..` segments are rejected without rewriting the
  * key; ordinary dotfile segments remain valid.
  *
  * @param key - The opaque inventory key to inspect
- * @returns `true` when every segment is canonical
+ * @returns True if every segment is canonical; false otherwise
  *
  * @example
  * ```ts
@@ -566,7 +566,7 @@ export function hasCanonicalSegments(key: string): boolean {
 }
 
 /**
- * A module scope normalized to its canonical directory list. `'.'` represents
+ * Normalizes a module scope to its canonical directory list. `'.'` represents
  * workspace root; empty, trailing, and dot-segment spellings reduce through
  * {@link resolvePath}, and duplicates are removed in first-seen order.
  *
@@ -592,7 +592,7 @@ export function normalizeDirectories(module: GuideModule): readonly string[] {
 }
 
 /**
- * The stable cache key for a {@link GuideModule}. Directories normalize before
+ * Computes the stable cache key for a {@link GuideModule}. Directories normalize before
  * joining, so equivalent module spellings share one key. The NUL separator
  * cannot occur in filesystem-backed canonical-segment inventory keys, so no
  * directory boundary can collide with directory text.
@@ -610,7 +610,7 @@ export function computeModuleKey(module: GuideModule): string {
 }
 
 /**
- * The exact opaque file-inventory keys belonging under any canonical
+ * Selects the exact opaque file-inventory keys belonging under any canonical
  * {@link GuideModule} directory, sorted. `'.'` selects canonical root-relative
  * keys without accepting `/`, `./`, or `../` aliases. Every selected exact
  * `index.ts` and every `.test.ts` key is excluded independent of scope order.
@@ -650,7 +650,7 @@ export function selectModuleKeys(
 }
 
 /**
- * The bijection key for a surface symbol — its kind and name combined — so a
+ * Computes the bijection key for a surface symbol — its kind and name combined — so a
  * symbol-set comparison diffs (name, kind) pairs rather than names alone.
  *
  * @param symbol - The symbol to key
@@ -666,7 +666,7 @@ export function computeSymbolKey(symbol: SurfaceSymbol): string {
 }
 
 /**
- * The names present in `names` but absent from `source` — the set-difference
+ * Finds the names present in `names` but absent from `source` — the set-difference
  * behind a both-directions bijection assertion.
  *
  * @param names - The candidate names
@@ -687,7 +687,7 @@ export function findMissing(
 }
 
 /**
- * The fences whose language is absent from the caller's listed languages.
+ * Finds the fences whose language is absent from the caller's listed languages.
  * Untagged fences are always returned because they have no language to list.
  *
  * @param fences - The guide fences to check
@@ -709,7 +709,7 @@ export function findUnlisted(
 }
 
 /**
- * The symbol-key set-difference between two symbol lists — `symbols` present but
+ * Finds the symbol-key set-difference between two symbol lists — `symbols` present but
  * absent from `source`, compared by {@link computeSymbolKey} so a symbol can drift in
  * neither name nor kind.
  *
@@ -730,7 +730,7 @@ export function findMissingSymbols(
 }
 
 /**
- * The names in `names` that have no example — a fence containing the name at a
+ * Finds the names in `names` that have no example — a fence containing the name at a
  * word boundary in `fences`, or a membership in `examples`, both count as
  * "has an example"; presence-only, fence and JSDoc content are never checked.
  *
@@ -759,7 +759,7 @@ export function findUnexampled(
 }
 
 /**
- * Parse a fence's `import` statements into per-specifier imported identifier
+ * Parses a fence's `import` statements into per-specifier imported identifier
  * names — handles `import type`, mixed multiline braces, and `x as y` aliases
  * (resolved to the local name `x`... the ORIGINAL exported name, since it is
  * the export that must exist in the checked public/barrel surface).
@@ -800,11 +800,12 @@ export function extractFenceImports(fence: string): readonly FenceImport[] {
 }
 
 /**
- * Whether a link `href` should be skipped by the guides-parity link checks — an
- * external scheme ({@link EXTERNAL_SCHEMES}) or a bare in-document `#` anchor.
+ * Checks whether a link `href` should be skipped by the guides-parity link
+ * checks — an external scheme ({@link EXTERNAL_SCHEMES}) or a bare in-document
+ * `#` anchor.
  *
  * @param href - The link destination
- * @returns `true` when the link should not be resolved against the filesystem
+ * @returns True if the link should not be resolved against the filesystem; false otherwise
  *
  * @example
  * ```ts
@@ -818,7 +819,7 @@ export function isExternalLink(href: string): boolean {
 }
 
 /**
- * Resolve a relative `target` from a root-relative `directory`, normalizing
+ * Resolves a relative `target` from a root-relative `directory`, normalizing
  * forward-slash dot segments without filesystem or extension inference. A
  * parent pops only a retained real component; every excess leading parent is
  * preserved.
@@ -852,7 +853,7 @@ export function resolvePath(directory: string, target: string): string {
 }
 
 /**
- * Resolve a relative `target` from the directory containing a root-relative
+ * Resolves a relative `target` from the directory containing a root-relative
  * declaring `file`. A slashless file belongs to the workspace root; path
  * reduction is delegated to {@link resolvePath}.
  *
@@ -873,7 +874,7 @@ export function resolveLink(file: string, target: string): string {
 }
 
 /**
- * The first code-span value found by descending an inline node list, following
+ * Finds the first code-span value by descending an inline node list, following
  * into `emphasis` / `link` / `image` children — the extraction rule behind a
  * Surface or Methods table row's first-column identifier.
  *
@@ -897,7 +898,7 @@ export function findFirstCode(nodes: readonly InlineNode[]): string | undefined 
 }
 
 /**
- * The link hrefs found within one table cell's inline content.
+ * Extracts the link hrefs within one table cell's inline content.
  *
  * @param cell - The cell's inline nodes
  * @returns The cell's link hrefs, in walk order
@@ -916,7 +917,7 @@ export function extractCellLinks(cell: readonly InlineNode[]): readonly string[]
 }
 
 /**
- * The identifier prefix of a code-span text — everything before its first `<`,
+ * Returns the identifier prefix of a code-span text — everything before its first `<`,
  * trimmed. Guide cells and headings may annotate a generic-parameterized name
  * (`MarkdownHandler<TNode, T>`) for readability, but the bijection key is the
  * bare identifier the source scanner captures, so both sides must normalize
@@ -937,7 +938,7 @@ export function normalizeIdentifier(code: string): string {
 }
 
 /**
- * The index of a table's `Kind` column, found by its header text so it survives
+ * Finds the index of a table's `Kind` column by its header text so it survives
  * column reordering. The match is exact and case-sensitive (`'Kind'`) — a table
  * without that exact header contributes no symbols to the surface it feeds.
  *
@@ -963,7 +964,7 @@ export function findKindIndex(table: TableNode): number | undefined {
 }
 
 /**
- * The module-scope exports declared in one file's source text — matches
+ * Extracts the module-scope exports declared in one file's source text — matches
  * `export (async)? (function(\*)?|class|const|interface|type) Name`, deduped
  * by (kind, name). A generator export (`export function* walk`) scans as kind
  * `function` — its trailing `*` is stripped before the {@link ExportKind} check.
@@ -1005,7 +1006,7 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 }
 
 /**
- * The module-scope declarations LACKING the `export` keyword in one file's
+ * Extracts the module-scope declarations LACKING the `export` keyword in one file's
  * source text — the mirror image of {@link extractExports}'s grammar, anchored
  * the same way (column 0, so an indented inner declaration never matches).
  * Scans only the five {@link ExportKind} keywords (`function` / `class` /
@@ -1048,7 +1049,7 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
 }
 
 /**
- * Join the declaration head starting at `start` into one space-separated
+ * Joins the declaration head starting at `start` into one space-separated
  * line, consuming lines until the first that ends with `{`.
  *
  * @param lines - The file's source lines
@@ -1173,7 +1174,7 @@ export function extractDeclaration(
 }
 
 /**
- * The member lines declaring a callable member: plain, `async`, generator
+ * Selects the member lines declaring a callable member: plain, `async`, generator
  * (`*`), and optional (`records?(`) methods all count; getters, setters,
  * `static` members, and `#` privates never do (their keyword or `#` breaks
  * the `name(` shape). Matching runs once over projected lines so commented
@@ -1199,7 +1200,7 @@ export function extractMemberMethods(lines: readonly string[]): readonly string[
 }
 
 /**
- * The block nodes under the named `##` heading, up to the next `##`-or-higher
+ * Selects the block nodes under the named `##` heading, up to the next `##`-or-higher
  * heading (or the document's end) — the section-scoping window `extractSurface` /
  * `extractMethods` walk over.
  *
@@ -1235,7 +1236,7 @@ export function selectSectionBlocks(
 }
 
 /**
- * Every `## Surface` identifier the guide documents — each table row's column 0
+ * Extracts every `## Surface` identifier the guide documents — each table row's column 0
  * code span (the name) paired with its `Kind` column (located by header text)
  * UNION every backticked H3 entity heading in the section
  * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link computeSymbolKey}. A row with
@@ -1294,7 +1295,7 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 }
 
 /**
- * One {@link MethodGroup} per documented behavioral interface in `## Methods` —
+ * Extracts one {@link MethodGroup} per documented behavioral interface in `## Methods` —
  * an H4 with a code span sets the current interface, and the table immediately
  * following becomes its documented methods.
  *
@@ -1334,7 +1335,7 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 }
 
 /**
- * Every link href in the guide document, including table cells — a full,
+ * Extracts every link href in the guide document, including table cells — a full,
  * depth-first walk of the whole AST.
  *
  * @param document - The parsed guide document
@@ -1354,7 +1355,7 @@ export function extractLinks(document: MarkdownDocument): readonly string[] {
 }
 
 /**
- * The relative test links declared under `## Tests` — every link href found
+ * Extracts the relative test links declared under `## Tests` — every link href found
  * within that section only.
  *
  * @param document - The parsed guide document
@@ -1376,7 +1377,7 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 }
 
 /**
- * Select the next physical record after an eligible genuine JSDoc whose final
+ * Selects the next physical record after an eligible genuine JSDoc whose final
  * authoritative span carries an exact block-position `@example` tag. Title
  * text is allowed. A leading whitespace-separated span chain is last-span
  * authoritative; intervening source material severs association, while a
@@ -1473,7 +1474,7 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
 }
 
 /**
- * The exported functions in one file's source text whose immediately preceding
+ * Extracts the exported functions in one file's source text whose immediately preceding
  * eligible genuine JSDoc block carries `@example`. Shared adjacency comes from
  * {@link extractExampleLines}; exported-function membership is matched against
  * the aligned code projection, so comment and template payload cannot qualify.
@@ -1505,7 +1506,7 @@ export function extractExamples(source: string): readonly string[] {
 }
 
 /**
- * The callable-member names in a declaration body (per {@link extractMemberMethods}'
+ * Extracts the callable-member names in a declaration body (per {@link extractMemberMethods}'
  * grammar) whose immediately preceding eligible genuine JSDoc block, within
  * the same body, carries `@example`. Shared adjacency comes from
  * {@link extractExampleLines}; member membership is matched against aligned
@@ -1536,7 +1537,7 @@ export function extractExampleMethods(lines: readonly string[]): readonly string
 }
 
 /**
- * Every fenced code block anywhere in the guide document. A full AST walk
+ * Extracts every fenced code block anywhere in the guide document. A full AST walk
  * includes fences nested inside blockquotes and lists.
  *
  * @param document - The parsed guide document

@@ -9,11 +9,12 @@ import { EXPORT_KINDS } from './constants.js'
 // combinators and hoisted as module-level values (compiled once, not per call).
 
 /**
- * Whether `value` is one of the five documented {@link ExportKind} literals — the
- * guard behind extracting a Surface table's `Kind` cell into a typed symbol.
+ * Checks whether `value` is one of the five documented {@link ExportKind}
+ * literals — the guard behind extracting a Surface table's `Kind` cell into a
+ * typed symbol.
  *
  * @param value - The candidate value
- * @returns `true` when `value` is a valid {@link ExportKind}
+ * @returns True if `value` is a valid {@link ExportKind}; false otherwise
  *
  * @example
  * ```ts
@@ -24,11 +25,11 @@ import { EXPORT_KINDS } from './constants.js'
 export const isExportKind: Guard<ExportKind> = literalOf(EXPORT_KINDS)
 
 /**
- * Whether `value` is a well-formed {@link SurfaceSymbol} — a `name` string
- * paired with a valid {@link ExportKind}.
+ * Checks whether `value` is a well-formed {@link SurfaceSymbol} — a `name`
+ * string paired with a valid {@link ExportKind}.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed {@link SurfaceSymbol}
+ * @returns True if `value` is a well-formed {@link SurfaceSymbol}; false otherwise
  *
  * @example
  * ```ts
@@ -42,11 +43,11 @@ export const isSurfaceSymbol: Guard<SurfaceSymbol> = recordOf({
 })
 
 /**
- * Whether `value` is a well-formed {@link MethodGroup} — a backticked
+ * Checks whether `value` is a well-formed {@link MethodGroup} — a backticked
  * `interface` name paired with its documented `methods`.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed {@link MethodGroup}
+ * @returns True if `value` is a well-formed {@link MethodGroup}; false otherwise
  *
  * @example
  * ```ts
@@ -60,11 +61,12 @@ export const isMethodGroup: Guard<MethodGroup> = recordOf({
 })
 
 /**
- * Whether `value` is a well-formed {@link ManifestEntry} — a `## By concept`
- * manifest row, its `source` accepting either a single directory or several.
+ * Checks whether `value` is a well-formed {@link ManifestEntry} — a
+ * `## By concept` manifest row, its `source` accepting either a single directory
+ * or several.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a well-formed {@link ManifestEntry}
+ * @returns True if `value` is a well-formed {@link ManifestEntry}; false otherwise
  *
  * @example
  * ```ts
