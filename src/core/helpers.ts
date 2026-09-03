@@ -2,6 +2,7 @@ import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkest
 import type {
 	Declaration,
 	DeclarationHead,
+	DeclarationKeyword,
 	FenceImport,
 	GuideFence,
 	GuideModule,
@@ -22,7 +23,7 @@ import {
 } from '@orkestrel/markdown'
 import { isNonEmptyString } from '@orkestrel/contract'
 import { EXTERNAL_SCHEMES, METHODS, SURFACE, TESTS } from './constants.js'
-import { isExportKind } from './validators.js'
+import { isExportKeyword } from './validators.js'
 
 /**
  * Extracts aligned physical source-line records in one character traversal.
@@ -650,19 +651,19 @@ export function selectModuleKeys(
 }
 
 /**
- * Computes the bijection key for a surface symbol — its kind and name combined — so a
- * symbol-set comparison diffs (name, kind) pairs rather than names alone.
+ * Computes the bijection key for a surface symbol — its keyword and name combined — so a
+ * symbol-set comparison diffs (name, keyword) pairs rather than names alone.
  *
  * @param symbol - The symbol to key
- * @returns The `${kind} ${name}` key
+ * @returns The `${keyword} ${name}` key
  *
  * @example
  * ```ts
- * computeSymbolKey({ name: 'Markdown', kind: 'class' }) // 'class Markdown'
+ * computeSymbolKey({ name: 'Markdown', keyword: 'class' }) // 'class Markdown'
  * ```
  */
 export function computeSymbolKey(symbol: SurfaceSymbol): string {
-	return `${symbol.kind} ${symbol.name}`
+	return `${symbol.keyword} ${symbol.name}`
 }
 
 /**
@@ -711,7 +712,7 @@ export function findUnlisted(
 /**
  * Finds the symbol-key set-difference between two symbol lists — `symbols` present but
  * absent from `source`, compared by {@link computeSymbolKey} so a symbol can drift in
- * neither name nor kind.
+ * neither name nor keyword.
  *
  * @param symbols - The candidate symbols
  * @param source - The symbols to compare against
@@ -719,7 +720,7 @@ export function findUnlisted(
  *
  * @example
  * ```ts
- * findMissingSymbols([{ name: 'X', kind: 'class' }], []) // ['class X']
+ * findMissingSymbols([{ name: 'X', keyword: 'class' }], []) // ['class X']
  * ```
  */
 export function findMissingSymbols(
@@ -760,9 +761,9 @@ export function findUnexampled(
 
 /**
  * Parses a fence's `import` statements into per-specifier imported identifier
- * names — handles `import type`, mixed multiline braces, and `x as y` aliases
- * (resolved to the local name `x`... the ORIGINAL exported name, since it is
- * the export that must exist in the checked public/barrel surface).
+ * names — handles `import type`, mixed multiline braces, and `x as y` aliases,
+ * resolving each alias to the exported name `x` because that is the name the
+ * checked barrel surface must hold.
  *
  * @param fence - A ```ts Patterns fence's verbatim body text
  * @returns One entry per `import ... from 'specifier'` statement, in fence order
@@ -800,12 +801,11 @@ export function extractFenceImports(fence: string): readonly FenceImport[] {
 }
 
 /**
- * Checks whether a link `href` should be skipped by the guides-parity link
- * checks — an external scheme ({@link EXTERNAL_SCHEMES}) or a bare in-document
- * `#` anchor.
+ * Checks whether a guides-parity link check skips a link `href` — an external
+ * scheme ({@link EXTERNAL_SCHEMES}) or a bare in-document `#` anchor.
  *
  * @param href - The link destination
- * @returns True if the link should not be resolved against the filesystem; false otherwise
+ * @returns True if a link check leaves the href unresolved against the filesystem; false otherwise
  *
  * @example
  * ```ts
@@ -966,8 +966,9 @@ export function findKindIndex(table: TableNode): number | undefined {
 /**
  * Extracts the module-scope exports declared in one file's source text — matches
  * `export (async)? (function(\*)?|class|const|interface|type) Name`, deduped
- * by (kind, name). A generator export (`export function* walk`) scans as kind
- * `function` — its trailing `*` is stripped before the {@link ExportKind} check.
+ * by (keyword, name). A generator export (`export function* walk`) scans as the
+ * `function` keyword — its trailing `*` is stripped before the
+ * {@link ExportKeyword} check.
  * Scanning uses {@link extractSourceLines}, so comment and template payload is
  * excluded while its uninterrupted column-zero head remains required; preserved
  * columns do not grant membership to leading/interrupted comment forms. The population is
@@ -979,8 +980,8 @@ export function findKindIndex(table: TableNode): number | undefined {
  *
  * @example
  * ```ts
- * extractExports('export class Markdown {}\n') // [{ name: 'Markdown', kind: 'class' }]
- * extractExports('export function* walk() {}\n') // [{ name: 'walk', kind: 'function' }]
+ * extractExports('export class Markdown {}\n') // [{ name: 'Markdown', keyword: 'class' }]
+ * extractExports('export function* walk() {}\n') // [{ name: 'walk', keyword: 'function' }]
  * ```
  */
 export function extractExports(source: string): readonly SurfaceSymbol[] {
@@ -991,29 +992,28 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 		const match = line.code.match(
 			/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/,
 		)
-		const rawKind = match?.[1]
+		const rawKeyword = match?.[1]
 		const name = match?.[2]
-		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
-		if (!isNonEmptyString(kind) || !isNonEmptyString(name) || !isExportKind(kind)) continue
+		const keyword = rawKeyword === undefined ? undefined : rawKeyword.replace(/\*$/, '')
+		if (!isNonEmptyString(keyword) || !isNonEmptyString(name) || !isExportKeyword(keyword)) continue
 
-		const key = `${kind} ${name}`
+		const key = `${keyword} ${name}`
 		if (seen.has(key)) continue
 		seen.add(key)
-		symbols.push({ name, kind })
+		symbols.push({ name, keyword })
 	}
 
 	return symbols
 }
 
 /**
- * Extracts the module-scope declarations LACKING the `export` keyword in one file's
+ * Extracts the module-scope declarations lacking the `export` keyword in one file's
  * source text — the mirror image of {@link extractExports}'s grammar, anchored
  * the same way (column 0, so an indented inner declaration never matches).
- * Scans only the five {@link ExportKind} keywords (`function` / `class` /
- * `const` / `interface` / `type`) — a module-scope `let` or `var` is a
- * different violation class (AGENTS §1 bans `var`; a bare `let` is not a
- * declaration kind this scanner's five-kind grammar covers) and is out of
- * this check's contract. Scanning uses {@link extractSourceLines}, so comment
+ * Scans only the {@link ExportKeyword} keywords (`function` / `class` /
+ * `const` / `interface` / `type`) — a module-scope `let` or `var` is outside
+ * this scanner's declaration-keyword grammar and out of this check's contract.
+ * Scanning uses {@link extractSourceLines}, so comment
  * and template payload is excluded while its uninterrupted column-zero head
  * remains required; preserved columns do not widen membership. `enum` is likewise outside this reflection population, not
  * forbidden by general package policy.
@@ -1023,7 +1023,7 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
  *
  * @example
  * ```ts
- * extractHidden('function secretHelper() {}\n') // [{ name: 'secretHelper', kind: 'function' }]
+ * extractHidden('function secretHelper() {}\n') // [{ name: 'secretHelper', keyword: 'function' }]
  * extractHidden('export class X {}\n') // []
  * ```
  */
@@ -1034,15 +1034,15 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
 	for (const line of extractSourceLines(source)) {
 		if (line.code.startsWith('export ')) continue
 		const match = line.code.match(/^(?:async )?(function\*?|class|const|interface|type) (\w+)/)
-		const rawKind = match?.[1]
+		const rawKeyword = match?.[1]
 		const name = match?.[2]
-		const kind = rawKind === undefined ? undefined : rawKind.replace(/\*$/, '')
-		if (!isNonEmptyString(kind) || !isNonEmptyString(name) || !isExportKind(kind)) continue
+		const keyword = rawKeyword === undefined ? undefined : rawKeyword.replace(/\*$/, '')
+		if (!isNonEmptyString(keyword) || !isNonEmptyString(name) || !isExportKeyword(keyword)) continue
 
-		const key = `${kind} ${name}`
+		const key = `${keyword} ${name}`
 		if (seen.has(key)) continue
 		seen.add(key)
-		symbols.push({ name, kind })
+		symbols.push({ name, keyword })
 	}
 
 	return symbols
@@ -1131,7 +1131,7 @@ export function escapeRegExp(value: string): string {
  */
 export function extractDeclaration(
 	source: string,
-	keyword: 'class' | 'interface',
+	keyword: DeclarationKeyword,
 	name: string,
 ): Declaration | undefined {
 	const opener = `export ${keyword} ${name}`
@@ -1205,7 +1205,7 @@ export function extractMemberMethods(lines: readonly string[]): readonly string[
  * `extractMethods` walk over.
  *
  * @param document - The parsed guide document
- * @param heading - The `##` heading text to scope to (e.g. `Surface`)
+ * @param heading - The `##` heading text to scope to, for example `Surface`
  * @returns The blocks belonging to that section, in document order
  *
  * @example
@@ -1238,8 +1238,8 @@ export function selectSectionBlocks(
 /**
  * Extracts every `## Surface` identifier the guide documents — each table row's column 0
  * code span (the name) paired with its `Kind` column (located by header text)
- * UNION every backticked H3 entity heading in the section
- * (`{name: <codeSpan>, kind: 'class'}`), deduped by {@link computeSymbolKey}. A row with
+ * unioned with every backticked H3 entity heading in the section
+ * (`{name: <codeSpan>, keyword: 'class'}`), deduped by {@link computeSymbolKey}. A row with
  * no code-span name, or an unrecognized `Kind` text, is skipped.
  *
  * @param document - The parsed guide document
@@ -1247,7 +1247,7 @@ export function selectSectionBlocks(
  *
  * @example
  * ```ts
- * extractSurface(document) // [{ name: 'Markdown', kind: 'class' }, ...]
+ * extractSurface(document) // [{ name: 'Markdown', keyword: 'class' }, ...]
  * ```
  */
 export function extractSurface(document: MarkdownDocument): readonly SurfaceSymbol[] {
@@ -1268,9 +1268,9 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 					kindCell === undefined
 						? ''
 						: flattenText({ element: 'paragraph', children: kindCell }).trim()
-				if (!isExportKind(kindText)) continue
+				if (!isExportKeyword(kindText)) continue
 
-				const symbol: SurfaceSymbol = { name, kind: kindText }
+				const symbol: SurfaceSymbol = { name, keyword: kindText }
 				const key = computeSymbolKey(symbol)
 				if (seen.has(key)) continue
 				seen.add(key)
@@ -1283,7 +1283,7 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 			const rawName = findFirstCode(block.children)
 			const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
 			if (name === undefined) continue
-			const symbol: SurfaceSymbol = { name, kind: 'class' }
+			const symbol: SurfaceSymbol = { name, keyword: 'class' }
 			const key = computeSymbolKey(symbol)
 			if (seen.has(key)) continue
 			seen.add(key)

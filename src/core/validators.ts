@@ -1,45 +1,45 @@
 import type { Guard } from '@orkestrel/contract'
-import type { ExportKind, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
+import type { ExportKeyword, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
 import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/contract'
-import { EXPORT_KINDS } from './constants.js'
+import { EXPORT_KEYWORDS } from './constants.js'
 
-// AGENTS section 14: guards are total. Every guard here validates an arbitrary
+// AGENTS.md § Design laws: guards are total. Every guard here validates an arbitrary
 // `unknown` value crossing an untrusted boundary (parsed guide/manifest data)
 // against a data type's full shape, composed from @orkestrel/contract
 // combinators and hoisted as module-level values (compiled once, not per call).
 
 /**
- * Checks whether `value` is one of the five documented {@link ExportKind}
+ * Checks whether `value` is one of the documented {@link ExportKeyword}
  * literals — the guard behind extracting a Surface table's `Kind` cell into a
  * typed symbol.
  *
  * @param value - The candidate value
- * @returns True if `value` is a valid {@link ExportKind}; false otherwise
+ * @returns True if `value` is a valid {@link ExportKeyword}; false otherwise
  *
  * @example
  * ```ts
- * isExportKind('class') // true
- * isExportKind('enum')  // false
+ * isExportKeyword('class') // true
+ * isExportKeyword('enum')  // false
  * ```
  */
-export const isExportKind: Guard<ExportKind> = literalOf(EXPORT_KINDS)
+export const isExportKeyword: Guard<ExportKeyword> = literalOf(EXPORT_KEYWORDS)
 
 /**
  * Checks whether `value` is a well-formed {@link SurfaceSymbol} — a `name`
- * string paired with a valid {@link ExportKind}.
+ * string paired with a valid {@link ExportKeyword}.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed {@link SurfaceSymbol}; false otherwise
  *
  * @example
  * ```ts
- * isSurfaceSymbol({ name: 'Markdown', kind: 'class' }) // true
- * isSurfaceSymbol({ name: 'Markdown', kind: 'enum' })   // false
+ * isSurfaceSymbol({ name: 'Markdown', keyword: 'class' }) // true
+ * isSurfaceSymbol({ name: 'Markdown', keyword: 'enum' })   // false
  * ```
  */
 export const isSurfaceSymbol: Guard<SurfaceSymbol> = recordOf({
 	name: isString,
-	kind: isExportKind,
+	keyword: isExportKeyword,
 })
 
 /**

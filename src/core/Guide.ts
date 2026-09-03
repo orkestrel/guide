@@ -9,22 +9,22 @@ import {
 } from './helpers.js'
 
 /**
- * Presents a stateful, structured view over one parsed guide — the six documented
+ * Presents a pure, structured view over one parsed guide — the documented
  * projections (`sections` / `surface` / `methods` / `links` / `tests` /
  * `fences`) are extracted once at construction and cached.
  *
  * @remarks
- * Pure: parses `source` once via `@orkestrel/markdown` and never touches the
- * filesystem — `Guide` has no notion of "where" the guide came from, only its
- * markdown text. Every accessor returns the same cached, readonly array on
- * every call.
+ * Parses `source` once through `@orkestrel/markdown` and never touches the
+ * filesystem — `Guide` reads only the markdown text it is given and records
+ * nothing about where the guide came from. Every accessor returns the same
+ * cached, readonly array on every call.
  *
  * @example
  * ```ts
  * import { Guide } from '@orkestrel/guide'
  *
  * const guide = new Guide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
- * guide.surface() // [{ name: 'X', kind: 'class' }]
+ * guide.surface() // [{ name: 'X', keyword: 'class' }]
  * ```
  */
 export class Guide implements GuideInterface {

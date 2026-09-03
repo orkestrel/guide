@@ -1,5 +1,6 @@
 import type { TableNode } from '@orkestrel/markdown'
 import { parseDocument } from '@orkestrel/markdown'
+import { requireValue } from '@orkestrel/test'
 
 // ── Deterministic randomness ──────────────────────────────────────────────────
 // The single house seed for tests that need generated/random input (contract
@@ -26,8 +27,18 @@ export function requireTable(markdown: string): TableNode {
 	return table
 }
 
-/** Whether a repository-relative Vue SFC path belongs to the private browser application. */
-export function isBrowserVuePath(path: string): boolean {
-	const normalized = path.replaceAll('\\', '/')
-	return normalized.startsWith('app/browser/')
+/**
+ * Looks one inventory key up and requires it to be present.
+ *
+ * @param files - The inventory to read
+ * @param relative - The root-relative key that must be present
+ * @returns The file's text
+ *
+ * @example
+ * ```ts
+ * requireText({ 'widget.md': '# Widget\n' }, 'widget.md')
+ * ```
+ */
+export function requireText(files: Readonly<Record<string, string>>, relative: string): string {
+	return requireValue(files[relative], `Missing file: ${relative}`)
 }

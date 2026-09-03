@@ -1,9 +1,12 @@
 import { seededRandom } from '@orkestrel/contract'
+import { createScratch, readInventory } from '@orkestrel/test/server'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { TEST_SEED, isBrowserVuePath, requireTable } from './setup.js'
+import { TEST_SEED, requireText, requireTable } from './setup.js'
 
-// Proves the host-independent setup helpers every project relies on. `setup.ts` carries no
-// browser or Node dependency, so its full contract is reachable from the `setup` project.
+// Proves the host-independent setup helpers every project relies on. `setup.ts` is
+// host-independent, so its full contract is reachable from the `setup` project, which
+// runs in Node — real files anchor the inventory proof rather than a plain object.
 
 describe('TEST_SEED', () => {
 	it('feeds seededRandom a fixed starting point that reproduces the same value across calls', () => {
@@ -48,14 +51,23 @@ describe('requireTable', () => {
 	})
 })
 
-describe('isBrowserVuePath', () => {
-	it.each([
-		['app/browser/components/Widget.vue', true],
-		['app\\browser\\components\\Widget.vue', true],
-		['app/server/handlers.ts', false],
-		['app/browserish/Widget.vue', false],
-		['appbrowser/Widget.vue', false],
-	])('%s -> %s', (path, expected) => {
-		expect(isBrowserVuePath(path)).toBe(expected)
+describe('requireText', () => {
+	it('reads a present file from a real inventory built by scanning real files on disk', () => {
+		const scratch = createScratch()
+		try {
+			scratch.write('widget.md', '# Widget\n')
+			// A second route: `readInventory` walks the real directory rather than
+			// hand-building the record `requireText` reads, so the file the assertion
+			// checks against is the one Node actually wrote and scanned.
+			const files = readInventory(pathToFileURL(`${scratch.path}/`), ['.'])
+			expect(requireText(files, 'widget.md')).toBe('# Widget\n')
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('throws naming the missing relative path when the key is absent', () => {
+		const files = { 'present.md': 'content' }
+		expect(() => requireText(files, 'missing/widget.md')).toThrow('Missing file: missing/widget.md')
 	})
 })

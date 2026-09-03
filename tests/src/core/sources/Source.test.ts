@@ -8,7 +8,7 @@ import {
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../../setupServer.js'
+import { requireText } from '../../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../../fixtures/', import.meta.url), ['.'])
 const GOOD_FILES = readInventory(new URL('../../../fixtures/good/', import.meta.url), ['.'])
@@ -16,7 +16,8 @@ const GOOD_FILES = readInventory(new URL('../../../fixtures/good/', import.meta.
 // The pure Source view over a consumer-supplied file inventory — exports(),
 // surface(), methods(name), and exists(relative). Constructed from the good fixture
 // (the bijection-perfect widget package) and the broken/class-extra-method
-// fixture (the drop-in-catches-extras red path) (AGENTS §16).
+// fixture (the drop-in-catches-extras red path)
+// (.claude/rules/tests.md § Test contract).
 
 describe('Source', () => {
 	it('carries every successor lexical repair through direct and terminal reflection', () => {
@@ -57,8 +58,8 @@ describe('Source', () => {
 		})
 		expect(reflected).toEqual(
 			programs.map(() => ({
-				direct: [{ name: 'visible', kind: 'const' }],
-				terminal: [{ name: 'visible', kind: 'const' }],
+				direct: [{ name: 'visible', keyword: 'const' }],
+				terminal: [{ name: 'visible', keyword: 'const' }],
 			})),
 		)
 	})
@@ -82,8 +83,8 @@ describe('Source', () => {
 		})
 		expect(reflected).toEqual(
 			programs.map(() => ({
-				direct: [{ name: 'visible', kind: 'const' }],
-				terminal: [{ name: 'visible', kind: 'const' }],
+				direct: [{ name: 'visible', keyword: 'const' }],
+				terminal: [{ name: 'visible', keyword: 'const' }],
 			})),
 		)
 	})
@@ -107,8 +108,8 @@ describe('Source', () => {
 		})
 		expect(reflected).toEqual(
 			programs.map(() => ({
-				direct: [{ name: 'visible', kind: 'const' }],
-				terminal: [{ name: 'visible', kind: 'const' }],
+				direct: [{ name: 'visible', keyword: 'const' }],
+				terminal: [{ name: 'visible', keyword: 'const' }],
 			})),
 		)
 	})
@@ -232,8 +233,8 @@ describe('Source', () => {
 			members: source.examples('Alias'),
 		}).toEqual({
 			exports: [
-				{ name: 'dotfile', kind: 'const' },
-				{ name: 'visible', kind: 'const' },
+				{ name: 'dotfile', keyword: 'const' },
+				{ name: 'visible', keyword: 'const' },
 			],
 			hidden: [],
 			methods: [],
@@ -257,8 +258,8 @@ describe('Source', () => {
 				},
 				module: 'module',
 			})
-			expect(source.exports()).toEqual([{ name: 'visible', kind: 'const' }])
-			expect(source.surface()).toEqual([{ name: 'visible', kind: 'const' }])
+			expect(source.exports()).toEqual([{ name: 'visible', keyword: 'const' }])
+			expect(source.surface()).toEqual([{ name: 'visible', keyword: 'const' }])
 		}
 	})
 
@@ -271,8 +272,8 @@ describe('Source', () => {
 				},
 				module,
 			})
-			expect(source.exports()).toEqual([{ name: 'visible', kind: 'const' }])
-			expect(source.surface()).toEqual([{ name: 'visible', kind: 'const' }])
+			expect(source.exports()).toEqual([{ name: 'visible', keyword: 'const' }])
+			expect(source.surface()).toEqual([{ name: 'visible', keyword: 'const' }])
 		}
 	})
 
@@ -294,7 +295,7 @@ describe('Source', () => {
 			},
 			module: entry.source,
 		})
-		expect(source.surface()).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(source.surface()).toEqual([{ name: 'visible', keyword: 'const' }])
 	})
 
 	it('correlates postfix leakage in the correct Guide-to-Source direction', () => {
@@ -372,22 +373,22 @@ describe('Source', () => {
 		const guide = createGuide(requireText(FIXTURES, 'broken/stranded-export/guide.md'))
 		const surface = source.surface()
 
-		expect(surface).toEqual([{ name: 'publishedExport', kind: 'function' }])
+		expect(surface).toEqual([{ name: 'publishedExport', keyword: 'function' }])
 		expect(findMissingSymbols(source.exports(), surface)).toEqual(['function strandedExport'])
 		expect(findMissingSymbols(surface, source.exports())).toEqual([])
 		expect(findMissingSymbols(surface, guide.surface())).toEqual([])
 		expect(findMissingSymbols(guide.surface(), surface)).toEqual(['function strandedExport'])
 	})
 
-	it("exports() returns the good fixture's exact 6 symbols, sorted by name", () => {
+	it("exports() returns the good fixture's exact symbols, sorted by name", () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
 		expect(source.exports()).toEqual([
-			{ name: 'DEFAULT_COUNT', kind: 'const' },
-			{ name: 'Widget', kind: 'class' },
-			{ name: 'WidgetInterface', kind: 'interface' },
-			{ name: 'WidgetKind', kind: 'type' },
-			{ name: 'createLabel', kind: 'function' },
-			{ name: 'loadWidget', kind: 'function' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{ name: 'Widget', keyword: 'class' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
+			{ name: 'createLabel', keyword: 'function' },
+			{ name: 'loadWidget', keyword: 'function' },
 		])
 	})
 
@@ -396,15 +397,15 @@ describe('Source', () => {
 		expect(source.exports()).toBe(source.exports())
 	})
 
-	it("surface() returns the good fixture barrel's exact 6 symbols, sorted by name", () => {
+	it("surface() returns the good fixture barrel's exact symbols, sorted by name", () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
 		expect(source.surface()).toEqual([
-			{ name: 'DEFAULT_COUNT', kind: 'const' },
-			{ name: 'Widget', kind: 'class' },
-			{ name: 'WidgetInterface', kind: 'interface' },
-			{ name: 'WidgetKind', kind: 'type' },
-			{ name: 'createLabel', kind: 'function' },
-			{ name: 'loadWidget', kind: 'function' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{ name: 'Widget', keyword: 'class' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
+			{ name: 'createLabel', keyword: 'function' },
+			{ name: 'loadWidget', keyword: 'function' },
 		])
 	})
 
@@ -429,7 +430,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(missingTarget.surface()).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(missingTarget.surface()).toEqual([{ name: 'visible', keyword: 'const' }])
 	})
 
 	it('surface() accepts whitespace, either quote, optional semicolons, and trailing comments', () => {
@@ -445,7 +446,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.surface()).toEqual([{ name: 'visible', kind: 'function' }])
+		expect(source.surface()).toEqual([{ name: 'visible', keyword: 'function' }])
 	})
 
 	it('surface() preserves inactive quotes and comment markers inside quoted targets', () => {
@@ -465,10 +466,10 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect(source.surface()).toEqual([
-			{ name: 'apostrophe', kind: 'const' },
-			{ name: 'block', kind: 'const' },
-			{ name: 'quotation', kind: 'const' },
-			{ name: 'slash', kind: 'const' },
+			{ name: 'apostrophe', keyword: 'const' },
+			{ name: 'block', keyword: 'const' },
+			{ name: 'quotation', keyword: 'const' },
+			{ name: 'slash', keyword: 'const' },
 		])
 	})
 
@@ -492,8 +493,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect(source.surface()).toEqual([
-			{ name: 'prefixed', kind: 'const' },
-			{ name: 'visible', kind: 'const' },
+			{ name: 'prefixed', keyword: 'const' },
+			{ name: 'visible', keyword: 'const' },
 		])
 	})
 
@@ -527,7 +528,7 @@ describe('Source', () => {
 		expect(source.surface().map(computeSymbolKey)).toEqual(['const visible'])
 	})
 
-	it('correlated commented declarations cannot satisfy four-way parity', () => {
+	it('correlated commented declarations cannot satisfy every-direction parity', () => {
 		const source = new Source({
 			files: {
 				'module/index.ts': "export * from './terminal.js'\n",
@@ -602,8 +603,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect(invalidTarget.surface()).toEqual([
-			{ name: 'shared', kind: 'const' },
-			{ name: 'visible', kind: 'const' },
+			{ name: 'shared', keyword: 'const' },
+			{ name: 'visible', keyword: 'const' },
 		])
 	})
 
@@ -618,8 +619,8 @@ describe('Source', () => {
 			module: ['one', 'two'],
 		})
 		expect(source.surface()).toEqual([
-			{ name: 'Second', kind: 'class' },
-			{ name: 'first', kind: 'const' },
+			{ name: 'Second', keyword: 'class' },
+			{ name: 'first', keyword: 'const' },
 		])
 	})
 
@@ -637,8 +638,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect(source.surface()).toEqual([
-			{ name: 'NestedDetail', kind: 'interface' },
-			{ name: 'nestedHelper', kind: 'function' },
+			{ name: 'NestedDetail', keyword: 'interface' },
+			{ name: 'nestedHelper', keyword: 'function' },
 		])
 	})
 
@@ -656,10 +657,10 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.surface()).toEqual([{ name: 'CyclicValue', kind: 'type' }])
+		expect(source.surface()).toEqual([{ name: 'CyclicValue', keyword: 'type' }])
 	})
 
-	it('surface() dedupes identical symbols and retains same-name different-kind symbols', () => {
+	it('surface() dedupes identical symbols and retains same-name different-keyword symbols', () => {
 		const source = new Source({
 			files: {
 				'module/index.ts': [
@@ -674,8 +675,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect(source.surface()).toEqual([
-			{ name: 'Shared', kind: 'function' },
-			{ name: 'Shared', kind: 'type' },
+			{ name: 'Shared', keyword: 'function' },
+			{ name: 'Shared', keyword: 'type' },
 		])
 	})
 
@@ -722,10 +723,10 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.surface()).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(source.surface()).toEqual([{ name: 'visible', keyword: 'const' }])
 	})
 
-	it('methods(WidgetInterface) and methods(Widget) agree on the same three methods', () => {
+	it('methods(WidgetInterface) and methods(Widget) agree on the same methods', () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
 		expect(source.methods('WidgetInterface')).toEqual(['inspect', 'render', 'reset'])
 		expect(source.methods('Widget')).toEqual(['inspect', 'render', 'reset'])
@@ -1007,7 +1008,7 @@ describe('Source', () => {
 		expect(source.exists('module/Widget.ts')).toBe(false)
 	})
 
-	it('hidden() is empty over the good fixture (§5-conformant, nothing hidden)', () => {
+	it('hidden() is empty over the good fixture (export-disciplined, nothing hidden)', () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
 		expect(source.hidden()).toEqual([])
 	})
@@ -1028,7 +1029,7 @@ describe('Source', () => {
 			),
 			module: 'module',
 		})
-		expect(source.hidden()).toEqual([{ name: 'secretHelper', kind: 'function' }])
+		expect(source.hidden()).toEqual([{ name: 'secretHelper', keyword: 'function' }])
 	})
 
 	it('examples() returns an empty array over the good fixture (no @example JSDoc)', () => {

@@ -28,7 +28,7 @@ import { SourceManager } from './sources/SourceManager.js'
  * import { createGuide } from '@orkestrel/guide'
  *
  * const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
- * guide.surface() // [{ name: 'X', kind: 'class' }]
+ * guide.surface() // [{ name: 'X', keyword: 'class' }]
  * ```
  */
 export function createGuide(source: string): GuideInterface {
@@ -50,7 +50,7 @@ export function createGuide(source: string): GuideInterface {
  * 	files: { 'src/core/Guide.ts': 'export class Guide {}\n' },
  * 	module: 'src/core',
  * })
- * source.exports() // [{ name: 'Guide', kind: 'class' }]
+ * source.exports() // [{ name: 'Guide', keyword: 'class' }]
  * ```
  */
 export function createSource(options: SourceOptions): SourceInterface {
@@ -82,7 +82,7 @@ export function createSourceManager(options: SourceManagerOptions): SourceManage
 /**
  * Compiles the {@link surfaceSymbolShape} into a {@link ContractInterface} for
  * {@link SurfaceSymbol} — a guard, coercing parser, JSON Schema, and seeded
- * generator from one shape declaration (AGENTS §14).
+ * generator from one shape declaration (AGENTS.md § Design laws).
  *
  * @returns A `SurfaceSymbol` contract bundling `schema` / `is` / `parse` / `generate`
  *
@@ -91,7 +91,7 @@ export function createSourceManager(options: SourceManagerOptions): SourceManage
  * import { createSurfaceSymbolContract } from '@orkestrel/guide'
  *
  * const surfaceSymbol = createSurfaceSymbolContract()
- * surfaceSymbol.is({ name: 'Markdown', kind: 'class' }) // true
+ * surfaceSymbol.is({ name: 'Markdown', keyword: 'class' }) // true
  * ```
  */
 export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> {
@@ -101,7 +101,7 @@ export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> 
 /**
  * Compiles the {@link methodGroupShape} into a {@link ContractInterface} for
  * {@link MethodGroup} — a guard, coercing parser, JSON Schema, and seeded
- * generator from one shape declaration (AGENTS §14).
+ * generator from one shape declaration (AGENTS.md § Design laws).
  *
  * @returns A `MethodGroup` contract bundling `schema` / `is` / `parse` / `generate`
  *
@@ -120,7 +120,7 @@ export function createMethodGroupContract(): ContractInterface<MethodGroup> {
 /**
  * Compiles the {@link manifestEntryShape} into a {@link ContractInterface} for
  * {@link ManifestEntry} — a guard, coercing parser, JSON Schema, and seeded
- * generator from one shape declaration (AGENTS §14).
+ * generator from one shape declaration (AGENTS.md § Design laws).
  *
  * @returns A `ManifestEntry` contract bundling `schema` / `is` / `parse` / `generate`
  *

@@ -1,14 +1,14 @@
 import { arrayShape, literalShape, objectShape, stringShape, unionShape } from '@orkestrel/contract'
-import { EXPORT_KINDS } from './constants.js'
+import { EXPORT_KEYWORDS } from './constants.js'
 
-// AGENTS section 14 / 4.6.1: shapers are `ContractShape` VALUES, not functions
+// AGENTS.md § Design laws: shapers are `ContractShape` values, not functions
 // or types - a JSON-Schema blueprint the compilers (factories.ts) turn into a
 // guard / parser / schema / generator in lockstep. Every documented data type
 // here is non-recursive, so each shapes directly (no `lazyOf` gate needed).
 
 /**
  * Shapes a {@link SurfaceSymbol} — a documented / exported symbol's `name`
- * paired with its {@link ExportKind}.
+ * paired with its {@link ExportKeyword}.
  *
  * @example
  * ```ts
@@ -16,12 +16,12 @@ import { EXPORT_KINDS } from './constants.js'
  * import { surfaceSymbolShape } from '@orkestrel/guide'
  *
  * const surfaceSymbol = createContract(surfaceSymbolShape)
- * surfaceSymbol.is({ name: 'Markdown', kind: 'class' }) // true
+ * surfaceSymbol.is({ name: 'Markdown', keyword: 'class' }) // true
  * ```
  */
 export const surfaceSymbolShape = objectShape({
 	name: stringShape(),
-	kind: literalShape(EXPORT_KINDS),
+	keyword: literalShape(EXPORT_KEYWORDS),
 })
 
 /**

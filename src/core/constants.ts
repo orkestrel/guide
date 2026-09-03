@@ -1,15 +1,15 @@
 /**
- * Lists the five declaration kinds a documented or exported symbol carries, in
+ * Lists the declaration keywords a documented or exported symbol carries, in
  * the order the reflection grammar names them.
  *
  * @remarks
- * One frozen list feeds the `ExportKind` type, the `isExportKind` guard, and
- * `surfaceSymbolShape`, so a kind cannot be admitted by one and refused by
+ * One frozen list feeds the `ExportKeyword` type, the `isExportKeyword` guard, and
+ * `surfaceSymbolShape`, so a keyword cannot be admitted by one and refused by
  * another. Comment and template payload is excluded before reflection, and
  * `enum` is outside this population rather than forbidden by general package
  * policy.
  */
-export const EXPORT_KINDS = Object.freeze([
+export const EXPORT_KEYWORDS = Object.freeze([
 	'type',
 	'interface',
 	'const',

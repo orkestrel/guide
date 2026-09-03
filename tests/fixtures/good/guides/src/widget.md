@@ -1,6 +1,6 @@
 # Widget
 
-> A tiny fixture module exercising every ExportKind for guides-parity tests.
+> A tiny fixture module exercising every ExportKeyword for guides-parity tests.
 
 ## Surface
 

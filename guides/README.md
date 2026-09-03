@@ -1,6 +1,7 @@
 # Guides
 
-A dual-axis index into this repository's guides — by concept, and by directory (AGENTS §22).
+A dual-axis index into this repository's guides — by concept, and by directory
+(`.claude/rules/documentation.md` § Authority and workflow).
 
 ## By concept
 
@@ -16,4 +17,4 @@ A dual-axis index into this repository's guides — by concept, and by directory
 
 ## See also
 
-- [`AGENTS.md`](../AGENTS.md) — the rules; §22 documentation-as-contracts.
+- [`AGENTS.md`](../AGENTS.md) — the rules; `.claude/rules/documentation.md` § Parity states the documentation-as-contract law.

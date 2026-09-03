@@ -1,4 +1,10 @@
-import type { Declaration, SourceInterface, SourceOptions, SurfaceSymbol } from '../types.js'
+import type {
+	Declaration,
+	DeclarationKeyword,
+	SourceInterface,
+	SourceOptions,
+	SurfaceSymbol,
+} from '../types.js'
 import {
 	computeSymbolKey,
 	extractDeclaration,
@@ -53,8 +59,8 @@ import {
  * 	},
  * 	module: 'src/core',
  * })
- * source.exports() // [{ name: 'Guide', kind: 'class' }, { name: 'GuideInterface', kind: 'interface' }]
- * source.surface() // [{ name: 'Guide', kind: 'class' }, { name: 'GuideInterface', kind: 'interface' }]
+ * source.exports() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
+ * source.surface() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
  * source.methods('GuideInterface') // ['sections']
  * source.exists('src/core/Guide.ts') // true
  * ```
@@ -237,7 +243,7 @@ export class Source implements SourceInterface {
 	// declared and returns an empty union, so a cycle and a diamond each collapse
 	// to one visit. A base the scope does not declare contributes nothing.
 	#members(
-		keyword: 'class' | 'interface',
+		keyword: DeclarationKeyword,
 		name: string,
 		visited: Set<string>,
 	): readonly string[] | undefined {
@@ -260,7 +266,7 @@ export class Source implements SourceInterface {
 	// read together, so a later file declaring the same name contributes
 	// nothing. A located head with neither a body nor bases does not declare;
 	// the scan continues past it to a later file or falls through unanswered.
-	#locate(keyword: 'class' | 'interface', name: string): Declaration | undefined {
+	#locate(keyword: DeclarationKeyword, name: string): Declaration | undefined {
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue

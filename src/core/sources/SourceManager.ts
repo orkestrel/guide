@@ -6,6 +6,8 @@ import { Source } from './Source.js'
  * Resolves a consumer-owned import-specifier policy into pure source views and
  * caches those views by module, so aliases for one module share one entity.
  * Unmapped specifiers remain foreign to the consumer and return `undefined`.
+ * `sources()` enumerates the same shared views, one per distinct module the
+ * policy maps.
  *
  * @example
  * ```ts
@@ -16,6 +18,7 @@ import { Source } from './Source.js'
  * 	modules: { '@scope/package': 'src/core' },
  * })
  * sources.source('@scope/package')?.surface()
+ * sources.sources() // [the same shared view]
  * ```
  */
 export class SourceManager implements SourceManagerInterface {
@@ -40,5 +43,19 @@ export class SourceManager implements SourceManagerInterface {
 		const source = new Source({ files: this.#files, module })
 		this.#sources.set(key, source)
 		return source
+	}
+
+	sources(): readonly SourceInterface[] {
+		const views: SourceInterface[] = []
+		const seen = new Set<SourceInterface>()
+
+		for (const specifier of Object.keys(this.#modules)) {
+			const view = this.source(specifier)
+			if (view === undefined || seen.has(view)) continue
+			seen.add(view)
+			views.push(view)
+		}
+
+		return views
 	}
 }

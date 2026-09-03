@@ -1,28 +1,22 @@
-import type { EXPORT_KINDS } from './constants.js'
+import type { EXPORT_KEYWORDS } from './constants.js'
 
 /**
- * Represents the declaration kind a documented / exported symbol carries — exactly the
- * five reflected `type`, `interface`, `const`, `function`, and `class` heads,
- * derived from {@link EXPORT_KINDS} so the type, the guard, and the shape name
- * one population. Comment/template payload is excluded before reflection.
+ * Represents the declaration keyword a documented / exported symbol carries — the reflected
+ * `type`, `interface`, `const`, `function`, and `class` heads, derived from
+ * {@link EXPORT_KEYWORDS} so the type, the guard, and the shape name one
+ * population. Comment/template payload is excluded before reflection.
  * `enum` is outside this population, not forbidden by general package policy.
  */
-export type ExportKind = (typeof EXPORT_KINDS)[number]
+export type ExportKeyword = (typeof EXPORT_KEYWORDS)[number]
 
 /**
- * Represents one documented / exported symbol — its identifier plus its declaration kind.
- *
- * @remarks
- * `kind` mirrors the guide Surface table's own `Kind` column header, which this
- * package locates by that exact text (`findKindIndex`) and cannot rename. The
- * property keeps the column's spelling so the documented table and the
- * reflected symbol name one axis.
+ * Represents one documented / exported symbol — its identifier plus its declaration keyword.
  */
 export interface SurfaceSymbol {
 	/** Holds the symbol's identifier. */
 	readonly name: string
-	/** Holds the symbol's declaration kind — half of the bijection key alongside {@link name}. */
-	readonly kind: ExportKind
+	/** Holds the symbol's declaration keyword — half of the bijection key alongside {@link name}. */
+	readonly keyword: ExportKeyword
 }
 
 /**
@@ -107,7 +101,7 @@ export interface GuideInterface {
 	 */
 	sections(): readonly string[]
 	/**
-	 * Lists every `## Surface` identifier + kind — table rows union backticked entity headings.
+	 * Lists every `## Surface` identifier + keyword — table rows union backticked entity headings.
 	 *
 	 * @returns The documented surface symbols, in encounter order
 	 */
@@ -121,6 +115,8 @@ export interface GuideInterface {
 	/**
 	 * Lists every link href in the guide, including table cells.
 	 *
+	 * @returns Every link href in the guide, in walk order
+	 *
 	 * @example
 	 * ```ts
 	 * guide.links() // ['../../src/core/helpers.ts']
@@ -129,6 +125,8 @@ export interface GuideInterface {
 	links(): readonly string[]
 	/**
 	 * Lists the relative test links declared under `## Tests`.
+	 *
+	 * @returns The `## Tests` section's link hrefs, in walk order
 	 *
 	 * @example
 	 * ```ts
@@ -139,6 +137,8 @@ export interface GuideInterface {
 	/**
 	 * Lists every fenced code block in the whole document, in document order — no
 	 * language filter, so a consumer decides which languages its checks read.
+	 *
+	 * @returns Every fence's language and verbatim code, in document order
 	 *
 	 * @example
 	 * ```ts
@@ -156,15 +156,15 @@ export interface SourceInterface {
 	/**
 	 * Lists every direct declaration in the selected module keys matching
 	 * `export (async )?(function*?|class|const|interface|type) Name`, by
-	 * (name, kind). Module keys are `.ts` inventory keys under the selected
+	 * (name, keyword). Module keys are `.ts` inventory keys under the selected
 	 * directories, excluding each directory's exact root `index.ts` and every
 	 * `*.test.ts` key. Inventory keys are exact opaque workspace-relative keys,
 	 * must contain no empty, `.` or `..` segment, and are never normalized.
 	 * Comment/template payload is excluded through a
 	 * length-preserving projection, but membership still follows this consumer's
 	 * uninterrupted column-zero declaration-head grammar. `enum`
-	 * and other TypeScript export forms are outside this five-kind reflection
-	 * population, not forbidden by general package policy.
+	 * and other TypeScript export forms are outside this declaration-keyword
+	 * reflection population, not forbidden by general package policy.
 	 *
 	 * @returns The selected modules' direct declarations, deduplicated and sorted by name
 	 */
@@ -198,14 +198,14 @@ export interface SourceInterface {
 	 * unsupported export forms contribute no symbols while valid siblings continue.
 	 * Repository policy, typechecking, and builds own validation; this is not
 	 * filesystem or TypeScript resolution. The result is deduplicated by
-	 * `computeSymbolKey()`, retains same-name/different-kind symbols, sorts by name,
+	 * `computeSymbolKey()`, retains same-name/different-keyword symbols, sorts by name,
 	 * computes lazily, and caches the same readonly array instance.
 	 *
 	 * @returns The conventional barrel-reachable surface
 	 *
 	 * @example
 	 * ```ts
-	 * source.surface() // [{ name: 'Guide', kind: 'class' }]
+	 * source.surface() // [{ name: 'Guide', keyword: 'class' }]
 	 * ```
 	 */
 	surface(): readonly SurfaceSymbol[]
@@ -234,19 +234,23 @@ export interface SourceInterface {
 	 */
 	methods(name: string): readonly string[]
 	/**
-	 * Checks whether a workspace-root-relative path exists in the inventory.
+	 * Checks whether a workspace-root-relative path names a file or a directory present
+	 * in the inventory.
 	 *
 	 * @param relative - The workspace-root-relative path to look up
-	 * @returns True if the inventory holds that exact key; false otherwise
+	 * @returns True if the inventory holds that exact key or any key beneath it; false otherwise
 	 */
 	exists(relative: string): boolean
 	/**
-	 * Lists every module-scope declaration LACKING the `export` keyword (AGENTS §5's
-	 * export-discipline reflection) across the same projected physical code lines
-	 * and five declaration kinds as {@link exports}. Comment/template payload and
+	 * Lists every module-scope declaration lacking the `export` keyword — the
+	 * export-discipline reflection `.claude/rules/architecture.md` § Barrel exports
+	 * states — across the same projected physical code lines and declaration
+	 * keywords as {@link exports}. Comment/template payload and
 	 * `enum` are outside this population; projection preserves physical columns
 	 * but does not widen the uninterrupted column-zero declaration-head grammar.
 	 * This does not forbid enums by general package policy. Empty on a conforming module.
+	 *
+	 * @returns The module scope's non-exported declarations, deduplicated and sorted by name
 	 *
 	 * @example
 	 * ```ts
@@ -259,6 +263,8 @@ export interface SourceInterface {
 	 * genuine JSDoc chain ends in a span carrying an exact block-position
 	 * `@example` tag. Title text is allowed; intervening material severs
 	 * association.
+	 *
+	 * @returns The exported function names carrying an `@example`, in first-seen order
 	 *
 	 * @example
 	 * ```ts
@@ -279,6 +285,9 @@ export interface SourceInterface {
 	 * file that declares it, under each keyword. Unlike {@link methods}, the
 	 * overload follows no `extends` clause, so an inherited member's `@example`
 	 * belongs to the base that declares it.
+	 *
+	 * @param name - The declaration's identifier
+	 * @returns Its own members carrying an `@example`, deduplicated and sorted
 	 *
 	 * @example
 	 * ```ts
@@ -326,8 +335,26 @@ export interface SourceManagerInterface {
 	 *
 	 * @param specifier - The import specifier to resolve
 	 * @returns Its source view, or `undefined` when the specifier is not mapped
+	 *
+	 * @example
+	 * ```ts
+	 * sources.source('@scope/package')?.surface() // [{ name: 'Guide', keyword: 'class' }]
+	 * ```
 	 */
 	source(specifier: string): SourceInterface | undefined
+	/**
+	 * Lists every source view the policy maps, sharing the same per-module entities
+	 * {@link source} returns.
+	 *
+	 * @returns One shared source view per distinct module the policy maps, in first-seen specifier order
+	 *
+	 * @example
+	 * ```ts
+	 * const [core] = sources.sources()
+	 * core === sources.source('@scope/package') // true
+	 * ```
+	 */
+	sources(): readonly SourceInterface[]
 }
 
 /**
@@ -354,3 +381,10 @@ export interface Declaration {
 	/** Lists the base identifiers its head extends, in head order. */
 	readonly bases: readonly string[]
 }
+
+/**
+ * Represents which declaration head {@link extractDeclaration} and {@link Source} locate —
+ * a `class` or an `interface`. That pair is the subset of {@link ExportKeyword}
+ * carrying a body whose members a guide's `## Methods` table documents.
+ */
+export type DeclarationKeyword = 'class' | 'interface'

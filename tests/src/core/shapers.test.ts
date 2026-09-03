@@ -1,6 +1,6 @@
 import {
-	EXPORT_KINDS,
-	isExportKind,
+	EXPORT_KEYWORDS,
+	isExportKeyword,
 	manifestEntryShape,
 	methodGroupShape,
 	surfaceSymbolShape,
@@ -9,36 +9,37 @@ import { createContract, seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
 
-// The three ContractShape blueprints — surfaceSymbolShape, methodGroupShape,
-// manifestEntryShape — each compiled (via createContract) into a guard /
-// parser / schema / generator that must agree in lockstep (AGENTS §14 / §16).
+// The ContractShape blueprints — surfaceSymbolShape, methodGroupShape,
+// manifestEntryShape — each compiled (through createContract) into a guard /
+// parser / schema / generator that must agree in lockstep
+// (.claude/rules/patterns.md § Validation and contracts).
 
 describe('surfaceSymbolShape', () => {
 	const contract = createContract(surfaceSymbolShape)
 
 	it('is: accepts a well-formed value', () => {
-		expect(contract.is({ name: 'Widget', kind: 'class' })).toBe(true)
+		expect(contract.is({ name: 'Widget', keyword: 'class' })).toBe(true)
 	})
 
-	it('is: rejects a wrong kind literal', () => {
-		expect(contract.is({ name: 'Widget', kind: 'enum' })).toBe(false)
+	it('is: rejects a wrong keyword literal', () => {
+		expect(contract.is({ name: 'Widget', keyword: 'enum' })).toBe(false)
 	})
 
-	it('schema: closed object with a name string and a kind literal enum', () => {
+	it('schema: closed object with a name string and a keyword literal enum', () => {
 		expect(contract.schema.type).toBe('object')
-		expect(contract.schema.required).toEqual(['name', 'kind'])
+		expect(contract.schema.required).toEqual(['name', 'keyword'])
 		expect(contract.schema.additionalProperties).toBe(false)
 		expect(contract.schema.properties?.name?.type).toBe('string')
-		expect(contract.schema.properties?.kind?.enum).toEqual(EXPORT_KINDS)
+		expect(contract.schema.properties?.keyword?.enum).toEqual(EXPORT_KEYWORDS)
 	})
 
-	it('is: agrees with isExportKind on every declared kind and on a non-member', () => {
-		for (const kind of EXPORT_KINDS) {
-			expect(isExportKind(kind)).toBe(true)
-			expect(contract.is({ name: 'Widget', kind })).toBe(true)
+	it('is: agrees with isExportKeyword on every declared keyword and on a non-member', () => {
+		for (const keyword of EXPORT_KEYWORDS) {
+			expect(isExportKeyword(keyword)).toBe(true)
+			expect(contract.is({ name: 'Widget', keyword })).toBe(true)
 		}
-		expect(isExportKind('enum')).toBe(false)
-		expect(contract.is({ name: 'Widget', kind: 'enum' })).toBe(false)
+		expect(isExportKeyword('enum')).toBe(false)
+		expect(contract.is({ name: 'Widget', keyword: 'enum' })).toBe(false)
 	})
 
 	it('generate: round-trips through is and parse', () => {

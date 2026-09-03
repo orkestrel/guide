@@ -18,7 +18,7 @@ import {
  * a `readonly string[]`). A row missing a concept, spec link, tests link, or
  * source link is skipped as malformed.
  *
- * @param markdown - The manifest markdown source (e.g. `guides/README.md`'s content)
+ * @param markdown - The manifest markdown source, for example the content of `guides/README.md`
  * @param directory - The root-relative directory containing the manifest
  * @returns The manifest's entries, in row order
  *

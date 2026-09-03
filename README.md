@@ -27,7 +27,7 @@ The entire consumer-side footprint is one short test file. An excerpt of the
 drop-in pattern (`tests/guides.test.ts`):
 
 The consumer supplies the file inventory `Source` reflects over. The inventory
-below is an illustrative, non-runnable placeholder until the consumer supplies
+following is an illustrative, non-runnable placeholder until the consumer supplies
 real workspace text; the complete runnable implementation is
 [`tests/guides.test.ts`](tests/guides.test.ts).
 
@@ -63,7 +63,7 @@ coverage with zero test edits.
 
 `exports()` inventories direct `type`, `interface`, `const`, `function`, and
 `class` declarations in the selected directories' canonical-segment module
-keys. `hidden()` reflects the same five declaration kinds without `export`.
+keys. `hidden()` reflects the same declaration keywords without `export`.
 Both use the one structured physical-line projection: each record retains exact
 raw source, equal-length projected code, and an equal-length genuine JSDoc view
 that retains every genuine span at its physical column. Comment and template
@@ -101,7 +101,7 @@ declaration.
 
 - **Surface parity** — intentional direct declarations, the conventional
   barrel-reachable surface, and documented `## Surface` symbols match by name
-  and kind in both directions.
+  and keyword in both directions.
 - **Methods bijection + class-no-extra** — every documented `## Methods`
   member matches the interface's implementer, and the implementing class
   exposes no undocumented public method.
@@ -122,18 +122,18 @@ declaration.
 ## API
 
 - `createGuide(source)` — parses one guide's markdown into a structured,
-  cached view with six projections (`sections()`, `surface()`, `methods()`,
-  `links()`, `tests()`, `patterns()`).
+  cached view with the projections (`sections()`, `surface()`, `methods()`,
+  `links()`, `tests()`, `fences()`).
 - `createSource(options)` — reflects intentional direct declarations with
   `exports()`, conventional barrel reachability with `surface()`, members with
   `methods()`, path presence with `exists()`, hidden declarations with
   `hidden()`, and TSDoc example membership with `examples()`, over a
   consumer-supplied file inventory for one or more source directories. Both
-  declaration projections are lazy, cached, deduplicated by name and kind, and
+  declaration projections are lazy, cached, deduplicated by name and keyword, and
   sorted by name.
 - `parseManifest(markdown, directory)` — extracts the `## By concept` rows
   from a manifest directory, including nested directories.
-- `findMissingSymbols(symbols, source)` — the `(name, kind)` set difference
+- `findMissingSymbols(symbols, source)` — the `(name, keyword)` set difference
   driving surface bijection.
 - `extractSourceLines(source)` — returns one `SourceLine` per physical line,
   including the final line, with exact `source`, equal-length masked `code`, and

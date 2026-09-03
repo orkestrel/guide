@@ -9,15 +9,16 @@ import {
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../setupServer.js'
+import { requireText } from '../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
-// The four from-unknown guards a parsed guide/manifest value crosses on its
+// The from-unknown guards a parsed guide/manifest value crosses on its
 // way into a typed shape — each total (never throws), each accepting real
-// extracted values and rejecting near-misses (AGENTS §14, §16).
+// extracted values and rejecting near-misses
+// (.claude/rules/patterns.md § Validation and contracts).
 
-describe('isExportKind (via isSurfaceSymbol)', () => {
+describe('isExportKeyword (through isSurfaceSymbol)', () => {
 	it('accepts every real extracted value', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		for (const symbol of extractSurface(document)) {
@@ -25,14 +26,14 @@ describe('isExportKind (via isSurfaceSymbol)', () => {
 		}
 	})
 
-	it('rejects an unrecognized kind string', () => {
-		expect(isSurfaceSymbol({ name: 'X', kind: 'enum' })).toBe(false)
+	it('rejects an unrecognized keyword string', () => {
+		expect(isSurfaceSymbol({ name: 'X', keyword: 'enum' })).toBe(false)
 	})
 })
 
 describe('isSurfaceSymbol', () => {
 	it('accepts a well-formed symbol', () => {
-		expect(isSurfaceSymbol({ name: 'Widget', kind: 'class' })).toBe(true)
+		expect(isSurfaceSymbol({ name: 'Widget', keyword: 'class' })).toBe(true)
 	})
 
 	it('rejects a missing field', () => {
@@ -40,11 +41,11 @@ describe('isSurfaceSymbol', () => {
 	})
 
 	it('rejects a wrong-type field', () => {
-		expect(isSurfaceSymbol({ name: 1, kind: 'class' })).toBe(false)
+		expect(isSurfaceSymbol({ name: 1, keyword: 'class' })).toBe(false)
 	})
 
 	it('rejects an extra key', () => {
-		expect(isSurfaceSymbol({ name: 'Widget', kind: 'class', extra: true })).toBe(false)
+		expect(isSurfaceSymbol({ name: 'Widget', keyword: 'class', extra: true })).toBe(false)
 	})
 
 	it('rejects primitives', () => {
@@ -63,7 +64,7 @@ describe('isSurfaceSymbol', () => {
 			get name(): string {
 				throw new Error('boom')
 			},
-			kind: 'class',
+			keyword: 'class',
 		}
 		expect(() => isSurfaceSymbol(hostile)).not.toThrow()
 	})

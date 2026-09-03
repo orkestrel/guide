@@ -1,14 +1,15 @@
 import { parseManifest } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../setupServer.js'
+import { requireText } from '../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The manifest coercer — `## By concept` table rows into `ManifestEntry`
 // values, with every Spec/Source/Tests link resolved against the manifest's own
 // directory. Composed behavior — helpers.test.ts covers the section scoping,
-// cell-link, and path-resolution leaves this builds on (AGENTS §16).
+// cell-link, and path-resolution leaves this builds on
+// (.claude/rules/tests.md § Test contract).
 
 describe('parseManifest', () => {
 	it("parses the good manifest's one row with normalized paths", () => {

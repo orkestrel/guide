@@ -1,4 +1,4 @@
-// Fixture module (GOOD) — exercises every ExportKind the guides-parity
+// Fixture module (GOOD) — exercises every ExportKeyword the guides-parity
 // scanner supports, plus shapes the scanner is required to EXCLUDE (data
 // members, getters, statics, `#` privates, constructor). See guides/src/widget.md
 // for the bijection-perfect guide documenting this module.

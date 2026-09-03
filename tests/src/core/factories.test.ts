@@ -7,16 +7,16 @@ import {
 } from '@src/core'
 import { seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
-import { TEST_SEED } from '../../setup.js'
+import { TEST_SEED, requireText } from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../setupServer.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The factory surface — createGuide / createSource construct working
 // instances, and createSurfaceSymbolContract / createMethodGroupContract /
 // createManifestEntryContract compile each shape into a full contract
-// (AGENTS §14 / §16). Guide/Source's own projections are covered in depth by
+// (.claude/rules/patterns.md § Validation and contracts). Guide/Source's own
+// projections are covered in depth by
 // Guide.test.ts / Source.test.ts — this suite is a spot-check that the
 // factories wire the right classes and shapes.
 
@@ -44,8 +44,8 @@ describe('createSource', () => {
 describe('createSurfaceSymbolContract', () => {
 	it('compiles a working SurfaceSymbol contract', () => {
 		const contract = createSurfaceSymbolContract()
-		expect(contract.is({ name: 'Widget', kind: 'class' })).toBe(true)
-		expect(contract.is({ name: 'Widget', kind: 'enum' })).toBe(false)
+		expect(contract.is({ name: 'Widget', keyword: 'class' })).toBe(true)
+		expect(contract.is({ name: 'Widget', keyword: 'enum' })).toBe(false)
 
 		const value = contract.generate(seededRandom(TEST_SEED))
 		expect(contract.is(value)).toBe(true)

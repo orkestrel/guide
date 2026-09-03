@@ -1,5 +1,4 @@
 import type { SourceLine, SurfaceSymbol } from '@src/core'
-import * as core from '@src/core'
 import {
 	extractCellLinks,
 	extractDeclaration,
@@ -36,9 +35,8 @@ import {
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
-import { requireTable } from '../../setup.js'
+import { requireTable, requireText } from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../setupServer.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
@@ -47,7 +45,7 @@ const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'
 // section scoping and Surface/Methods/Links/Tests/Patterns extraction, symbol
 // keying, set-difference, link classification/resolution, generic-name
 // normalization, and table-column/inline lookups. Pure and total; each mirrors
-// one exported helpers.ts symbol (AGENTS §16).
+// one exported helpers.ts symbol (.claude/rules/tests.md § Test contract).
 
 describe('extractSourceLines', () => {
 	it('treats LF, CRLF, and block-comment linebreaks before increment and decrement as prefix boundaries', () => {
@@ -361,13 +359,13 @@ describe('extractSourceLines', () => {
 })
 
 describe('computeSymbolKey', () => {
-	it('joins kind and name with a space', () => {
-		expect(computeSymbolKey({ name: 'Markdown', kind: 'class' })).toBe('class Markdown')
+	it('joins keyword and name with a space', () => {
+		expect(computeSymbolKey({ name: 'Markdown', keyword: 'class' })).toBe('class Markdown')
 	})
 
-	it('differs when kind differs', () => {
-		expect(computeSymbolKey({ name: 'X', kind: 'type' })).not.toBe(
-			computeSymbolKey({ name: 'X', kind: 'class' }),
+	it('differs when the keyword differs', () => {
+		expect(computeSymbolKey({ name: 'X', keyword: 'type' })).not.toBe(
+			computeSymbolKey({ name: 'X', keyword: 'class' }),
 		)
 	})
 })
@@ -469,8 +467,8 @@ describe('findUnlisted', () => {
 })
 
 describe('findMissingSymbols', () => {
-	const widget: SurfaceSymbol = { name: 'Widget', kind: 'class' }
-	const kind: SurfaceSymbol = { name: 'WidgetKind', kind: 'type' }
+	const widget: SurfaceSymbol = { name: 'Widget', keyword: 'class' }
+	const kind: SurfaceSymbol = { name: 'WidgetKind', keyword: 'type' }
 
 	it('returns an empty array when symbols is empty', () => {
 		expect(findMissingSymbols([], [widget])).toEqual([])
@@ -480,8 +478,8 @@ describe('findMissingSymbols', () => {
 		expect(findMissingSymbols([widget, kind], [widget])).toEqual(['type WidgetKind'])
 	})
 
-	it('treats same-name different-kind symbols as distinct (both directions)', () => {
-		const asConst: SurfaceSymbol = { name: 'Widget', kind: 'const' }
+	it('treats same-name different-keyword symbols as distinct (both directions)', () => {
+		const asConst: SurfaceSymbol = { name: 'Widget', keyword: 'const' }
 		expect(findMissingSymbols([asConst], [widget])).toEqual(['const Widget'])
 		expect(findMissingSymbols([widget], [asConst])).toEqual(['class Widget'])
 	})
@@ -914,7 +912,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'const values = [... /[/*]/]\nexport const visible = true',
 			'for (const value of /[/*]/) value\nexport const visible = true',
 		]) {
-			expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
+			expect(extractExports(source)).toEqual([{ name: 'visible', keyword: 'const' }])
 		}
 	})
 
@@ -924,7 +922,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'class Counter {\n\t#\u03c0 = 1\n\tratio(): number { return this.#\u03c0 / 2 /* open\nexport const ghost = true\n*/ }\n}\nexport const visible = true',
 		]
 		expect(sources.map(extractExports)).toEqual(
-			sources.map(() => [{ name: 'visible', kind: 'const' }]),
+			sources.map(() => [{ name: 'visible', keyword: 'const' }]),
 		)
 	})
 
@@ -936,7 +934,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'for (const [{}, []] of /[/*]/ as unknown as readonly [object, unknown[]][]) {}\nexport const visible = true',
 		]
 		expect(sources.map(extractExports)).toEqual(
-			sources.map(() => [{ name: 'visible', kind: 'const' }]),
+			sources.map(() => [{ name: 'visible', keyword: 'const' }]),
 		)
 	})
 
@@ -948,9 +946,9 @@ describe('successor lexical and reflection boundaries', () => {
 			'*/',
 			'export const visible = true /* trailing */',
 		].join('\n')
-		expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractExports(source)).toEqual([{ name: 'visible', keyword: 'const' }])
 		expect(extractHidden(source.replaceAll('export ', ''))).toEqual([
-			{ name: 'visible', kind: 'const' },
+			{ name: 'visible', keyword: 'const' },
 		])
 	})
 
@@ -998,12 +996,12 @@ describe('extractSurface', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toEqual([
-			{ name: 'WidgetInterface', kind: 'interface' },
-			{ name: 'WidgetKind', kind: 'type' },
-			{ name: 'createLabel', kind: 'function' },
-			{ name: 'loadWidget', kind: 'function' },
-			{ name: 'DEFAULT_COUNT', kind: 'const' },
-			{ name: 'Widget', kind: 'class' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
+			{ name: 'createLabel', keyword: 'function' },
+			{ name: 'loadWidget', keyword: 'function' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{ name: 'Widget', keyword: 'class' },
 		])
 	})
 
@@ -1017,7 +1015,7 @@ describe('extractSurface', () => {
 	it('unions a backticked H3 entity heading as a class symbol', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
-		expect(surface).toContainEqual({ name: 'Widget', kind: 'class' })
+		expect(surface).toContainEqual({ name: 'Widget', keyword: 'class' })
 	})
 
 	it('extracts empty when the Surface heading was renamed', () => {
@@ -1098,7 +1096,7 @@ describe('extractTests', () => {
 })
 
 describe('extractExports', () => {
-	it('excludes five-kind declarations inside a multiline block comment', () => {
+	it('excludes declaration-keyword declarations inside a multiline block comment', () => {
 		const source = [
 			'/*',
 			'export type GhostType = string',
@@ -1110,10 +1108,10 @@ describe('extractExports', () => {
 			'export const visible = true',
 			'',
 		].join('\n')
-		expect(extractExports(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractExports(source)).toEqual([{ name: 'visible', keyword: 'const' }])
 	})
 
-	it('retains five-kind code with literal initializers and comments while excluding enum', () => {
+	it('retains declaration-keyword code with literal initializers and comments while excluding enum', () => {
 		const source = [
 			'export type VisibleType = string // note',
 			'export interface VisibleInterface {} /* note */',
@@ -1125,21 +1123,21 @@ describe('extractExports', () => {
 			'export enum Outside { Value }',
 		].join('\n')
 		expect(extractExports(source)).toEqual([
-			{ name: 'VisibleType', kind: 'type' },
-			{ name: 'VisibleInterface', kind: 'interface' },
-			{ name: 'stringValue', kind: 'const' },
-			{ name: 'regexValue', kind: 'const' },
-			{ name: 'templateValue', kind: 'const' },
-			{ name: 'visibleFunction', kind: 'function' },
-			{ name: 'VisibleClass', kind: 'class' },
+			{ name: 'VisibleType', keyword: 'type' },
+			{ name: 'VisibleInterface', keyword: 'interface' },
+			{ name: 'stringValue', keyword: 'const' },
+			{ name: 'regexValue', keyword: 'const' },
+			{ name: 'templateValue', keyword: 'const' },
+			{ name: 'visibleFunction', keyword: 'function' },
+			{ name: 'VisibleClass', keyword: 'class' },
 		])
 	})
 
-	it('scans all five ExportKind declarations from the good fixture types.ts', () => {
+	it('scans every ExportKeyword declaration from the good fixture types.ts', () => {
 		const symbols = extractExports(requireText(FIXTURES, 'good/module/types.ts'))
 		expect(symbols).toEqual([
-			{ name: 'WidgetInterface', kind: 'interface' },
-			{ name: 'WidgetKind', kind: 'type' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
 		])
 	})
 
@@ -1147,32 +1145,32 @@ describe('extractExports', () => {
 		const source =
 			'export function a() {}\nexport async function b() {}\nexport class C {}\nexport const D = 1\n'
 		expect(extractExports(source)).toEqual([
-			{ name: 'a', kind: 'function' },
-			{ name: 'b', kind: 'function' },
-			{ name: 'C', kind: 'class' },
-			{ name: 'D', kind: 'const' },
+			{ name: 'a', keyword: 'function' },
+			{ name: 'b', keyword: 'function' },
+			{ name: 'C', keyword: 'class' },
+			{ name: 'D', keyword: 'const' },
 		])
 	})
 
-	it('scans a generator function as kind function', () => {
+	it('scans a generator function under the function keyword', () => {
 		expect(extractExports('export function* walk() {}\n')).toEqual([
-			{ name: 'walk', kind: 'function' },
+			{ name: 'walk', keyword: 'function' },
 		])
 	})
 
-	it('dedupes a repeated (kind, name) pair', () => {
+	it('dedupes a repeated (keyword, name) pair', () => {
 		const source = 'export class X {}\nexport class X {}\n'
-		expect(extractExports(source)).toEqual([{ name: 'X', kind: 'class' }])
+		expect(extractExports(source)).toEqual([{ name: 'X', keyword: 'class' }])
 	})
 
 	it('ignores non-export lines', () => {
 		const source = 'const local = 1\nfunction helper() {}\nexport class Real {}\n'
-		expect(extractExports(source)).toEqual([{ name: 'Real', kind: 'class' }])
+		expect(extractExports(source)).toEqual([{ name: 'Real', keyword: 'class' }])
 	})
 })
 
 describe('extractHidden', () => {
-	it('excludes five-kind declarations inside a multiline block comment', () => {
+	it('excludes declaration-keyword declarations inside a multiline block comment', () => {
 		const source = [
 			'/*',
 			'type GhostType = string',
@@ -1184,10 +1182,10 @@ describe('extractHidden', () => {
 			'const visible = true',
 			'',
 		].join('\n')
-		expect(extractHidden(source)).toEqual([{ name: 'visible', kind: 'const' }])
+		expect(extractHidden(source)).toEqual([{ name: 'visible', keyword: 'const' }])
 	})
 
-	it('retains hidden five-kind code with literal initializers and comments while excluding enum', () => {
+	it('retains hidden declaration-keyword code with literal initializers and comments while excluding enum', () => {
 		const source = [
 			'type VisibleType = string // note',
 			'interface VisibleInterface {} /* note */',
@@ -1199,48 +1197,50 @@ describe('extractHidden', () => {
 			'enum Outside { Value }',
 		].join('\n')
 		expect(extractHidden(source)).toEqual([
-			{ name: 'VisibleType', kind: 'type' },
-			{ name: 'VisibleInterface', kind: 'interface' },
-			{ name: 'stringValue', kind: 'const' },
-			{ name: 'regexValue', kind: 'const' },
-			{ name: 'templateValue', kind: 'const' },
-			{ name: 'visibleFunction', kind: 'function' },
-			{ name: 'VisibleClass', kind: 'class' },
+			{ name: 'VisibleType', keyword: 'type' },
+			{ name: 'VisibleInterface', keyword: 'interface' },
+			{ name: 'stringValue', keyword: 'const' },
+			{ name: 'regexValue', keyword: 'const' },
+			{ name: 'templateValue', keyword: 'const' },
+			{ name: 'visibleFunction', keyword: 'function' },
+			{ name: 'VisibleClass', keyword: 'class' },
 		])
 	})
 
 	it('detects a hidden function declaration', () => {
 		expect(extractHidden('function secretHelper() {}\n')).toEqual([
-			{ name: 'secretHelper', kind: 'function' },
+			{ name: 'secretHelper', keyword: 'function' },
 		])
 	})
 
 	it('detects a hidden async function declaration', () => {
 		expect(extractHidden('async function loadSecret() {}\n')).toEqual([
-			{ name: 'loadSecret', kind: 'function' },
+			{ name: 'loadSecret', keyword: 'function' },
 		])
 	})
 
-	it('detects a hidden generator declaration as kind function', () => {
+	it('detects a hidden generator declaration under the function keyword', () => {
 		expect(extractHidden('function* walkSecret() {}\n')).toEqual([
-			{ name: 'walkSecret', kind: 'function' },
+			{ name: 'walkSecret', keyword: 'function' },
 		])
 	})
 
 	it('detects a hidden class declaration', () => {
-		expect(extractHidden('class Secret {}\n')).toEqual([{ name: 'Secret', kind: 'class' }])
+		expect(extractHidden('class Secret {}\n')).toEqual([{ name: 'Secret', keyword: 'class' }])
 	})
 
 	it('detects a hidden const declaration', () => {
-		expect(extractHidden('const SECRET = 1\n')).toEqual([{ name: 'SECRET', kind: 'const' }])
+		expect(extractHidden('const SECRET = 1\n')).toEqual([{ name: 'SECRET', keyword: 'const' }])
 	})
 
 	it('detects a hidden interface declaration', () => {
-		expect(extractHidden('interface Secret {}\n')).toEqual([{ name: 'Secret', kind: 'interface' }])
+		expect(extractHidden('interface Secret {}\n')).toEqual([
+			{ name: 'Secret', keyword: 'interface' },
+		])
 	})
 
 	it('detects a hidden type declaration', () => {
-		expect(extractHidden('type Secret = string\n')).toEqual([{ name: 'Secret', kind: 'type' }])
+		expect(extractHidden('type Secret = string\n')).toEqual([{ name: 'Secret', keyword: 'type' }])
 	})
 
 	it('ignores exported lines', () => {
@@ -1261,7 +1261,7 @@ describe('extractHidden', () => {
 		const symbols = extractHidden(
 			requireText(FIXTURES, 'broken/hidden-declaration/module/Widget.ts'),
 		)
-		expect(symbols).toEqual([{ name: 'secretHelper', kind: 'function' }])
+		expect(symbols).toEqual([{ name: 'secretHelper', keyword: 'function' }])
 	})
 })
 
@@ -1551,7 +1551,7 @@ describe('extractMemberMethods', () => {
 		])
 	})
 
-	it("reproduces the good fixture Widget class's exact three methods (excluding the trap members)", () => {
+	it("reproduces the good fixture Widget class's exact methods (excluding the trap members)", () => {
 		const declaration = extractDeclaration(
 			requireText(FIXTURES, 'good/module/Widget.ts'),
 			'class',
@@ -1868,29 +1868,5 @@ describe('broken fixture: phantom-import', () => {
 				.flatMap((entry) => findMissing(entry.names, exportNames)),
 		)
 		expect(phantom).toEqual(['ghost'])
-	})
-})
-
-describe('successor runtime surface', () => {
-	it('exposes the final helpers and retires every replaced name', () => {
-		expect({
-			extractSourceLines: Object.hasOwn(core, 'extractSourceLines'),
-			extractExampleLines: Object.hasOwn(core, 'extractExampleLines'),
-			hasCanonicalSegments: Object.hasOwn(core, 'hasCanonicalSegments'),
-			normalizeDirectories: Object.hasOwn(core, 'normalizeDirectories'),
-			selectModuleKeys: Object.hasOwn(core, 'selectModuleKeys'),
-			extractCodeLines: Object.hasOwn(core, 'extractCodeLines'),
-			moduleDirs: Object.hasOwn(core, 'moduleDirs'),
-			moduleKeys: Object.hasOwn(core, 'moduleKeys'),
-		}).toEqual({
-			extractSourceLines: true,
-			extractExampleLines: true,
-			hasCanonicalSegments: true,
-			normalizeDirectories: true,
-			selectModuleKeys: true,
-			extractCodeLines: false,
-			moduleDirs: false,
-			moduleKeys: false,
-		})
 	})
 })

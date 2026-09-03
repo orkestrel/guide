@@ -1,13 +1,13 @@
 import { Guide, createSource, isExternalLink, findMissingSymbols, resolveLink } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../setupServer.js'
+import { requireText } from '../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
-// The stateful Guide view over one parsed guide's markdown — six cached
+// The pure Guide view over one parsed guide's markdown — the cached
 // projections. Constructed from the good/broken fixture guides that exercise
-// each projection's green and red paths (AGENTS §16).
+// each projection's green and red paths (.claude/rules/tests.md § Test contract).
 
 describe('Guide', () => {
 	it('extracts sections in document order from the good fixture guide', () => {
@@ -15,15 +15,15 @@ describe('Guide', () => {
 		expect(guide.sections()).toEqual(['Surface', 'Methods', 'Tests'])
 	})
 
-	it('extracts the exact 6-symbol surface from the good fixture guide', () => {
+	it('extracts the exact documented surface from the good fixture guide', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.surface()).toEqual([
-			{ name: 'WidgetInterface', kind: 'interface' },
-			{ name: 'WidgetKind', kind: 'type' },
-			{ name: 'createLabel', kind: 'function' },
-			{ name: 'loadWidget', kind: 'function' },
-			{ name: 'DEFAULT_COUNT', kind: 'const' },
-			{ name: 'Widget', kind: 'class' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
+			{ name: 'createLabel', keyword: 'function' },
+			{ name: 'loadWidget', keyword: 'function' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{ name: 'Widget', keyword: 'class' },
 		])
 	})
 
@@ -128,7 +128,7 @@ describe('bijection matrix', () => {
 		])
 	})
 
-	it('wrong-kind: createLabel drifts kind in both directions', () => {
+	it('wrong-kind: createLabel drifts keyword in both directions', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/wrong-kind/widget.md'))
 		expect(findMissingSymbols(goodSource.surface(), guide.surface())).toEqual([
 			'function createLabel',

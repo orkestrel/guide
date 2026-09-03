@@ -1,5 +1,5 @@
 // Standalone helpers — one plain `function` export and one `async function`
-// export (both scan as ExportKind `function`), plus one `const` export.
+// export (both scan as ExportKeyword `function`), plus one `const` export.
 
 export function createLabel(prefix: string): string {
 	return `${prefix}-widget`

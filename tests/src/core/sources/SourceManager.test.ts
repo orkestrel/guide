@@ -46,8 +46,8 @@ describe('SourceManager', () => {
 			modules: { '@scope/package': ['core', 'browser'] },
 		})
 		expect(manager.source('@scope/package')?.surface()).toEqual([
-			{ name: 'browserValue', kind: 'const' },
-			{ name: 'coreValue', kind: 'const' },
+			{ name: 'browserValue', keyword: 'const' },
+			{ name: 'coreValue', keyword: 'const' },
 		])
 	})
 
@@ -62,5 +62,28 @@ describe('SourceManager', () => {
 			modules: { '@scope/package': 'server' },
 		})
 		expect(manager.source('@scope/package')?.surface()).toEqual([])
+	})
+
+	it('enumerates one shared view per distinct module, in first-seen specifier order', () => {
+		const manager = createSourceManager({
+			files: FILES,
+			modules: {
+				'@scope/package': 'core',
+				'@scope/package/core': 'core',
+				'@scope/package/browser': 'browser',
+			},
+		})
+		// Identity, not shape: two specifiers naming one module must contribute the
+		// entity `source()` already caches, so a second scan of the same inventory
+		// would show up here as an extra element.
+		expect(manager.sources()).toEqual([
+			manager.source('@scope/package'),
+			manager.source('@scope/package/browser'),
+		])
+	})
+
+	it('enumerates nothing for an empty policy', () => {
+		const manager = createSourceManager({ files: FILES, modules: {} })
+		expect(manager.sources()).toEqual([])
 	})
 })
