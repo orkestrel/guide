@@ -1514,6 +1514,12 @@ describe('extractMemberMethods', () => {
 		expect(extractMemberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual(['fold'])
 	})
 
+	it('counts an optional method whose type params precede the parameter list', () => {
+		expect(extractMemberMethods(['\ttransaction?<R>(scope: DriverScope<R>): Promise<R>'])).toEqual([
+			'transaction',
+		])
+	})
+
 	it('excludes a getter', () => {
 		expect(extractMemberMethods(['\tget label(): string'])).toEqual([])
 	})
@@ -1766,6 +1772,16 @@ describe('extractExampleMethods', () => {
 			'\treplaced(): void',
 		]
 		expect(extractExampleMethods(lines)).toEqual(['nextLine', 'sameLine'])
+	})
+
+	it('collects an optional method whose type params precede the parameter list', () => {
+		const lines = [
+			'\t/**',
+			'\t * @example',
+			'\t */',
+			'\ttransaction?<R>(scope: DriverScope<R>): Promise<R>',
+		]
+		expect(extractExampleMethods(lines)).toEqual(['transaction'])
 	})
 })
 

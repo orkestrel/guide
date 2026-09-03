@@ -1192,7 +1192,7 @@ export function extractMemberMethods(lines: readonly string[]): readonly string[
 	const methods: string[] = []
 
 	for (const line of extractSourceLines(lines.join('\n'))) {
-		const method = line.code.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
+		const method = line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
 		if (method?.[1] !== undefined) methods.push(method[1])
 	}
 
@@ -1525,7 +1525,7 @@ export function extractExampleMethods(lines: readonly string[]): readonly string
 	const seen = new Set<string>()
 
 	for (const line of extractExampleLines(extractSourceLines(lines.join('\n')))) {
-		const method = line.code.match(/^\t(?:async )?\*?(\w+)(<.*>)?\??\(/)
+		const method = line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
 		const name = method?.[1]
 		if (isNonEmptyString(name) && !seen.has(name)) {
 			seen.add(name)
