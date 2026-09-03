@@ -521,7 +521,8 @@ findMissingSymbols(guide.surface(), source.surface()) // []
 import { extractSourceLines } from '@orkestrel/guide'
 
 extractSourceLines('export const visible = true // note\n')
-// [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }, ...]
+// [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }]
+// … one record per remaining line
 ```
 
 ### Resolve directory and file targets

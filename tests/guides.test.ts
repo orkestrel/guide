@@ -344,8 +344,9 @@ describe('flagship fences', () => {
 	it('carries the projection fence lines the transcription copies', () => {
 		expect(guideText).toContain("extractSourceLines('export const visible = true // note\\n')")
 		expect(guideText).toContain(
-			"// [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }, ...]",
+			"// [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }]",
 		)
+		expect(guideText).toContain('// … one record per remaining line')
 	})
 
 	it('reduces a directory target and a declaring-file target', () => {
