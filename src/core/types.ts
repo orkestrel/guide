@@ -124,8 +124,8 @@ export interface ManifestEntry {
 }
 
 /**
- * Represents one `#### \`Interface\`` block in a guide's `## Methods` section — the
- * documented member names of one behavioral interface.
+ * Represents one behavioral interface a guide's `## Methods` section documents — the H4
+ * heading naming that interface as a code span, and the member entries its table lists.
  */
 export interface MethodGroup {
 	/** Holds the backticked interface name. */

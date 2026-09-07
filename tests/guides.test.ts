@@ -1,6 +1,7 @@
 // The self-dogfooding drop-in: the exact consumer-side footprint this package
 // ships, run against this repository's own guides/README.md manifest.
 
+import type { SurfaceSymbol } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
 	createGuide,
@@ -13,6 +14,9 @@ import {
 	findUnlisted,
 	isExternalLink,
 	findDrift,
+	replaceCell,
+	replaceSummary,
+	renderSurface,
 	findMissingSymbols,
 	parseManifest,
 	resolveLink,
@@ -364,6 +368,62 @@ describe('flagship fences', () => {
 		)
 		expect(guideText).toContain(
 			"findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }]",
+		)
+	})
+
+	it('carries a summary across into the guide and into a doc block', () => {
+		const guide =
+			'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |'
+
+		expect(replaceCell(guide, 'function walk', 'Walks a tree.')).toBe(
+			'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks a tree. |',
+		)
+		expect(replaceCell(guide, 'function phantom', 'Absent.')).toBeUndefined()
+		expect(replaceCell(guide, 'function walk', 'Walks the tree.') === guide).toBe(true)
+		expect(replaceSummary('/** Walks the tree. */', 'Walks a tree.')).toBe('/** Walks a tree. */')
+	})
+
+	// The guide states the renderers' round trip as a caller's obligation rather than as a
+	// property of the render alone: each renders the block a section contains, so reading one
+	// back parses it under the heading the caller supplies. This assertion is what breaks if
+	// that obligation changes; the transcription check beside it only guards the sentence.
+	it('reads a rendered Surface table back under the section heading its caller supplies', () => {
+		const symbols: readonly SurfaceSymbol[] = [
+			{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' },
+			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+		]
+		const rendered = renderSurface(symbols)
+
+		expect(createGuide(rendered).surface()).toEqual([])
+		expect(createGuide(`## Surface\n\n${rendered}`).surface()).toEqual(symbols)
+	})
+
+	it('carries the caller-obligation sentence the round trip proves', () => {
+		expect(guideText).toContain(
+			"`extractSurface` reads\n`'## Surface\\n\\n' + renderSurface(symbols)` back to the symbols it was rendered from",
+		)
+		expect(guideText).toContain('The gate reports and never writes')
+	})
+
+	it('carries the propagation fence lines the transcription copies', () => {
+		expect(guideText).toContain(
+			"\t'## Surface\\n\\n| Name | Kind | Summary |\\n| --- | --- | --- |\\n| `walk` | function | Walks the tree. |'",
+		)
+		expect(guideText).toContain(
+			"// The guide's text back, with that one cell replaced and every byte outside the table unchanged.",
+		)
+		expect(guideText).toContain("replaceCell(guide, 'function walk', 'Walks a tree.')")
+		expect(guideText).toContain(
+			"// '## Surface\\n\\n| Name | Kind | Summary |\\n| --- | --- | --- |\\n| `walk` | function | Walks a tree. |'",
+		)
+		expect(guideText).toContain(
+			"replaceCell(guide, 'function phantom', 'Absent.') // undefined — no row carries that key",
+		)
+		expect(guideText).toContain(
+			"replaceCell(guide, 'function walk', 'Walks the tree.') === guide // true — the row already carries it",
+		)
+		expect(guideText).toContain(
+			"replaceSummary('/** Walks the tree. */', 'Walks a tree.') // '/** Walks a tree. */'",
 		)
 	})
 

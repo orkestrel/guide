@@ -1,11 +1,19 @@
-import type { SourceLine, SurfaceSymbol } from '@src/core'
+import type { MethodGroup, SourceExample, SourceLine, SurfaceSymbol } from '@src/core'
 import {
+	buildCell,
+	buildComment,
+	buildFence,
+	buildTable,
 	collectExamples,
+	collectFences,
+	collectGroups,
+	collectKeys,
 	collectSummaries,
 	collectTitles,
 	computeDrift,
 	createGuide,
 	createSource,
+	extractBodyLines,
 	extractCellLinks,
 	extractCellText,
 	extractDeclaration,
@@ -20,6 +28,9 @@ import {
 	extractSurface,
 	extractTests,
 	extractFenceImports,
+	extractRowEntry,
+	extractRowSummary,
+	extractRowSymbol,
 	extractSourceComments,
 	extractTagline,
 	extractUnnamed,
@@ -36,8 +47,20 @@ import {
 	hasCanonicalSegments,
 	extractHidden,
 	joinHead,
+	locateComment,
 	escapeRegExp,
 	findColumnIndex,
+	renderExample,
+	renderMethods,
+	renderSurface,
+	replaceCell,
+	replaceExample,
+	replaceFence,
+	replaceSummary,
+	spliceSpan,
+	unwrapComment,
+	wrapText,
+	WRAP_WIDTH,
 	extractMemberMethods,
 	findMissingSymbols,
 	normalizeDirectories,
@@ -47,7 +70,7 @@ import {
 	selectModuleKeys,
 	computeSymbolKey,
 } from '@src/core'
-import { createMarkdown } from '@orkestrel/markdown'
+import { createMarkdown, isTableNode, renderMarkdown } from '@orkestrel/markdown'
 import { parseSync } from 'vite'
 import { describe, expect, it } from 'vitest'
 import { requireTable, requireText } from '../../setup.js'
@@ -2014,6 +2037,65 @@ describe('normalizeSummary', () => {
 			'Represents one documented symbol.',
 		)
 	})
+
+	// The code-span clause. The markdown parser strips one space from each end of a code span
+	// it reads, and only when both ends carry one; the clause is the symmetric rule that meets
+	// it from either side, so a padded span, a one-sided span, and a bare span converge.
+	it('converges a padded, a one-sided, and a bare code span on the same form', () => {
+		const forms = ['` | `', '` |`', '`| `', '`|`'].map((span) =>
+			normalizeSummary(`cells joined by ${span}, in order.`),
+		)
+		expect(forms).toEqual(Array.from({ length: 4 }, () => 'cells joined by `|`, in order.'))
+	})
+
+	// The guide side reaches the clause after the parser has already stripped a code span's
+	// symmetric boundary space, and the source side reaches it with that space still in the
+	// text. Both spellings must land on the same form, or a doc block and the cell documenting
+	// it drift for as long as either carries a padded span. A raw `|` cannot ride in a
+	// hand-written cell — it splits the row at parse time — so the padded span here is a name.
+	it('converges the guide side and the source side on a padded and a one-sided span', () => {
+		for (const written of ['a ` Widget ` span', 'a ` Widget` span', 'a `Widget ` span']) {
+			const cell = requireTable(
+				['| Name | Summary |', '| --- | --- |', `| \`a\` | ${written} |`, ''].join('\n'),
+			).rows[0]?.[1]
+			expect(cell).toBeDefined()
+			expect(normalizeSummary(extractCellText(cell ?? []))).toBe('a `Widget` span')
+			expect(normalizeSummary(written)).toBe('a `Widget` span')
+		}
+	})
+
+	it('keeps one space for a span whose content is all whitespace', () => {
+		expect(normalizeSummary('a ` ` span')).toBe('a ` ` span')
+		expect(normalizeSummary('a `   ` span')).toBe('a ` ` span')
+	})
+
+	it('leaves a link token inside a code span literal and expands the one outside it', () => {
+		expect(normalizeSummary('a `{@link Widget}` token and a {@link Widget} token')).toBe(
+			'a `{@link Widget}` token and a `Widget` token',
+		)
+	})
+
+	it('leaves a span delimited by more than one backtick untouched', () => {
+		expect(normalizeSummary('a ``Target`` span')).toBe('a ``Target`` span')
+		expect(normalizeSummary('a `` Target `` span')).toBe('a `` Target `` span')
+	})
+
+	it('collapses a span wrapped across two physical lines before trimming its boundary', () => {
+		expect(normalizeSummary('reads ` a\nb ` back')).toBe('reads `a b` back')
+	})
+
+	it('is a fixed point on its own output', () => {
+		const texts = [
+			'cells joined by ` | `, in order.',
+			'a ` ` span',
+			'a `{@link Widget}` token and a {@link Widget} token',
+			'a ``Target`` span',
+			'reads ` a\nb ` back',
+		]
+		expect(texts.map((text) => normalizeSummary(normalizeSummary(text)))).toEqual(
+			texts.map((text) => normalizeSummary(text)),
+		)
+	})
 })
 
 describe('extractCellText', () => {
@@ -2695,7 +2777,7 @@ describe('collectTitles', () => {
 // The text reader claims to attach a doc block to the declaration it documents.
 // `parseSync` from `vite` answers the same question with a real parser — comments
 // by range against declaration positions — so the two readings can disagree, and
-// the cases below say exactly where the text reader is allowed to. `vite` is a
+// the following cases say exactly where the text reader is allowed to. `vite` is a
 // development dependency and this import never reaches `src/**`, which stays
 // free of a compiler and a parser.
 
@@ -2763,47 +2845,72 @@ function readTextSummaries(source: string): ReadonlyMap<string, string> {
 	return summaries
 }
 
-describe('the doc-block reader against the parser', () => {
-	const OVERLOADS = [
-		'/**',
-		' * Reads one value.',
-		' */',
-		'export function read(): string',
-		'export function read(name: string): string',
-		'export function read(name?: string): string {',
-		"\treturn name ?? ''",
-		'}',
-		'',
-	].join('\n')
-	const SEPARATED = [
-		'/**',
-		' * Walks the tree.',
-		' */',
-		'',
-		'export function walk(): void {}',
-		'',
-	].join('\n')
-	const TEMPLATE = [
-		'/**',
-		' * Holds a sample module.',
-		' */',
-		'export const sample = `',
-		'/**',
-		' * Ghosts a widget.',
-		' */',
-		'export function ghost() {}',
-		'`',
-		'',
-	].join('\n')
-	const BARREL = [
-		'/**',
-		' * Re-exports the widget module.',
-		' */',
-		"export * from './types.js'",
-		"export * from './helpers.js'",
-		'',
-	].join('\n')
+// The control fixtures both key readings and the locator run against: an overload set, a block a
+// blank line separates from its declaration, a block written inside a template literal, a
+// re-export-only barrel, and an owner carrying documented members followed by a declaration
+// outside it. One copy, because the two readings must meet the same text to be comparable.
+const OVERLOADS = [
+	'/**',
+	' * Reads one value.',
+	' */',
+	'export function read(): string',
+	'export function read(name: string): string',
+	'export function read(name?: string): string {',
+	"\treturn name ?? ''",
+	'}',
+	'',
+].join('\n')
+const SEPARATED = [
+	'/**',
+	' * Walks the tree.',
+	' */',
+	'',
+	'export function walk(): void {}',
+	'',
+].join('\n')
+const TEMPLATE = [
+	'/**',
+	' * Holds a sample module.',
+	' */',
+	'export const sample = `',
+	'/**',
+	' * Ghosts a widget.',
+	' */',
+	'export function ghost() {}',
+	'`',
+	'',
+].join('\n')
+const BARREL = [
+	'/**',
+	' * Re-exports the widget module.',
+	' */',
+	"export * from './types.js'",
+	"export * from './helpers.js'",
+	'',
+].join('\n')
+const MEMBERS = [
+	'/**',
+	' * Represents a widget.',
+	' */',
+	'export interface WidgetInterface {',
+	'\t/**',
+	'\t * Walks the tree.',
+	'\t */',
+	'\twalk(): void',
+	'\t/**',
+	'\t * Renders the widget.',
+	'\t */',
+	'\trender(): string',
+	'}',
+	'',
+	'/**',
+	' * Reads a widget.',
+	' */',
+	'export function read(): void {}',
+	'',
+].join('\n')
 
+describe('the doc-block reader against the parser', () => {
 	it('agrees with the parser on an overload set', () => {
 		expect(readTextSummaries(OVERLOADS)).toEqual(readParsedSummaries(OVERLOADS))
 		expect(readParsedSummaries(OVERLOADS)).toEqual(new Map([['read', 'Reads one value.']]))
@@ -2835,5 +2942,1237 @@ describe('the doc-block reader against the parser', () => {
 			return Array.from(parsed.keys()).some((name) => read.get(name) !== parsed.get(name))
 		})
 		expect(missed).toEqual([SEPARATED])
+	})
+})
+
+// ── The renderers and the replacers ───────────────────────────────────────────
+// `renderSurface` / `renderMethods` / `renderExample` produce guide text from source
+// entries; `replaceCell` / `replaceFence` rewrite one located node inside an existing
+// guide's text; `locateComment` finds one doc block's region inside a file and
+// `replaceSummary` / `replaceExample` rewrite that block's text. Every one returns text or
+// offsets and writes nothing. The following cases prove each round trip through the reader
+// that owns it, and prove the properties a propagation depends on: a rewrite changes no byte
+// outside the node it names, a rewrite whose target already carries the value changes no byte
+// at all, and a miss reports itself as `undefined` rather than as a silent no-op.
+
+// This package's own source, read as the corpus the compared form must survive. A summary
+// invented for a test proves the case it was written for; the doc blocks the package ships
+// prove the population a propagation actually meets.
+const SOURCE = readInventory(new URL('../../../src/', import.meta.url), ['.'], {
+	extensions: ['.ts'],
+})
+
+// Every genuine doc block this package ships, at its raw span — the whole physical lines the
+// block occupies, so the indentation and the continuation markers a rewrite must preserve are
+// in the corpus. The boundaries come from `extractSourceLines`'s own aligned JSDoc projection,
+// which retains a real span at its exact columns and withholds an opener written inside a
+// string or a template literal; a scan of the file text cannot tell those apart. The case
+// `covers every doc block extractSourceComments attaches` is what proves this walk and the
+// reader that attaches blocks agree on the population.
+function extractBlocks(text: string): readonly string[] {
+	const blocks: string[] = []
+	const lines = extractSourceLines(text)
+	let open = -1
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const projection = lines[index]?.jsdoc
+		if (projection === undefined) {
+			open = -1
+			continue
+		}
+		if (open < 0) open = index
+		if (!projection.includes('*/')) continue
+		blocks.push(
+			lines
+				.slice(open, index + 1)
+				.map((line) => line.source)
+				.join('\n'),
+		)
+		open = -1
+	}
+
+	return blocks
+}
+
+const CORPUS = Object.values(SOURCE).flatMap((text) => extractBlocks(text))
+
+// The floors are read from what `src/` ships, so the corpus cannot silently collapse to a
+// handful of blocks and leave every case over it passing on nothing. They are floors rather
+// than totals: this package's source gains doc blocks, and a total would reprice itself on
+// every edit. The run that set them read 173 blocks, every one of them described.
+const CORPUS_FLOOR = 150
+const DESCRIBED_FLOOR = 150
+
+// The same kind of floor for the documented members `extractDeclaration` and
+// `extractMemberMethods` report over `src/`, which is the population the member half of the
+// locator's control runs over. The run that set it read 16 such members.
+const MEMBER_FLOOR = 12
+
+function extractSummary(comment: string): string {
+	const content = unwrapComment(comment)
+	const masked = maskFences(content.join('\n')).split('\n')
+	const tag = masked.findIndex((line) => /^[ \t]*@\w/.test(line))
+	return normalizeSummary(content.slice(0, tag < 0 ? content.length : tag).join('\n'))
+}
+
+// A column-aligned copy of `@orkestrel/scaffold`'s committed guide: the head of its
+// `## Surface` types table and its whole `CompilerInterface` methods table, with the prose
+// between them. Column alignment is the point — a rewrite re-pads the table it rewrites,
+// so the bytes outside that one table are what prove the splice stayed inside its span.
+const GUIDE = [
+	'# Scaffold',
+	'',
+	'> Generates and audits a workspace.',
+	'',
+	'## Surface',
+	'',
+	'### Core',
+	'',
+	'#### Types',
+	'',
+	'| Name               | Kind | Summary                                                                                          |',
+	'| ------------------ | ---- | ------------------------------------------------------------------------------------------------ |',
+	'| `Artifact`         | type | One file in a plan, discriminated by how its content is produced and what scaffold claims of it. |',
+	'| `BuildFormat`      | type | One module format a published library environment builds.                                        |',
+	'| `CatalogEntry`     | type | One package row of the fleet catalog.                                                            |',
+	'| `CompileStage`     | type | The compile phases, in the order they run.                                                       |',
+	"| `CompilerEventMap` | type | The compiler's observation channel.                                                              |",
+	'',
+	'## Methods',
+	'',
+	"`Compiler` implements `CompilerInterface`. Each class exposes exactly its interface's members.",
+	'',
+	'#### `CompilerInterface`',
+	'',
+	'| Method    | Summary                                                                      |',
+	'| --------- | ---------------------------------------------------------------------------- |',
+	'| `compile` | Compile a blueprint into a plan through the draft, gate, and pin stages.     |',
+	"| `audit`   | Compile a blueprint and compare its plan to a target's current content.      |",
+	'| `destroy` | Tear the compiler down. Every later call throws, and teardown is idempotent. |',
+	'',
+].join('\n')
+
+// The same guide with the compared column renamed, so `findColumnIndex` locates nothing —
+// the shape a package that has not adopted the column yet still carries.
+const UNCOMPARED = GUIDE.replace(/Summary  /g, 'Behavior ').replace(
+	'| Method    | Summary  ',
+	'| Method    | Behavior ',
+)
+
+describe('the corpus this package ships', () => {
+	it('carries a floor of blocks and of described blocks', () => {
+		expect(CORPUS.length).toBeGreaterThanOrEqual(CORPUS_FLOOR)
+		expect(
+			CORPUS.filter((comment) => extractSummary(comment).length > 0).length,
+		).toBeGreaterThanOrEqual(DESCRIBED_FLOOR)
+	})
+
+	it('covers every doc block extractSourceComments attaches', () => {
+		const missed = Object.entries(SOURCE).flatMap(([key, text]) => {
+			const read = new Set(extractBlocks(text).map((comment) => normalizeComment(comment)))
+			return extractSourceComments(extractSourceLines(text))
+				.filter((comment) => !read.has(comment.text))
+				.map((comment) => `${key}: ${comment.text.slice(0, 40)}`)
+		})
+		expect(missed).toEqual([])
+	})
+
+	// The instrument must be able to fail: a walk that took whole lines from the file text
+	// rather than from the JSDoc projection reads an opener inside a template literal as a
+	// block, and the reader that attaches blocks never reports it.
+	it('leaves an opener written inside a template literal out of the corpus', () => {
+		const text = [
+			'/**',
+			' * Holds a sample module.',
+			' */',
+			'export const sample = `',
+			'/**',
+			' * Ghosts a widget.',
+			' */',
+			'export function ghost() {}',
+			'`',
+			'',
+		].join('\n')
+		expect(extractBlocks(text)).toEqual([['/**', ' * Holds a sample module.', ' */'].join('\n')])
+		expect(text.split('\n').filter((line) => line === '/**').length).toBe(2)
+	})
+})
+
+describe('buildCell', () => {
+	it('inverts extractCellText on plain text and on a code span', () => {
+		expect(buildCell('Holds a `Widget`.')).toEqual([
+			{ element: 'text', value: 'Holds a ' },
+			{ element: 'codeSpan', value: 'Widget' },
+			{ element: 'text', value: '.' },
+		])
+	})
+
+	it('reads a leading and a trailing code span', () => {
+		expect(buildCell('`a` and `b`')).toEqual([
+			{ element: 'codeSpan', value: 'a' },
+			{ element: 'text', value: ' and ' },
+			{ element: 'codeSpan', value: 'b' },
+		])
+	})
+
+	it('keeps a run whose text carries a boundary space as literal text', () => {
+		expect(buildCell('joined by ` | `.')).toEqual([{ element: 'text', value: 'joined by ` | `.' }])
+		expect(buildCell('` | `')).toEqual([{ element: 'text', value: '` | `' }])
+	})
+
+	it('keeps a lone backtick and an empty run as literal text', () => {
+		expect(buildCell('a ` here')).toEqual([{ element: 'text', value: 'a ` here' }])
+		expect(buildCell('an `` empty')).toEqual([{ element: 'text', value: 'an `` empty' }])
+	})
+
+	it('reads the inner delimiter of a doubled run and leaves the outer backticks as text', () => {
+		expect(buildCell('``Target``')).toEqual([
+			{ element: 'text', value: '`' },
+			{ element: 'codeSpan', value: 'Target' },
+			{ element: 'text', value: '`' },
+		])
+	})
+
+	it('renders every doc block summary this package ships back to itself', () => {
+		const moved = CORPUS.map(extractSummary)
+			.filter((summary) => summary.length > 0)
+			.filter((summary) => {
+				const rendered = renderSurface([{ name: 'walk', keyword: 'function', summary }])
+				const [read] = extractSurface(createMarkdown(`## Surface\n\n${rendered}`).document)
+				return read?.summary !== summary
+			})
+		expect(moved).toEqual([])
+	})
+
+	it('reads a summary the compared form cannot spell back as the text it was given', () => {
+		// The control: `*stars*` is emphasis to a markdown parser and literal text to a doc
+		// block, so a cell built by parsing the summary as markdown would lose the markers.
+		const summary = 'A summary with *stars* and _underscores_ and [brackets].'
+		const rendered = renderSurface([{ name: 'walk', keyword: 'function', summary }])
+		expect(rendered).toContain('\\*stars\\*')
+		const [read] = extractSurface(createMarkdown(`## Surface\n\n${rendered}`).document)
+		expect(read?.summary).toBe(summary)
+	})
+})
+
+describe('wrapText', () => {
+	it('fills greedily to the width', () => {
+		expect(wrapText('one two three', 8)).toEqual(['one two', 'three'])
+	})
+
+	it('gives a word longer than the width its own line rather than splitting it', () => {
+		expect(wrapText('a longwordbeyondthewidth b', 6)).toEqual(['a', 'longwordbeyondthewidth', 'b'])
+	})
+
+	// The boundary the over-length clause turns on, and the consequence a caller inherits: a
+	// token the width cannot hold stands alone and passes the width, so "every line stays
+	// inside the width" holds for a text whose longest token fits and for no other.
+	it('stands an over-length token alone and lets that one line pass the width', () => {
+		expect(wrapText('abcdef gh', 6)).toEqual(['abcdef', 'gh'])
+		expect(wrapText('abcdefg hi', 6)).toEqual(['abcdefg', 'hi'])
+		expect(Math.max(...wrapText('abcdefg hi', 6).map((line) => line.length))).toBe(7)
+	})
+
+	it('collapses every whitespace run and returns nothing for a wordless text', () => {
+		expect(wrapText('  one \n two  ', 40)).toEqual(['one two'])
+		expect(wrapText('  \n  ', 40)).toEqual([])
+	})
+})
+
+describe('unwrapComment and buildComment', () => {
+	it('projects and rebuilds the shortest span it is given', () => {
+		expect(unwrapComment(['/**', ' * Walks.', ' */'].join('\n'))).toEqual(['', 'Walks.', ''])
+		expect(buildComment(['Walks.'], '')).toBe(['/**', ' * Walks.', ' */'].join('\n'))
+	})
+
+	it('projects one content line per physical line', () => {
+		const comment = ['\t/**', '\t * Walks.', '\t *', '\t * @param x - A value', '\t */'].join('\n')
+		expect(unwrapComment(comment)).toEqual(['', 'Walks.', '', '@param x - A value', ''])
+		expect(unwrapComment(comment).length).toBe(comment.split('\n').length)
+	})
+
+	// `buildComment` writes the opener and the closer on their own lines, so the population is
+	// every block this package writes across several lines. A block written on one line is
+	// `replaceSummary`'s own shape decision, proven over the same corpus there.
+	it('rebuilds every doc block this package writes across several lines, byte for byte', () => {
+		const spans = CORPUS.filter((comment) => comment.includes('\n'))
+		expect(spans.length).toBeGreaterThan(0)
+		const moved = spans.filter((comment) => {
+			const indent = /^[ \t]*/.exec(comment)?.[0] ?? ''
+			return buildComment(unwrapComment(comment), indent) !== comment
+		})
+		expect(moved).toEqual([])
+	})
+
+	it('emits an empty content line as a bare marker, so no line carries trailing whitespace', () => {
+		expect(buildComment(['Walks.', '', '@returns Nothing'], '')).toBe(
+			['/**', ' * Walks.', ' *', ' * @returns Nothing', ' */'].join('\n'),
+		)
+	})
+})
+
+describe('extractRowSymbol, extractRowEntry, and extractRowSummary', () => {
+	const table = requireTable(
+		[
+			'| Name | Kind | Summary |',
+			'| --- | --- | --- |',
+			'| `walk` | function | Walks the tree. |',
+			'| `Widget` | class | |',
+			'| no name | type | Absent. |',
+			'| `Wrong` | enum | Absent. |',
+		].join('\n'),
+	)
+
+	it('reads a row as a symbol with its keyword and its summary', () => {
+		expect(extractRowSymbol(table, 0)).toEqual({
+			name: 'walk',
+			keyword: 'function',
+			summary: 'Walks the tree.',
+		})
+	})
+
+	it('leaves an empty summary cell absent rather than empty', () => {
+		expect(extractRowSymbol(table, 1)).toEqual({ name: 'Widget', keyword: 'class' })
+		expect(extractRowSummary(table, 1)).toBeUndefined()
+	})
+
+	it('keys no symbol for a row with no code-span name and none for an unknown keyword', () => {
+		expect(extractRowSymbol(table, 2)).toBeUndefined()
+		expect(extractRowSymbol(table, 3)).toBeUndefined()
+	})
+
+	it('reads a member entry from the same row grammar', () => {
+		expect(extractRowEntry(table, 0)).toEqual({ name: 'walk', summary: 'Walks the tree.' })
+		expect(extractRowEntry(table, 2)).toBeUndefined()
+	})
+
+	it('reads no summary from a table with no Summary column', () => {
+		const uncompared = requireTable(
+			['| Name | Kind | Behavior |', '| --- | --- | --- |', '| `walk` | function | Walks. |'].join(
+				'\n',
+			),
+		)
+		expect(extractRowSummary(uncompared, 0)).toBeUndefined()
+		expect(extractRowSymbol(uncompared, 0)).toEqual({ name: 'walk', keyword: 'function' })
+	})
+
+	it('reads no row past the last row of the table', () => {
+		expect(extractRowSymbol(table, 9)).toBeUndefined()
+		expect(extractRowEntry(table, 9)).toBeUndefined()
+		expect(extractRowSummary(table, 9)).toBeUndefined()
+	})
+})
+
+describe('collectGroups and collectFences', () => {
+	it('keys each Methods table to the interface its H4 names, in document order', () => {
+		const document = createMarkdown(GUIDE).document
+		const groups = Array.from(collectGroups(document).values())
+		expect(groups).toEqual(['CompilerInterface'])
+	})
+
+	it('keeps two identical tables and two identical fences as two entries', () => {
+		const document = createMarkdown(
+			[
+				'## Methods',
+				'',
+				'#### `A`',
+				'',
+				'| Name | Summary |',
+				'| --- | --- |',
+				'| `walk` | Walks. |',
+				'',
+				'#### `B`',
+				'',
+				'| Name | Summary |',
+				'| --- | --- |',
+				'| `walk` | Walks. |',
+				'',
+				'### One',
+				'',
+				'```ts',
+				'same()',
+				'```',
+				'',
+				'### Two',
+				'',
+				'```ts',
+				'same()',
+				'```',
+				'',
+			].join('\n'),
+		).document
+		expect(Array.from(collectGroups(document).values())).toEqual(['A', 'B'])
+		expect(Array.from(collectFences(document).values())).toEqual([
+			{ language: 'ts', code: 'same()', title: 'One' },
+			{ language: 'ts', code: 'same()', title: 'Two' },
+		])
+	})
+
+	it('reports the same fences extractFences returns, in the same order', () => {
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
+		expect(Array.from(collectFences(document).values())).toEqual(extractFences(document))
+	})
+})
+
+describe('spliceSpan, buildTable, and buildFence', () => {
+	it('writes over the region and keeps every byte outside it', () => {
+		expect(spliceSpan('one two three', { start: 4, end: 7 }, 'TWO')).toBe('one TWO three')
+	})
+
+	it('rebuilds one cell and shares every other cell of the table', () => {
+		const table = requireTable(
+			['| Name | Kind | Summary |', '| --- | --- | --- |', '| `walk` | function | Walks. |'].join(
+				'\n',
+			),
+		)
+		const rebuilt = buildTable(table, 0, 2, 'Walks a tree.')
+		expect(rebuilt.rows[0]?.[2]).toEqual([{ element: 'text', value: 'Walks a tree.' }])
+		expect(rebuilt.rows[0]?.[0]).toBe(table.rows[0]?.[0])
+		expect(rebuilt.header).toBe(table.header)
+		expect(table.rows[0]?.[2]).toEqual([{ element: 'text', value: 'Walks.' }])
+	})
+
+	it('builds a tagged fence and an untagged one', () => {
+		expect(buildFence({ name: 'walk', code: 'walk()', language: 'ts' })).toEqual({
+			element: 'codeBlock',
+			code: 'walk()',
+			lang: 'ts',
+		})
+		expect(buildFence({ name: 'walk', code: 'walk()' })).toEqual({
+			element: 'codeBlock',
+			code: 'walk()',
+		})
+	})
+})
+
+describe('renderSurface', () => {
+	const symbols: readonly SurfaceSymbol[] = [
+		{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' },
+		{ name: 'Widget', keyword: 'class', summary: 'Represents one `Widget` in a plan.' },
+		{ name: 'DEFAULT', keyword: 'const' },
+	]
+
+	it('round-trips every symbol back through extractSurface', () => {
+		const rendered = renderSurface(symbols)
+		expect(extractSurface(createMarkdown(`## Surface\n\n${rendered}`).document)).toEqual(symbols)
+	})
+
+	it('renders the header the reader locates its columns by', () => {
+		expect(renderSurface([{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' }])).toBe(
+			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |',
+		)
+	})
+
+	it('re-renders its own output byte for byte', () => {
+		const rendered = renderSurface(symbols)
+		expect(renderMarkdown(createMarkdown(rendered).document)).toBe(rendered)
+	})
+
+	// The render pads every cell to one space while the committed guide is column-aligned, so
+	// the reader must be blind to the padding — which is why the equality gate compares parsed
+	// entries and never bytes.
+	it('reads the padded render and the column-aligned table to the same symbols', () => {
+		const aligned = extractSurface(createMarkdown(GUIDE).document)
+		const rendered = renderSurface(aligned)
+		expect(rendered).toContain('| `Artifact` | type |')
+		expect(GUIDE).toContain('| `Artifact`         | type |')
+		expect(extractSurface(createMarkdown(`## Surface\n\n${rendered}`).document)).toEqual(aligned)
+	})
+
+	it('renders no row for an empty symbol list', () => {
+		expect(extractSurface(createMarkdown(`## Surface\n\n${renderSurface([])}`).document)).toEqual(
+			[],
+		)
+	})
+})
+
+describe('renderMethods', () => {
+	const group: MethodGroup = {
+		interface: 'WidgetInterface',
+		methods: [{ name: 'walk', summary: 'Walks the tree.' }, { name: 'reset' }],
+	}
+
+	it('round-trips the group back through extractMethods', () => {
+		const rendered = renderMethods(group)
+		expect(extractMethods(createMarkdown(`## Methods\n\n${rendered}`).document)).toEqual([group])
+	})
+
+	it('renders the interface as the H4 code span the reader keys on', () => {
+		expect(
+			renderMethods({
+				interface: 'WidgetInterface',
+				methods: [{ name: 'walk', summary: 'Walks.' }],
+			}),
+		).toBe('#### `WidgetInterface`\n\n| Name | Summary |\n| --- | --- |\n| `walk` | Walks. |')
+	})
+
+	it('re-renders its own output byte for byte', () => {
+		const rendered = renderMethods(group)
+		expect(renderMarkdown(createMarkdown(rendered).document)).toBe(rendered)
+	})
+})
+
+describe('renderExample', () => {
+	it('round-trips a titled block back through extractFences', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'Walk a tree',
+			code: 'walk()\nwalk()',
+			language: 'ts',
+		}
+		expect(extractFences(createMarkdown(renderExample(example)).document)).toEqual([
+			{ language: 'ts', code: example.code, title: example.title },
+		])
+	})
+
+	it('renders no heading for an untitled block', () => {
+		const example: SourceExample = { name: 'walk', code: 'walk()', language: 'ts' }
+		expect(renderExample(example)).toBe('```ts\nwalk()\n```')
+		expect(extractFences(createMarkdown(renderExample(example)).document)).toEqual([
+			{ language: 'ts', code: 'walk()' },
+		])
+	})
+
+	it('keeps a title carrying backticks as the text the tag carried', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'Construct a `Guide`',
+			code: 'walk()',
+			language: 'ts',
+		}
+		const [fence] = extractFences(createMarkdown(renderExample(example)).document)
+		expect(fence?.title).toBe('Construct a `Guide`')
+	})
+
+	it('widens the fence past a fenced body the code carries', () => {
+		const example: SourceExample = { name: 'walk', code: '```\ninner\n```', language: 'md' }
+		expect(extractFences(createMarkdown(renderExample(example)).document)).toEqual([
+			{ language: 'md', code: '```\ninner\n```' },
+		])
+	})
+})
+
+describe('replaceCell', () => {
+	it('replaces one Surface cell and keeps every byte outside the table', () => {
+		const markdown = createMarkdown(GUIDE)
+		const [table] = markdown.filter(isTableNode)
+		const span = table === undefined ? undefined : markdown.span(table)
+		expect(span).toBeDefined()
+
+		const result = replaceCell(GUIDE, 'type Artifact', 'Names one file in a plan.')
+		expect(result).toBeDefined()
+		expect(result?.slice(0, span?.start)).toBe(GUIDE.slice(0, span?.start))
+		expect(result?.slice((result?.length ?? 0) - (GUIDE.length - (span?.end ?? 0)))).toBe(
+			GUIDE.slice(span?.end),
+		)
+	})
+
+	it('changes the one row it names and no other row', () => {
+		const result = replaceCell(GUIDE, 'type Artifact', 'Names one file in a plan.') ?? ''
+		const before = extractSurface(createMarkdown(GUIDE).document)
+		const after = extractSurface(createMarkdown(result).document)
+		expect(after[0]).toEqual({
+			name: 'Artifact',
+			keyword: 'type',
+			summary: 'Names one file in a plan.',
+		})
+		expect(after.slice(1)).toEqual(before.slice(1))
+	})
+
+	it('replaces one Methods cell by its Owner.member key', () => {
+		const result = replaceCell(GUIDE, 'CompilerInterface.audit', 'Audits a target.') ?? ''
+		expect(extractMethods(createMarkdown(result).document)).toEqual([
+			{
+				interface: 'CompilerInterface',
+				methods: [
+					{
+						name: 'compile',
+						summary: 'Compile a blueprint into a plan through the draft, gate, and pin stages.',
+					},
+					{ name: 'audit', summary: 'Audits a target.' },
+					{
+						name: 'destroy',
+						summary: 'Tear the compiler down. Every later call throws, and teardown is idempotent.',
+					},
+				],
+			},
+		])
+		expect(result).toContain('| `Artifact`         | type |')
+	})
+
+	it('returns the guide byte for byte when the row already carries the summary', () => {
+		expect(replaceCell(GUIDE, 'type CatalogEntry', 'One package row of the fleet catalog.')).toBe(
+			GUIDE,
+		)
+	})
+
+	// The identity reads both sides through the compared form, so a caller handing over text
+	// the form still moves writes once and stops. Comparing the argument raw against a
+	// normalized cell would rewrite the row on every run, and no case passing compared-form
+	// text can see that.
+	it('is a fixed point on the second run for a summary the compared form moves', () => {
+		for (const summary of [
+			'One  package  row  of  the fleet catalog,  in order.',
+			'One package row of the {@link Fleet} catalog, in order.',
+			'One package row of the ` | ` fleet catalog, in order.',
+		]) {
+			const first = replaceCell(GUIDE, 'type CatalogEntry', summary)
+			expect(first).toBeDefined()
+			expect(first).not.toBe(GUIDE)
+			expect(replaceCell(first ?? '', 'type CatalogEntry', summary)).toBe(first)
+		}
+	})
+
+	it('returns undefined for a key no row carries', () => {
+		expect(replaceCell(GUIDE, 'type Phantom', 'Absent.')).toBeUndefined()
+		expect(replaceCell(GUIDE, 'CompilerInterface.phantom', 'Absent.')).toBeUndefined()
+		expect(replaceCell(GUIDE, 'class Artifact', 'Absent.')).toBeUndefined()
+	})
+
+	it('returns undefined for a table carrying no Summary column', () => {
+		expect(extractSurface(createMarkdown(UNCOMPARED).document)[0]?.summary).toBeUndefined()
+		expect(replaceCell(UNCOMPARED, 'type Artifact', 'Absent.')).toBeUndefined()
+		expect(replaceCell(UNCOMPARED, 'CompilerInterface.audit', 'Absent.')).toBeUndefined()
+	})
+
+	// The control, drawn from outside the membership rule "a row of a Surface or Methods
+	// table": a class documented by a backticked H3 entity heading enters `guide.surface()`
+	// through a heading rather than a row, so it keys a symbol no cell answers for.
+	it('returns undefined for a symbol the guide documents outside a table', () => {
+		const heading = GUIDE.replace(
+			'## Methods',
+			'### `Compiler`\n\nThe implementing class.\n\n## Methods',
+		)
+		expect(extractSurface(createMarkdown(heading).document)).toContainEqual({
+			name: 'Compiler',
+			keyword: 'class',
+		})
+		expect(replaceCell(heading, 'class Compiler', 'Absent.')).toBeUndefined()
+	})
+})
+
+describe('replaceFence', () => {
+	const FENCED = [
+		'# Guide',
+		'',
+		'### Walk a tree',
+		'',
+		'```ts',
+		'old()',
+		'```',
+		'',
+		'Prose between the fences.',
+		'',
+		'```ts',
+		'later()',
+		'```',
+		'',
+	].join('\n')
+
+	it('replaces the fence of that title and keeps every byte outside it', () => {
+		const result = replaceFence(FENCED, 'Walk a tree', {
+			name: 'walk',
+			title: 'Walk a tree',
+			code: 'walk()',
+			language: 'ts',
+		})
+		expect(result).toBe(FENCED.replace('old()', 'walk()'))
+	})
+
+	it('leaves a later fence of the same title outside the pairing', () => {
+		const repeated = FENCED.replace('Prose between the fences.', '### Walk a tree')
+		const result =
+			replaceFence(repeated, 'Walk a tree', {
+				name: 'walk',
+				title: 'Walk a tree',
+				code: 'walk()',
+				language: 'ts',
+			}) ?? ''
+		expect(result).toContain('walk()')
+		expect(result).toContain('later()')
+	})
+
+	it('replaces the fence language with the body', () => {
+		const result =
+			replaceFence(FENCED, 'Walk a tree', {
+				name: 'walk',
+				title: 'Walk a tree',
+				code: 'walk()',
+				language: 'js',
+			}) ?? ''
+		expect(extractFences(createMarkdown(result).document)[0]).toEqual({
+			language: 'js',
+			code: 'walk()',
+			title: 'Walk a tree',
+		})
+	})
+
+	it('returns the guide byte for byte when the fence already carries that body', () => {
+		expect(
+			replaceFence(FENCED, 'Walk a tree', {
+				name: 'walk',
+				title: 'Walk a tree',
+				code: 'old()',
+				language: 'ts',
+			}),
+		).toBe(FENCED)
+	})
+
+	// The control, drawn from outside the membership rule "a fence carrying that title":
+	// a fence no heading precedes carries none, so no title reaches it.
+	it('returns undefined for a title no fence carries and for a fence with no title', () => {
+		expect(
+			replaceFence(FENCED, 'Absent', { name: 'walk', code: 'walk()', language: 'ts' }),
+		).toBeUndefined()
+		const untitled = '```ts\nold()\n```\n'
+		expect(extractFences(createMarkdown(untitled).document)[0]?.title).toBeUndefined()
+		expect(
+			replaceFence(untitled, 'Walk a tree', { name: 'walk', code: 'walk()', language: 'ts' }),
+		).toBeUndefined()
+	})
+})
+
+describe('replaceSummary', () => {
+	const TAGGED = [
+		'\t/**',
+		'\t * Walks the tree.',
+		'\t *',
+		'\t * @remarks',
+		'\t * The walk is depth-first.',
+		'\t *',
+		'\t * @param tree - The tree to walk',
+		'\t * @returns Nothing',
+		'\t *',
+		'\t * @example First',
+		'\t * ```ts',
+		'\t * walk(tree)',
+		'\t * ```',
+		'\t *',
+		'\t * @example Second',
+		'\t * ```ts',
+		'\t * walk(other)',
+		'\t * ```',
+		'\t */',
+	].join('\n')
+
+	it('replaces the description and leaves every tag line, the separator, and the markers', () => {
+		const result = replaceSummary(TAGGED, 'Walks a tree depth-first, yielding every node it meets.')
+		expect(result?.split('\n').slice(0, 4)).toEqual([
+			'\t/**',
+			'\t * Walks a tree depth-first, yielding every node it meets.',
+			'\t *',
+			'\t * @remarks',
+		])
+		expect(result?.split('\n').slice(3)).toEqual(TAGGED.split('\n').slice(3))
+	})
+
+	it('reads the new description back through the reader that compares it', () => {
+		const summary = 'Walks a tree depth-first, yielding every node it meets.'
+		expect(extractSummary(replaceSummary(TAGGED, summary) ?? '')).toBe(summary)
+	})
+
+	it('wraps a long description inside the default budget', () => {
+		const summary = Array.from({ length: 40 }, (_unused, index) => `word${index}`).join(' ')
+		const result = replaceSummary(TAGGED, summary) ?? ''
+		const wrapped = result.split('\n').filter((line) => line.startsWith('\t * word'))
+		expect(wrapped.length).toBeGreaterThan(1)
+		expect(Math.max(...result.split('\n').map((line) => line.length))).toBeLessThanOrEqual(
+			WRAP_WIDTH,
+		)
+		expect(extractSummary(result)).toBe(summary)
+	})
+
+	it('wraps at the width its caller names instead of the default', () => {
+		const summary = Array.from({ length: 40 }, (_unused, index) => `word${index}`).join(' ')
+		const narrow = replaceSummary(TAGGED, summary, 40) ?? ''
+		const wide = replaceSummary(TAGGED, summary) ?? ''
+		expect(Math.max(...narrow.split('\n').map((line) => line.length))).toBeLessThanOrEqual(40)
+		expect(narrow.split('\n').length).toBeGreaterThan(wide.split('\n').length)
+		expect(extractSummary(narrow)).toBe(summary)
+	})
+
+	// The width is a character budget, and a token it cannot hold stands on its own line and
+	// passes it — `wrapText`'s documented exception, reaching the caller here.
+	it('lets a token longer than the budget pass it on its own line', () => {
+		const token = 'a'.repeat(WRAP_WIDTH)
+		const result = replaceSummary('/** Short. */', `Holds ${token}.`) ?? ''
+		expect(result.split('\n')).toContain(` * ${token}.`)
+		expect(Math.max(...result.split('\n').map((line) => line.length))).toBeGreaterThan(WRAP_WIDTH)
+	})
+
+	it('returns every described doc block this package ships byte for byte when the summary is its own', () => {
+		const described = CORPUS.filter((comment) => extractSummary(comment).length > 0)
+		expect(described.length).toBeGreaterThanOrEqual(DESCRIBED_FLOOR)
+		const moved = described.filter(
+			(comment) => replaceSummary(comment, extractSummary(comment)) !== comment,
+		)
+		expect(moved).toEqual([])
+	})
+
+	// The instrument must be able to fail: the same corpus with a summary that is not the
+	// block's own must move every block that carries a description.
+	it('moves every doc block carrying a description when the summary is not its own', () => {
+		const described = CORPUS.filter((comment) => extractSummary(comment).length > 0)
+		expect(described.length).toBeGreaterThanOrEqual(DESCRIBED_FLOOR)
+		const kept = described.filter(
+			(comment) => replaceSummary(comment, 'A different summary.') === comment,
+		)
+		expect(kept).toEqual([])
+	})
+
+	it('keeps a one-line block on one line while the summary still fits', () => {
+		expect(replaceSummary('\t/** Holds the identifier. */', 'Holds the name.')).toBe(
+			'\t/** Holds the name. */',
+		)
+		expect(replaceSummary('/** Walks. */', 'Walks a tree.')).toBe('/** Walks a tree. */')
+	})
+
+	it('expands a one-line block whose new summary passes the width', () => {
+		const summary = Array.from({ length: 20 }, (_unused, index) => `word${index}`).join(' ')
+		const result = replaceSummary('/** Short. */', summary) ?? ''
+		expect(result.split('\n')[0]).toBe('/**')
+		expect(extractSummary(result)).toBe(summary)
+	})
+
+	it('writes the description into a block that carries only tags', () => {
+		const tagsOnly = ['/**', ' * @returns Nothing', ' */'].join('\n')
+		expect(replaceSummary(tagsOnly, 'Walks the tree.')).toBe(
+			['/**', ' * Walks the tree.', ' *', ' * @returns Nothing', ' */'].join('\n'),
+		)
+	})
+
+	it('returns a block carrying no tag byte for byte when the summary is its own', () => {
+		const tagless = ['/**', ' * Walks the tree.', ' */'].join('\n')
+		expect(replaceSummary(tagless, 'Walks the tree.')).toBe(tagless)
+		expect(replaceSummary(tagless, 'Walks a tree.')).toBe(
+			['/**', ' * Walks a tree.', ' */'].join('\n'),
+		)
+	})
+
+	// A summary carrying no word names no paragraph to write, so the block keeps the
+	// documentation it has. Deleting the description on an absent value is the erasure this
+	// refusal exists to stop, and a block carrying no tag is where it did the most damage.
+	it('returns undefined for a summary carrying no word and deletes no description', () => {
+		const tagless = ['/**', ' * Walks the tree.', ' */'].join('\n')
+		expect(replaceSummary(TAGGED, '')).toBeUndefined()
+		expect(replaceSummary(TAGGED, '   \n  ')).toBeUndefined()
+		expect(replaceSummary(tagless, '')).toBeUndefined()
+	})
+
+	// The control, drawn from outside the membership rule "a genuine JSDoc span": a
+	// single-star block comment is not one, and reshaping it into one would be a silent edit.
+	it('returns undefined for a single-star block comment and for a line comment', () => {
+		expect(replaceSummary('/* Walks the tree. */', 'Walks a tree.')).toBeUndefined()
+		expect(replaceSummary('// Walks the tree.', 'Walks a tree.')).toBeUndefined()
+	})
+})
+
+describe('replaceExample', () => {
+	const TAGGED = [
+		'\t/**',
+		'\t * Walks the tree.',
+		'\t *',
+		'\t * @param tree - The tree to walk',
+		'\t *',
+		'\t * @example First',
+		'\t * ```ts',
+		'\t * walk(tree)',
+		'\t * ```',
+		'\t *',
+		'\t * @example Second',
+		'\t * ```ts',
+		'\t * walk(other)',
+		'\t * ```',
+		'\t */',
+	].join('\n')
+
+	it('replaces the body of the tag carrying that title and leaves the other tag alone', () => {
+		const result = replaceExample(TAGGED, {
+			name: 'walk',
+			title: 'First',
+			code: 'walk(root)\nwalk(leaf)',
+			language: 'js',
+		})
+		expect(result).toBe(
+			[
+				'\t/**',
+				'\t * Walks the tree.',
+				'\t *',
+				'\t * @param tree - The tree to walk',
+				'\t *',
+				'\t * @example First',
+				'\t * ```js',
+				'\t * walk(root)',
+				'\t * walk(leaf)',
+				'\t * ```',
+				'\t *',
+				'\t * @example Second',
+				'\t * ```ts',
+				'\t * walk(other)',
+				'\t * ```',
+				'\t */',
+			].join('\n'),
+		)
+	})
+
+	it('reads the new body back through the reader that compares it', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'Second',
+			code: 'walk(root)',
+			language: 'ts',
+		}
+		const result = replaceExample(TAGGED, example)
+		expect(collectExamples(normalizeComment(result ?? ''), 'walk')).toContainEqual(example)
+	})
+
+	it('returns the block byte for byte when the tag already carries that body', () => {
+		expect(
+			replaceExample(TAGGED, {
+				name: 'walk',
+				title: 'First',
+				code: 'walk(tree)',
+				language: 'ts',
+			}),
+		).toBe(TAGGED)
+	})
+
+	it('returns undefined for a title no tag carries and for an untitled request', () => {
+		expect(
+			replaceExample(TAGGED, { name: 'walk', title: 'Third', code: 'walk()', language: 'ts' }),
+		).toBeUndefined()
+		expect(replaceExample(TAGGED, { name: 'walk', code: 'walk()', language: 'ts' })).toBeUndefined()
+		expect(TAGGED).toContain('@example First')
+		expect(TAGGED).toContain('@example Second')
+	})
+
+	// The emitted fence is three backticks, and `collectExamples` reads a body to the first
+	// such run. Writing a body that carries one would truncate it and turn the `@returns` line
+	// after it into the body's end, so the replacement refuses instead of writing a block the
+	// reader cannot read back.
+	it('returns undefined for code the emitted fence cannot enclose', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'First',
+			code: '```md\ninner\n```',
+			language: 'md',
+		}
+		expect(replaceExample(TAGGED, example)).toBeUndefined()
+		expect(replaceExample(TAGGED, { ...example, code: '~~~md\ninner\n~~~' })).toBeDefined()
+	})
+
+	it('replaces the untitled tag of a block whose tag carries no title', () => {
+		const untitled = ['/**', ' * @example', ' * ```ts', ' * old()', ' * ```', ' */'].join('\n')
+		expect(replaceExample(untitled, { name: 'walk', code: 'walk()', language: 'ts' })).toBe(
+			['/**', ' * @example', ' * ```ts', ' * walk()', ' * ```', ' */'].join('\n'),
+		)
+	})
+
+	it('keeps a tag-shaped line inside the current body out of the tag search', () => {
+		const masked = [
+			'/**',
+			' * @example First',
+			' * ```ts',
+			' * // @param is example code, not a tag',
+			' * old()',
+			' * ```',
+			' *',
+			' * @returns Nothing',
+			' */',
+		].join('\n')
+		expect(
+			replaceExample(masked, { name: 'walk', title: 'First', code: 'walk()', language: 'ts' }),
+		).toBe(
+			[
+				'/**',
+				' * @example First',
+				' * ```ts',
+				' * walk()',
+				' * ```',
+				' *',
+				' * @returns Nothing',
+				' */',
+			].join('\n'),
+		)
+	})
+
+	// The controls, drawn from outside the membership rule "a genuine JSDoc span carrying an
+	// `@example` tag of that title": a block with no such tag, and a single-star comment.
+	it('returns undefined for a block with no @example tag and for a single-star block comment', () => {
+		const none = ['/**', ' * Walks the tree.', ' *', ' * @returns Nothing', ' */'].join('\n')
+		expect(replaceExample(none, { name: 'walk', title: 'First', code: 'walk()' })).toBeUndefined()
+		expect(
+			replaceExample('/* @example First */', { name: 'walk', title: 'First', code: 'walk()' }),
+		).toBeUndefined()
+	})
+})
+
+// A one-tab callable inside a declaration that owns no members: the head keyword decides, so the
+// owner the interface opened is closed by the `const` head and the member under it keys nothing.
+const UNOWNED = [
+	'export interface Widget {',
+	'\twalk(): void',
+	'}',
+	'export const table = {',
+	'\tghost(): void {},',
+	'}',
+	'',
+].join('\n')
+
+describe('extractBodyLines', () => {
+	it('opens the projection with the owner head it supplies', () => {
+		const projected = extractBodyLines(['\twalk(): void'])
+		expect(projected.map((line) => line.code)).toEqual([
+			'export interface Owner {',
+			'\twalk(): void',
+		])
+	})
+
+	it('gives a body member the owner key the supplied head names', () => {
+		const keys = collectKeys(extractBodyLines(['\twalk(): void', '\trender(): string']))
+		expect(Array.from(keys.values())).toEqual(['interface Owner', 'Owner.walk', 'Owner.render'])
+	})
+
+	// The one boundary the supplied head carries: a column-zero `}` closes it, the same rule
+	// `collectKeys` runs over a whole file. `extractDeclaration` ends a body at the first one, so a
+	// body it returns never reaches this.
+	it('leaves a member past a column-zero brace unkeyed, because that brace closes the head', () => {
+		const keys = collectKeys(extractBodyLines(['\twalk(): void', '}', '\tghost(): void']))
+		expect(Array.from(keys.values())).toEqual(['interface Owner', 'Owner.walk'])
+		expect(extractMemberMethods(['\twalk(): void', '}', '\tghost(): void'])).toEqual([
+			{ name: 'walk' },
+		])
+		expect(
+			extractExampleMethods([
+				'\t/** @example */',
+				'\twalk(): void',
+				'}',
+				'\t/** @example */',
+				'\tghost(): void',
+			]).map((example) => example.name),
+		).toEqual(['walk'])
+	})
+})
+
+describe('collectKeys', () => {
+	// Every head of an overload set keys, because the map addresses physical records rather than
+	// names; deduping by (keyword, name) is `extractExports`'s own step over these values.
+	it('keys every column-zero export head by its symbol key, one entry per record', () => {
+		expect(Array.from(collectKeys(extractSourceLines(OVERLOADS)).values())).toEqual([
+			'function read',
+			'function read',
+			'function read',
+		])
+	})
+
+	it('keys a declaration a blank line separates from its block, which the block reader misses', () => {
+		expect(Array.from(collectKeys(extractSourceLines(SEPARATED)).values())).toEqual([
+			'function walk',
+		])
+	})
+
+	it('keys no head written inside a template literal', () => {
+		expect(Array.from(collectKeys(extractSourceLines(TEMPLATE)).values())).toEqual(['const sample'])
+	})
+
+	it('keys nothing in a re-export-only barrel, which declares no head', () => {
+		expect(Array.from(collectKeys(extractSourceLines(BARREL)).values())).toEqual([])
+	})
+
+	it('keys a one-tab callable member by Owner.member and closes the owner at its brace', () => {
+		expect(Array.from(collectKeys(extractSourceLines(MEMBERS)).values())).toEqual([
+			'interface WidgetInterface',
+			'WidgetInterface.walk',
+			'WidgetInterface.render',
+			'function read',
+		])
+	})
+
+	it('keys a class and its member the way its own documented example states', () => {
+		const keys = collectKeys(extractSourceLines('export class Widget {\n\twalk(): void\n}'))
+		expect(Array.from(keys.values())).toEqual(['class Widget', 'Widget.walk'])
+	})
+
+	it('closes an owner at a head carrying any other keyword', () => {
+		expect(Array.from(collectKeys(extractSourceLines(UNOWNED)).values())).toEqual([
+			'interface Widget',
+			'Widget.walk',
+			'const table',
+		])
+	})
+
+	it('strips a generator marker before keying, as the symbol key spells it', () => {
+		const source = 'export async function* walk() {}\nexport class Widget {}\n'
+		expect(Array.from(collectKeys(extractSourceLines(source)).values())).toEqual([
+			'function walk',
+			'class Widget',
+		])
+	})
+
+	// The projection each reader splits back out of the key it reads. A test named for the split
+	// rather than for one reader, because the same key serves all of them.
+	it('carries the keyword and the member name each reader splits back out of it', () => {
+		expect(extractExports(MEMBERS)).toEqual([
+			{ name: 'WidgetInterface', keyword: 'interface', summary: 'Represents a widget.' },
+			{ name: 'read', keyword: 'function', summary: 'Reads a widget.' },
+		])
+		expect(
+			extractMemberMethods(extractDeclaration(MEMBERS, 'interface', 'WidgetInterface')?.body ?? []),
+		).toEqual([
+			{ name: 'render', summary: 'Renders the widget.' },
+			{ name: 'walk', summary: 'Walks the tree.' },
+		])
+	})
+})
+
+describe('locateComment', () => {
+	it('reports the region of the block its declaration key names', () => {
+		const text = ['/**', ' * Walks. ', ' */', 'export function walk(): void {}', ''].join('\n')
+		const span = locateComment(text, 'function walk')
+		expect(span).toBeDefined()
+		expect(text.slice(span?.start, span?.end)).toBe(['/**', ' * Walks. ', ' */'].join('\n'))
+	})
+
+	it('reports the region its own documented example states', () => {
+		const text = '/** Walks. */\nexport function walk(): void {}\n'
+		expect(locateComment(text, 'function walk')).toEqual({ start: 0, end: 13 })
+	})
+
+	it('reaches the first head of an overload set', () => {
+		const span = locateComment(OVERLOADS, 'function read')
+		expect(OVERLOADS.slice(span?.start, span?.end)).toBe(
+			['/**', ' * Reads one value.', ' */'].join('\n'),
+		)
+	})
+
+	it('reports a member region with its indentation, keyed by Owner.member', () => {
+		const walk = locateComment(MEMBERS, 'WidgetInterface.walk')
+		const render = locateComment(MEMBERS, 'WidgetInterface.render')
+		expect(MEMBERS.slice(walk?.start, walk?.end)).toBe(
+			['\t/**', '\t * Walks the tree.', '\t */'].join('\n'),
+		)
+		expect(MEMBERS.slice(render?.start, render?.end)).toBe(
+			['\t/**', '\t * Renders the widget.', '\t */'].join('\n'),
+		)
+	})
+
+	it('closes an owner at its column-zero brace, so a later declaration keys no member', () => {
+		expect(locateComment(MEMBERS, 'interface WidgetInterface')).toBeDefined()
+		expect(locateComment(MEMBERS, 'function read')).toBeDefined()
+		expect(locateComment(MEMBERS, 'WidgetInterface.read')).toBeUndefined()
+	})
+
+	// The misses this locator inherits from the reader that attaches blocks, each already
+	// recorded as that reader's own boundary. A block a blank line separates from its
+	// declaration attaches to the blank line; a block written inside a template literal is no
+	// genuine span; a re-export row declares nothing to key.
+	it('misses the shapes the attaching reader misses, and no others here', () => {
+		expect(locateComment(SEPARATED, 'function walk')).toBeUndefined()
+		expect(locateComment(TEMPLATE, 'function ghost')).toBeUndefined()
+		expect(locateComment(BARREL, 'const types')).toBeUndefined()
+		expect(TEMPLATE.slice(0, 3)).toBe('/**')
+		const outer = locateComment(TEMPLATE, 'const sample')
+		expect(TEMPLATE.slice(outer?.start, outer?.end)).toBe(
+			['/**', ' * Holds a sample module.', ' */'].join('\n'),
+		)
+	})
+
+	it('returns undefined for a key nothing in the file carries', () => {
+		expect(locateComment(OVERLOADS, 'function phantom')).toBeUndefined()
+		expect(locateComment(OVERLOADS, 'const read')).toBeUndefined()
+		expect(locateComment(OVERLOADS, 'Phantom.read')).toBeUndefined()
+	})
+
+	it('reports offsets a CRLF file carries', () => {
+		const text = ['/**', ' * Walks.', ' */', 'export function walk(): void {}', ''].join('\r\n')
+		const span = locateComment(text, 'function walk')
+		expect(text.slice(span?.start, span?.end)).toBe(['/**', ' * Walks.', ' */'].join('\r\n'))
+	})
+
+	it('locates the last block of a contiguous run, which is the one the reader attaches', () => {
+		const text = [
+			'/**',
+			' * First.',
+			' */',
+			'/**',
+			' * Second.',
+			' */',
+			'export function walk(): void {}',
+			'',
+		].join('\n')
+		const span = locateComment(text, 'function walk')
+		expect(text.slice(span?.start, span?.end)).toBe(['/**', ' * Second.', ' */'].join('\n'))
+	})
+
+	// The end-to-end the seed runs: locate the block, rewrite it, splice it back, and read the
+	// new description through `collectSummaries` over `extractSourceLines` — the reader the
+	// parity gate compares on, rather than a projection re-derived in this file.
+	it('carries a rewrite back into the file, read by the reader the gate compares on', () => {
+		const span = locateComment(MEMBERS, 'WidgetInterface.walk')
+		expect(span).toBeDefined()
+		const block = MEMBERS.slice(span?.start, span?.end)
+		const rewritten = replaceSummary(block, 'Walks a tree depth-first.')
+		expect(rewritten).toBeDefined()
+		const written = spliceSpan(MEMBERS, span ?? { start: 0, end: 0 }, rewritten ?? '')
+
+		expect(Array.from(collectSummaries(extractSourceLines(written)).values())).toContain(
+			'Walks a tree depth-first.',
+		)
+		expect(written.split('\n')).toContain('\t * Walks a tree depth-first.')
+		expect(written.slice(0, span?.start)).toBe(MEMBERS.slice(0, span?.start))
+		expect(written.slice((written.length ?? 0) - (MEMBERS.length - (span?.end ?? 0)))).toBe(
+			MEMBERS.slice(span?.end),
+		)
+	})
+
+	// Over this package's own source: every export the reader gives a summary must have a
+	// locatable block, and the block's own description must be that summary. A locator that
+	// found the wrong block, or the block of the declaration before it, reddens here.
+	it('locates the block behind every summary this package ships', () => {
+		const missed = Object.entries(SOURCE).flatMap(([key, text]) =>
+			extractExports(text)
+				.filter((symbol) => symbol.summary !== undefined)
+				.filter((symbol) => {
+					const span = locateComment(text, computeSymbolKey(symbol))
+					if (span === undefined) return true
+					return extractSummary(text.slice(span.start, span.end)) !== symbol.summary
+				})
+				.map((symbol) => `${key}: ${computeSymbolKey(symbol)}`),
+		)
+		expect(missed).toEqual([])
+		expect(
+			Object.values(SOURCE).flatMap((text) =>
+				extractExports(text).filter((symbol) => symbol.summary !== undefined),
+			).length,
+		).toBeGreaterThan(0)
+	})
+
+	// The member half of the same control, at the same scale. This control proves the located
+	// region for a real member: a locator that returns the wrong region reddens it. A drift in the
+	// member grammar or the owner-close rule moves both sides of this control together, because
+	// both read `collectKeys`; that drift is caught by `Guide`'s bijection matrix and by the
+	// `extractBodyLines` case that closes an owner at its brace. Every documented member the
+	// declaration readers report must have a locatable block whose own description is that
+	// member's summary.
+	it('locates the block behind every documented member this package ships', () => {
+		const members = Object.entries(SOURCE).flatMap(([file, text]) =>
+			(['class', 'interface'] as const).flatMap((keyword) =>
+				extractExports(text)
+					.filter((symbol) => symbol.keyword === keyword)
+					.flatMap((symbol) =>
+						extractMemberMethods(extractDeclaration(text, keyword, symbol.name)?.body ?? [])
+							.filter((entry) => entry.summary !== undefined)
+							.map((entry) => ({ file, text, key: `${symbol.name}.${entry.name}`, entry })),
+					),
+			),
+		)
+		const missed = members.filter((member) => {
+			const span = locateComment(member.text, member.key)
+			if (span === undefined) return true
+			return extractSummary(member.text.slice(span.start, span.end)) !== member.entry.summary
+		})
+
+		expect(missed.map((member) => `${member.file}: ${member.key}`)).toEqual([])
+		expect(members.length).toBeGreaterThan(MEMBER_FLOOR)
 	})
 })

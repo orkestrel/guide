@@ -1,4 +1,11 @@
-import type { BlockNode, InlineNode, MarkdownDocument, TableNode } from '@orkestrel/markdown'
+import type {
+	BlockNode,
+	CodeBlockNode,
+	InlineNode,
+	MarkdownDocument,
+	MarkdownSpan,
+	TableNode,
+} from '@orkestrel/markdown'
 import type {
 	Declaration,
 	DeclarationHead,
@@ -17,6 +24,8 @@ import type {
 	SurfaceSymbol,
 } from './types.js'
 import {
+	coalesceText,
+	createMarkdown,
 	flattenText,
 	isBlockquoteNode,
 	isCodeBlockNode,
@@ -27,10 +36,19 @@ import {
 	isLinkNode,
 	isParagraphNode,
 	isTableNode,
+	renderMarkdown,
 	walkNodes,
 } from '@orkestrel/markdown'
 import { isNonEmptyString } from '@orkestrel/contract'
-import { EXTERNAL_SCHEMES, KIND, METHODS, SUMMARY, SURFACE, TESTS } from './constants.js'
+import {
+	EXTERNAL_SCHEMES,
+	KIND,
+	METHODS,
+	SUMMARY,
+	SURFACE,
+	TESTS,
+	WRAP_WIDTH,
+} from './constants.js'
 import { isExportKeyword } from './validators.js'
 
 /**
@@ -971,6 +989,50 @@ export function extractCellText(cell: readonly InlineNode[]): string {
 }
 
 /**
+ * Builds one table cell's inline content from its compared text — the inverse of
+ * {@link extractCellText}. A single-backtick run whose text carries no inner backtick and
+ * neither a leading nor a trailing space becomes a code span; every other character, a backtick
+ * included, becomes literal text, which `renderMarkdown` escapes so the rendered cell parses back
+ * to the text this function was given.
+ *
+ * @remarks
+ * The compared form spells every code span with one backtick per side, because
+ * {@link extractCellText} emits `` `${value}` `` whatever delimiter the source used. A run this
+ * function refuses is therefore a run no parsed cell produced, and emitting it as text is what
+ * keeps the projection total: reading the rendered cell back through {@link extractCellText}
+ * returns the text, so a rendered row and a hand-written row compare the same. A code span whose
+ * own text carries a backtick or a boundary space is outside the compared form's fidelity in
+ * either direction, and this function writes it as text rather than guessing a delimiter.
+ *
+ * @param text - The cell's compared text, as {@link extractCellText} returns it
+ * @returns The cell's inline nodes, in text order
+ *
+ * @example
+ * ```ts
+ * buildCell('Holds a `Widget`.')
+ * // [{ element: 'text', value: 'Holds a ' }, { element: 'codeSpan', value: 'Widget' }, { element: 'text', value: '.' }]
+ * ```
+ */
+export function buildCell(text: string): readonly InlineNode[] {
+	const nodes: InlineNode[] = []
+	const spans = /`([^`]+)`/g
+	let cursor = 0
+	let span: RegExpExecArray | null
+
+	while ((span = spans.exec(text)) !== null) {
+		const value = span[1]
+		if (value === undefined) continue
+		if (span.index > cursor) nodes.push({ element: 'text', value: text.slice(cursor, span.index) })
+		if (value.trim() === value) nodes.push({ element: 'codeSpan', value })
+		else nodes.push({ element: 'text', value: span[0] })
+		cursor = span.index + span[0].length
+	}
+	if (cursor < text.length) nodes.push({ element: 'text', value: text.slice(cursor) })
+
+	return coalesceText(nodes)
+}
+
+/**
  * Finds the index of the column whose header text is `header` so a table's columns survive
  * reordering. The match is exact and case-sensitive — a table without that exact header
  * contributes nothing to the projection reading it, so a `## Surface` table with no
@@ -1000,10 +1062,11 @@ export function findColumnIndex(table: TableNode, header: string): number | unde
 }
 
 /**
- * Extracts the module-scope exports declared in one file's source text — matches
- * `export (async)? (function(\*)?|class|const|interface|type) Name`, deduped
- * by (keyword, name). A generator export (`export function* walk`) scans as the
- * `function` keyword — its trailing `*` is stripped before the
+ * Extracts the module-scope exports declared in one file's source text — the declaration keys
+ * {@link collectKeys} reports, each split back into the keyword and name that built it, deduped
+ * by (keyword, name). That one grammar matches
+ * `export (async)? (function(\*)?|class|const|interface|type) Name`; a generator export
+ * (`export function* walk`) keys as the `function` keyword, its trailing `*` stripped before the
  * {@link ExportKeyword} check.
  * Scanning uses {@link extractSourceLines}, so comment and template payload is
  * excluded while its uninterrupted column-zero head remains required; preserved
@@ -1025,19 +1088,21 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 	const seen = new Set<string>()
 	const lines = extractSourceLines(source)
 	const summaries = collectSummaries(lines)
+	const keys = collectKeys(lines)
 
 	for (const line of lines) {
-		const match = line.code.match(
-			/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/,
-		)
-		const rawKeyword = match?.[1]
-		const name = match?.[2]
-		const keyword = rawKeyword === undefined ? undefined : rawKeyword.replace(/\*$/, '')
-		if (!isNonEmptyString(keyword) || !isNonEmptyString(name) || !isExportKeyword(keyword)) continue
+		const key = keys.get(line)
+		if (key === undefined || seen.has(key)) continue
 
-		const key = `${keyword} ${name}`
-		if (seen.has(key)) continue
+		// A declaration key is `${keyword} ${name}`, so its one space splits it back into the pair
+		// that built it. A member key carries no space, so its keyword reads empty and the keyword
+		// guard drops it here — no second head pattern excludes it.
+		const space = key.indexOf(' ')
+		const keyword = key.slice(0, Math.max(space, 0))
+		if (!isExportKeyword(keyword)) continue
+
 		seen.add(key)
+		const name = key.slice(space + 1)
 		const summary = summaries.get(line)
 		symbols.push({ name, keyword, ...(summary === undefined ? {} : { summary }) })
 	}
@@ -1219,10 +1284,11 @@ export function extractDeclaration(
  * Selects the member lines declaring a callable member: plain, `async`, generator
  * (`*`), and optional (`records?(`) methods all count; getters, setters,
  * `static` members, and `#` privates never do (their keyword or `#` breaks
- * the `name(` shape). Matching runs once over projected lines so commented
- * method-like payload never becomes eligible. Each member carries its own doc block's
- * description paragraph, read through {@link collectSummaries}; the first declaration of a
- * name answers for it.
+ * the `name(` shape). The grammar is {@link collectKeys}'s, read once over
+ * {@link extractBodyLines}'s projection of the body, so commented method-like payload never
+ * becomes eligible and each member keys to the owner head that projection supplies. Each member
+ * carries its own doc block's description paragraph, read through {@link collectSummaries}; the
+ * first declaration of a name answers for it.
  *
  * @param lines - A declaration's body lines
  * @returns The declared members, deduplicated by name and sorted by name
@@ -1234,14 +1300,19 @@ export function extractDeclaration(
  */
 export function extractMemberMethods(lines: readonly string[]): readonly MethodEntry[] {
 	const methods = new Map<string, MethodEntry>()
-	const projected = extractSourceLines(lines.join('\n'))
+	const projected = extractBodyLines(lines)
 	const summaries = collectSummaries(projected)
+	const keys = collectKeys(projected)
 
 	for (const line of projected) {
-		const method = line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
-		const name = method?.[1]
-		if (name === undefined || methods.has(name)) continue
+		// A member key is `${owner}.${member}`, so its dot splits the member name back out and a
+		// declaration key, which carries none, drops out here.
+		const key = keys.get(line) ?? ''
+		const dot = key.indexOf('.')
+		if (dot < 0) continue
 
+		const name = key.slice(dot + 1)
+		if (methods.has(name)) continue
 		const summary = summaries.get(line)
 		methods.set(name, { name, ...(summary === undefined ? {} : { summary }) })
 	}
@@ -1288,6 +1359,90 @@ export function selectSectionBlocks(
 }
 
 /**
+ * Extracts one `## Surface` table row's symbol — its column 0 code span as the name, its
+ * {@link KIND} column as the keyword, and its {@link SUMMARY} column as the compared summary
+ * when the table has that column. A row with no code-span name and a row whose `Kind` text is
+ * no {@link ExportKeyword} have no symbol to key, so each returns `undefined`.
+ *
+ * @param table - The table to read
+ * @param row - The index of the row within {@link TableNode.rows}
+ * @returns The row's symbol, or `undefined` when the row keys none
+ *
+ * @example
+ * ```ts
+ * extractRowSymbol(table, 0) // { name: 'walk', keyword: 'function', summary: 'Walks the tree.' }
+ * ```
+ */
+export function extractRowSymbol(table: TableNode, row: number): SurfaceSymbol | undefined {
+	const cells = table.rows[row]
+	if (cells === undefined) return undefined
+
+	const nameCell = cells[0]
+	const rawName = nameCell === undefined ? undefined : findFirstCode(nameCell)
+	const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
+	if (name === undefined) return undefined
+
+	const column = findColumnIndex(table, KIND)
+	const kindCell = column === undefined ? undefined : cells[column]
+	const keyword =
+		kindCell === undefined ? '' : flattenText({ element: 'paragraph', children: kindCell }).trim()
+	if (!isExportKeyword(keyword)) return undefined
+
+	const summary = extractRowSummary(table, row)
+	return { name, keyword, ...(summary === undefined ? {} : { summary }) }
+}
+
+/**
+ * Extracts one `## Methods` table row's entry — its column 0 code span as the name and its
+ * {@link SUMMARY} column as the compared summary when the table has that column. A row with no
+ * code-span name has no member to key, so it returns `undefined`.
+ *
+ * @param table - The table to read
+ * @param row - The index of the row within {@link TableNode.rows}
+ * @returns The row's entry, or `undefined` when the row keys none
+ *
+ * @example
+ * ```ts
+ * extractRowEntry(table, 0) // { name: 'walk', summary: 'Walks the tree.' }
+ * ```
+ */
+export function extractRowEntry(table: TableNode, row: number): MethodEntry | undefined {
+	const cells = table.rows[row]
+	if (cells === undefined) return undefined
+
+	const cell = cells[0]
+	const rawName = cell === undefined ? undefined : findFirstCode(cell)
+	const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
+	if (name === undefined) return undefined
+
+	const summary = extractRowSummary(table, row)
+	return { name, ...(summary === undefined ? {} : { summary }) }
+}
+
+/**
+ * Extracts one row's compared summary — its {@link SUMMARY} column read through
+ * {@link extractCellText} and {@link normalizeSummary}. A table with no such column and a row
+ * whose cell is empty each carry no summary and return `undefined` rather than an empty string,
+ * so {@link findDrift} reports the absence.
+ *
+ * @param table - The table to read
+ * @param row - The index of the row within {@link TableNode.rows}
+ * @returns The row's compared summary, or `undefined` when it carries none
+ *
+ * @example
+ * ```ts
+ * extractRowSummary(table, 0) // 'Walks the tree.'
+ * ```
+ */
+export function extractRowSummary(table: TableNode, row: number): string | undefined {
+	const described = findColumnIndex(table, SUMMARY)
+	const cells = table.rows[row]
+	const cell = described === undefined || cells === undefined ? undefined : cells[described]
+	const summary = cell === undefined ? '' : normalizeSummary(extractCellText(cell))
+	return summary.length === 0 ? undefined : summary
+}
+
+/**
  * Extracts every `## Surface` identifier the guide documents — each table row's column 0
  * code span (the name) paired with its `Kind` column (located by header text)
  * unioned with every backticked H3 entity heading in the section
@@ -1311,29 +1466,9 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 
 	for (const block of selectSectionBlocks(document, SURFACE)) {
 		if (isTableNode(block)) {
-			const column = findColumnIndex(block, KIND)
-			const described = findColumnIndex(block, SUMMARY)
-			for (const row of block.rows) {
-				const nameCell = row[0]
-				const rawName = nameCell === undefined ? undefined : findFirstCode(nameCell)
-				const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
-				if (name === undefined) continue
-
-				const kindCell = column === undefined ? undefined : row[column]
-				const kindText =
-					kindCell === undefined
-						? ''
-						: flattenText({ element: 'paragraph', children: kindCell }).trim()
-				if (!isExportKeyword(kindText)) continue
-
-				const summaryCell = described === undefined ? undefined : row[described]
-				const summary =
-					summaryCell === undefined ? '' : normalizeSummary(extractCellText(summaryCell))
-				const symbol: SurfaceSymbol = {
-					name,
-					keyword: kindText,
-					...(summary.length === 0 ? {} : { summary }),
-				}
+			for (let row = 0; row < block.rows.length; row += 1) {
+				const symbol = extractRowSymbol(block, row)
+				if (symbol === undefined) continue
 				const key = computeSymbolKey(symbol)
 				if (seen.has(key)) continue
 				seen.add(key)
@@ -1374,6 +1509,36 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
  */
 export function extractMethods(document: MarkdownDocument): readonly MethodGroup[] {
 	const groups: MethodGroup[] = []
+
+	for (const [table, name] of collectGroups(document)) {
+		const methods: MethodEntry[] = []
+		for (let row = 0; row < table.rows.length; row += 1) {
+			const entry = extractRowEntry(table, row)
+			if (entry !== undefined) methods.push(entry)
+		}
+		groups.push({ interface: name, methods })
+	}
+
+	return groups
+}
+
+/**
+ * Collects each `## Methods` table keyed to the interface its `####` heading names — an H4
+ * carrying a code span sets the current interface and the table immediately following claims it,
+ * so a heading with no table and a table with no heading before it contribute nothing. The map
+ * iterates in document order and a node keys itself, so a repeated identical table keeps its own
+ * entry.
+ *
+ * @param document - The parsed guide document
+ * @returns One entry per documented `## Methods` table, in document order
+ *
+ * @example
+ * ```ts
+ * collectGroups(document).values().next().value // 'GuideInterface'
+ * ```
+ */
+export function collectGroups(document: MarkdownDocument): ReadonlyMap<TableNode, string> {
+	const groups = new Map<TableNode, string>()
 	let current: string | undefined
 
 	for (const block of selectSectionBlocks(document, METHODS)) {
@@ -1384,20 +1549,7 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 		}
 
 		if (isTableNode(block) && current !== undefined) {
-			const methods: MethodEntry[] = []
-			const described = findColumnIndex(block, SUMMARY)
-			for (const row of block.rows) {
-				const cell = row[0]
-				const rawName = cell === undefined ? undefined : findFirstCode(cell)
-				const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
-				if (name === undefined) continue
-
-				const summaryCell = described === undefined ? undefined : row[described]
-				const summary =
-					summaryCell === undefined ? '' : normalizeSummary(extractCellText(summaryCell))
-				methods.push({ name, ...(summary.length === 0 ? {} : { summary }) })
-			}
-			groups.push({ interface: current, methods })
+			groups.set(block, current)
 			current = undefined
 		}
 	}
@@ -1496,21 +1648,55 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
  * ```
  */
 export function normalizeComment(comment: string): string {
+	return unwrapComment(comment).join('\n').replace(/^\n+/, '').replace(/\n+$/, '')
+}
+
+/**
+ * Unwraps one genuine JSDoc span into one content line per physical line — the `/**` opener,
+ * the closing marker, each line's continuation marker, and per-line trailing whitespace removed,
+ * with a line's own indentation past the marker kept. The result is aligned with
+ * `comment.split('\n')`, so an index found in it addresses the same physical line of the span it
+ * was built from, which is what lets a rewrite keep every line it does not replace.
+ * {@link normalizeComment} is this projection joined and trimmed at its ends.
+ *
+ * @param comment - One complete genuine JSDoc span's raw text
+ * @returns One content line per physical line of the span
+ *
+ * @example
+ * ```ts
+ * unwrapComment('/**' + '\n * Walks.\n *' + '/') // ['', 'Walks.', '']
+ * ```
+ */
+export function unwrapComment(comment: string): readonly string[] {
 	const body = /^[ \t]*\/\*([\s\S]*?)\*\/[ \t]*$/.exec(comment)?.[1] ?? comment
-	return body
-		.split('\n')
-		.map((line) => line.replace(/^[ \t]*\*[ \t]?/, '').replace(/[ \t]+$/, ''))
-		.join('\n')
-		.replace(/^\n+/, '')
-		.replace(/\n+$/, '')
+	return body.split('\n').map((line) => line.replace(/^[ \t]*\*[ \t]?/, '').replace(/[ \t]+$/, ''))
 }
 
 /**
  * Returns the canonical compared form of a description paragraph — `{@link Target}` and
- * `{@link Target | label}` become the code token of the label or the target text, and every
- * run of whitespace, including a collapsed continuation marker and a line break, becomes one
- * space, with the ends trimmed. A code span stays a code span. The guide's side and the
- * source's side read through this one form.
+ * `{@link Target | label}` become the code token of the label or the target text, every run of
+ * whitespace, including a collapsed continuation marker and a line break, becomes one space,
+ * the ends trim, and a code span keeps its delimiters while its own boundary whitespace goes.
+ * The guide's side and the source's side read through this one form.
+ *
+ * @remarks
+ * The clauses land in a fixed order, because each one decides what the next one sees. Every
+ * single-backtick code span — one backtick per side, no inner backtick, no adjacent backtick —
+ * is located first, so a delimiter the `{@link}` expansion inserts afterwards is never mistaken
+ * for an authored one. The expansion then runs outside those spans
+ * only, so a `{@link}` written inside a code span stays literal on both sides. Whitespace
+ * collapses next, which is what makes a span wrapped across two physical lines comparable at
+ * all. The boundary trim runs last, inside each located span: the markdown parser strips one
+ * space from each end of a code span it reads, and this trim is the symmetric rule that meets
+ * it, so `` ` | ` ``, `` ` |` ``, and `` `|` `` all reach `` `|` `` from either side. A span
+ * whose content is all whitespace keeps one space, because a parser strips nothing from that
+ * one.
+ *
+ * A code span delimited by more than one backtick is outside the compared form's representable
+ * set and travels untouched, as does a code span whose own text carries a backtick: the form
+ * spells every span with one backtick per side, so neither can be written back. A summary that
+ * needs one of those constructs takes another shape: name the construct in prose rather than
+ * expecting the comparison to converge it.
  *
  * @param text - A doc block's description paragraph, or a guide cell's flattened text
  * @returns The compared form of that text
@@ -1518,14 +1704,85 @@ export function normalizeComment(comment: string): string {
  * @example
  * ```ts
  * normalizeSummary('Creates a\n{@link Widget}.') // 'Creates a `Widget`.'
+ * normalizeSummary('cells joined by ` | `.') // 'cells joined by `|`.'
  * ```
  */
 export function normalizeSummary(text: string): string {
-	return text
-		.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
-		.replace(/\{@link\s+([^}|]*?)\s*\}/g, '`$1`')
-		.replace(/\s+/g, ' ')
-		.trim()
+	const parts = text.split(/((?<!`)`[^`]+`(?!`))/)
+	let normalized = ''
+
+	for (let index = 0; index < parts.length; index += 1) {
+		const part = parts[index] ?? ''
+		if (index % 2 === 0) {
+			normalized += part
+				.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
+				.replace(/\{@link\s+([^}|]*?)\s*\}/g, '`$1`')
+			continue
+		}
+		const value = part.slice(1, -1).replace(/\s+/g, ' ').trim()
+		normalized += `\`${value.length === 0 ? ' ' : value}\``
+	}
+
+	return normalized.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Wraps one paragraph into greedy lines no longer than `width` characters. Every run of
+ * whitespace separates words, and a word longer than `width` takes its own line rather than
+ * being split, so a long code token or URL survives the wrap intact.
+ *
+ * @param text - The paragraph to wrap
+ * @param width - The greatest length a returned line may reach
+ * @returns The wrapped lines, in order, or an empty list when `text` carries no word
+ *
+ * @example
+ * ```ts
+ * wrapText('one two three', 8) // ['one two', 'three']
+ * ```
+ */
+export function wrapText(text: string, width: number): readonly string[] {
+	const lines: string[] = []
+	let current = ''
+
+	for (const word of text.split(/\s+/)) {
+		if (word.length === 0) continue
+		if (current.length === 0) current = word
+		else if (current.length + 1 + word.length <= width) current += ` ${word}`
+		else {
+			lines.push(current)
+			current = word
+		}
+	}
+	if (current.length > 0) lines.push(current)
+
+	return lines
+}
+
+/**
+ * Builds one genuine JSDoc span from its content lines — the inverse of {@link unwrapComment}.
+ * Each line is emitted at `indent` behind a continuation marker, an empty line as the bare
+ * marker so no line carries trailing whitespace, and the leading and trailing empty lines are
+ * dropped because the opener and the closer take those physical lines.
+ *
+ * @param lines - The span's content lines, as {@link unwrapComment} returns them
+ * @param indent - The whitespace the span opens at
+ * @returns The span's raw text, opener and closer included
+ *
+ * @example
+ * ```ts
+ * buildComment(['Walks.'], '') // '/**\n * Walks.\n *' + '/'
+ * ```
+ */
+export function buildComment(lines: readonly string[], indent: string): string {
+	const content = [...lines]
+	while (content[0] === '') content.shift()
+	while (content[content.length - 1] === '') content.pop()
+
+	const raw = [`${indent}/**`]
+	for (const line of content) raw.push(line.length === 0 ? `${indent} *` : `${indent} * ${line}`)
+	raw.push(`${indent} */`)
+
+	return raw.join('\n')
 }
 
 /**
@@ -1704,6 +1961,82 @@ export function collectSummaries(lines: readonly SourceLine[]): ReadonlyMap<Sour
 }
 
 /**
+ * Extracts the aligned physical records of a declaration's body, read inside an owner head this
+ * function supplies, so a callable member in the body carries the `Owner.member` key
+ * {@link collectKeys} reports for it. A body read on its own carries no head, and the member
+ * grammar attaches a member to the head enclosing it.
+ *
+ * @remarks
+ * The supplied head is an `export interface` line, so the projection opens with that head's own
+ * record and every body line follows it in order. A column-zero `}` among the body lines closes
+ * the supplied head and leaves every later member unkeyed; a body {@link extractDeclaration}
+ * returns carries none, because that reader ends a body at the first one.
+ *
+ * @param lines - A declaration's body lines
+ * @returns The supplied head's record, then one record per body line
+ *
+ * @example
+ * ```ts
+ * extractBodyLines(['\twalk(): void'])[1]?.code // '\twalk(): void'
+ * ```
+ */
+export function extractBodyLines(lines: readonly string[]): readonly SourceLine[] {
+	return extractSourceLines(['export interface Owner {', ...lines].join('\n'))
+}
+
+/**
+ * Collects the compared key of every physical record a key names — a {@link computeSymbolKey}
+ * symbol key for a column-zero `export` declaration head, an `Owner.member` key for a one-tab
+ * callable member inside one — keyed by the record itself. A record no key names contributes no
+ * entry.
+ *
+ * @remarks
+ * This is the package's one key grammar, and each keyed reader projects its own part back out of
+ * it: {@link extractExports} splits a declaration key at its one space,
+ * {@link extractMemberMethods} and {@link extractExampleMethods} split a member key at its dot,
+ * and {@link locateComment} matches a caller's key against the whole map. A change to the head
+ * shape or to the member shape reaches every one of them at once.
+ *
+ * An owner opens at a column-zero `export class` or `export interface` head and closes at the
+ * first column-zero `}`, so a member declared past that brace keys nothing. A column-zero `export` declaration carrying any other keyword closes the owner it follows,
+ * because a member belongs to the head enclosing it. Reading runs over {@link extractSourceLines}'s
+ * projection, so a head or
+ * a member written inside a comment or a template literal keys nothing.
+ *
+ * @param lines - Aligned physical source-line records
+ * @returns One entry per record a key names, in file order
+ *
+ * @example
+ * ```ts
+ * const keys = collectKeys(extractSourceLines('export class Widget {\n\twalk(): void\n}'))
+ * Array.from(keys.values()) // ['class Widget', 'Widget.walk']
+ * ```
+ */
+export function collectKeys(lines: readonly SourceLine[]): ReadonlyMap<SourceLine, string> {
+	const keys = new Map<SourceLine, string>()
+	let owner: string | undefined
+
+	for (const line of lines) {
+		const head = /^export (?:async )?(function\*?|class|const|interface|type) (\w+)/.exec(line.code)
+		const keyword = head?.[1]?.replace(/\*$/, '')
+		const name = head?.[2]
+		if (isNonEmptyString(keyword) && isNonEmptyString(name) && isExportKeyword(keyword)) {
+			keys.set(line, computeSymbolKey({ name, keyword }))
+			owner = keyword === 'class' || keyword === 'interface' ? name : undefined
+			continue
+		}
+		if (line.code === '}') {
+			owner = undefined
+			continue
+		}
+		const member = /^\t(?:async )?\*?(\w+)\??(?:<.*>)?\(/.exec(line.code)?.[1]
+		if (owner !== undefined && isNonEmptyString(member)) keys.set(line, `${owner}.${member}`)
+	}
+
+	return keys
+}
+
+/**
  * Collects the `@example` blocks one doc block's unwrapped text carries, each named for the
  * declaration or member the block documents. The text after the tag becomes the block's
  * `title`; a body opening with a fence contributes that fence's language and its verbatim
@@ -1753,8 +2086,9 @@ export function collectExamples(comment: string, name: string): readonly SourceE
  * Extracts the `@example` blocks carried by the exported functions in one file's source text,
  * each named for the function its block documents. Shared adjacency comes from
  * {@link extractSourceComments} and each block is read by {@link collectExamples};
- * exported-function membership is matched against the aligned code projection, so comment and
- * template payload cannot qualify. A function carrying several blocks contributes each.
+ * exported-function membership is the {@link collectKeys} key of the documented record, narrowed
+ * to the `function` keyword, so comment and template payload cannot qualify and the head grammar
+ * stays the one every reader here shares. A function carrying several blocks contributes each.
  *
  * @param source - The file's source text
  * @returns The exported functions' `@example` blocks, in file order, deduplicated by name and title
@@ -1769,16 +2103,20 @@ export function collectExamples(comment: string, name: string): readonly SourceE
 export function extractExamples(source: string): readonly SourceExample[] {
 	const examples: SourceExample[] = []
 	const seen = new Set<string>()
+	const lines = extractSourceLines(source)
+	const keys = collectKeys(lines)
 
-	for (const comment of extractSourceComments(extractSourceLines(source))) {
-		const match = comment.line.code.match(/^export (?:async )?function\*? (\w+)/)
-		const name = match?.[1]
-		if (!isNonEmptyString(name)) continue
+	for (const comment of extractSourceComments(lines)) {
+		// Only the `function` keyword carries an `@example` into a guide fence, so the declaration
+		// key is read for that keyword and its name is the text past the one space.
+		const key = keys.get(comment.line) ?? ''
+		if (!key.startsWith('function ')) continue
 
+		const name = key.slice('function '.length)
 		for (const example of collectExamples(comment.text, name)) {
-			const key = `${name}\n${example.title ?? ''}`
-			if (seen.has(key)) continue
-			seen.add(key)
+			const entry = `${name}\n${example.title ?? ''}`
+			if (seen.has(entry)) continue
+			seen.add(entry)
 			examples.push(example)
 		}
 	}
@@ -1788,9 +2126,10 @@ export function extractExamples(source: string): readonly SourceExample[] {
 
 /**
  * Extracts the `@example` blocks carried by the callable members of a declaration body (per
- * {@link extractMemberMethods}' grammar), each named for the member its block documents.
- * Shared adjacency comes from {@link extractSourceComments} and each block is read by
- * {@link collectExamples}; member membership is matched against aligned projected code.
+ * {@link collectKeys}' grammar, the same one {@link extractMemberMethods} reads), each named for
+ * the member its block documents. Shared adjacency comes from {@link extractSourceComments} and
+ * each block is read by {@link collectExamples}; member membership is the key
+ * {@link extractBodyLines}'s projection gives the documented record.
  *
  * @param lines - A declaration's body lines
  * @returns The members' `@example` blocks, deduplicated by name and title and sorted by name
@@ -1804,16 +2143,19 @@ export function extractExamples(source: string): readonly SourceExample[] {
 export function extractExampleMethods(lines: readonly string[]): readonly SourceExample[] {
 	const examples: SourceExample[] = []
 	const seen = new Set<string>()
+	const projected = extractBodyLines(lines)
+	const keys = collectKeys(projected)
 
-	for (const comment of extractSourceComments(extractSourceLines(lines.join('\n')))) {
-		const method = comment.line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
-		const name = method?.[1]
-		if (!isNonEmptyString(name)) continue
+	for (const comment of extractSourceComments(projected)) {
+		const key = keys.get(comment.line) ?? ''
+		const dot = key.indexOf('.')
+		if (dot < 0) continue
 
+		const name = key.slice(dot + 1)
 		for (const example of collectExamples(comment.text, name)) {
-			const key = `${name}\n${example.title ?? ''}`
-			if (seen.has(key)) continue
-			seen.add(key)
+			const entry = `${name}\n${example.title ?? ''}`
+			if (seen.has(entry)) continue
+			seen.add(entry)
 			examples.push(example)
 		}
 	}
@@ -1837,7 +2179,26 @@ export function extractExampleMethods(lines: readonly string[]): readonly Source
  * ```
  */
 export function extractFences(document: MarkdownDocument): readonly GuideFence[] {
-	const fences: GuideFence[] = []
+	return Array.from(collectFences(document).values())
+}
+
+/**
+ * Collects each fenced code block keyed by its own node, paired with the {@link GuideFence}
+ * {@link extractFences} reports for it — the node-addressed form a rewrite needs, so a caller
+ * that located a fence by title can read that node's source region back from the parser. The map
+ * iterates in document order and a node keys itself, so a repeated identical fence keeps its own
+ * entry.
+ *
+ * @param document - The parsed guide document
+ * @returns One entry per fenced code block, in document order
+ *
+ * @example
+ * ```ts
+ * Array.from(collectFences(document).values()) // [{ language: 'ts', code: 'walk()' }]
+ * ```
+ */
+export function collectFences(document: MarkdownDocument): ReadonlyMap<CodeBlockNode, GuideFence> {
+	const fences = new Map<CodeBlockNode, GuideFence>()
 	let title = ''
 
 	for (const node of walkNodes(document)) {
@@ -1846,7 +2207,7 @@ export function extractFences(document: MarkdownDocument): readonly GuideFence[]
 			continue
 		}
 		if (isCodeBlockNode(node)) {
-			fences.push({
+			fences.set(node, {
 				language: node.lang,
 				code: node.code,
 				...(title.length === 0 ? {} : { title }),
@@ -2024,4 +2385,534 @@ export function collectTitles(
 	}
 
 	return titled
+}
+
+/**
+ * Builds a copy of `table` with one cell's inline content rebuilt from `text` through
+ * {@link buildCell}. Every other cell keeps its own nodes, so a rewrite touches the one cell it
+ * names and the header and the alignment row travel unchanged.
+ *
+ * @param table - The table to copy
+ * @param row - The index of the row to rewrite within {@link TableNode.rows}
+ * @param column - The index of the cell to rewrite within that row
+ * @param text - The cell's new compared text
+ * @returns The rewritten table
+ *
+ * @example
+ * ```ts
+ * buildTable(table, 0, 2, 'Walks the tree.').rows[0]?.[2] // [{ element: 'text', value: 'Walks the tree.' }]
+ * ```
+ */
+export function buildTable(table: TableNode, row: number, column: number, text: string): TableNode {
+	return {
+		element: 'table',
+		header: table.header,
+		rows: table.rows.map((cells, index) =>
+			index === row
+				? cells.map((cell, position) => (position === column ? buildCell(text) : cell))
+				: cells,
+		),
+		align: table.align,
+	}
+}
+
+/**
+ * Builds the fenced code block one `@example` block renders as — its code inside a fence
+ * carrying its language, and an untagged fence when the block names none.
+ *
+ * @param example - The block to render
+ * @returns The fence node
+ *
+ * @example
+ * ```ts
+ * buildFence({ name: 'walk', code: 'walk()', language: 'ts' }) // { element: 'codeBlock', code: 'walk()', lang: 'ts' }
+ * ```
+ */
+export function buildFence(example: SourceExample): CodeBlockNode {
+	return {
+		element: 'codeBlock',
+		code: example.code,
+		...(example.language === undefined ? {} : { lang: example.language }),
+	}
+}
+
+/**
+ * Splices `replacement` into `source` over the region `span` addresses, and returns the result.
+ * The text before the region and the text after it travel byte for byte, so a rewrite that
+ * addresses one node's region changes nothing else in the document.
+ *
+ * @param source - The text to rewrite
+ * @param span - The half-open region to replace: the region `MarkdownInterface.span` reports
+ * for a markdown node, or the one {@link locateComment} reports for a doc block
+ * @param replacement - The text to write over that region
+ * @returns The rewritten text
+ *
+ * @example
+ * ```ts
+ * spliceSpan('one two three', { start: 4, end: 7 }, 'TWO') // 'one TWO three'
+ * ```
+ */
+export function spliceSpan(source: string, span: MarkdownSpan, replacement: string): string {
+	return source.slice(0, span.start) + replacement + source.slice(span.end)
+}
+
+/**
+ * Renders a `## Surface` table from the symbols a source declares — a `Name`, {@link KIND}, and
+ * {@link SUMMARY} table with one row per symbol, the name as a code span, the keyword as its
+ * text, and the summary through {@link buildCell}. A symbol carrying no summary renders an empty
+ * cell, which {@link extractSurface} reads back as an absent summary.
+ *
+ * @remarks
+ * The render carries no `## Surface` heading, because a guide documents its surface in several
+ * tables under their own sub-headings and one of them is what this function produces. Reading the
+ * render back therefore parses it under that heading. `renderMarkdown` pads every cell to one
+ * space, so the render is not the committed column-aligned bytes; the checkout's formatter
+ * re-aligns the table and the reader compares parsed entries rather than bytes.
+ *
+ * @param symbols - The symbols to document, in row order
+ * @returns The table's markdown source, with no trailing newline
+ *
+ * @example
+ * ```ts
+ * renderSurface([{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' }])
+ * // '| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |'
+ * ```
+ */
+export function renderSurface(symbols: readonly SurfaceSymbol[]): string {
+	return renderMarkdown({
+		element: 'table',
+		header: [
+			[{ element: 'text', value: 'Name' }],
+			[{ element: 'text', value: KIND }],
+			[{ element: 'text', value: SUMMARY }],
+		],
+		rows: symbols.map((symbol) => [
+			[{ element: 'codeSpan', value: symbol.name }],
+			[{ element: 'text', value: symbol.keyword }],
+			buildCell(symbol.summary ?? ''),
+		]),
+		align: [null, null, null],
+	})
+}
+
+/**
+ * Renders one `## Methods` group — the `####` heading naming the interface as a code span, then
+ * a `Name` and {@link SUMMARY} table with one row per documented member. A member carrying no
+ * summary renders an empty cell, which {@link extractMethods} reads back as an absent summary.
+ *
+ * @remarks
+ * The render carries no `## Methods` heading, for the reason {@link renderSurface} states:
+ * a guide documents one group per interface under that one section heading.
+ *
+ * @param group - The interface and its members
+ * @returns The heading and table's markdown source, with no trailing newline
+ *
+ * @example
+ * ```ts
+ * renderMethods({ interface: 'WidgetInterface', methods: [{ name: 'walk', summary: 'Walks.' }] })
+ * // '#### `WidgetInterface`\n\n| Name | Summary |\n| --- | --- |\n| `walk` | Walks. |'
+ * ```
+ */
+export function renderMethods(group: MethodGroup): string {
+	return renderMarkdown({
+		element: 'document',
+		children: [
+			{ element: 'heading', level: 4, children: [{ element: 'codeSpan', value: group.interface }] },
+			{
+				element: 'table',
+				header: [[{ element: 'text', value: 'Name' }], [{ element: 'text', value: SUMMARY }]],
+				rows: group.methods.map((entry) => [
+					[{ element: 'codeSpan', value: entry.name }],
+					buildCell(entry.summary ?? ''),
+				]),
+				align: [null, null],
+			},
+		],
+	})
+}
+
+/**
+ * Renders one `@example` block as the guide fence it pairs with — an H3 heading carrying the
+ * block's title, then a fence carrying its language and its code. An untitled block renders the
+ * fence alone, because a fence pairs on its nearest preceding heading and an untitled block
+ * claims none.
+ *
+ * @remarks
+ * The title renders as literal text rather than markdown, so a title carrying backticks or
+ * emphasis reads back through {@link extractFences} as the text the `@example` tag carried.
+ * The heading level is 3 because a guide documents its examples one level under a `##` section;
+ * {@link extractFences} pairs on the nearest preceding heading of any level, so the level is
+ * presentation rather than pairing.
+ *
+ * @param example - The block to render
+ * @returns The heading and fence's markdown source, with no trailing newline
+ *
+ * @example
+ * ```ts
+ * renderExample({ name: 'walk', title: 'Walk a tree', code: 'walk()', language: 'ts' })
+ * // an H3 heading of 'Walk a tree', then a fence tagged `ts` carrying `walk()`
+ * ```
+ */
+export function renderExample(example: SourceExample): string {
+	const fence = buildFence(example)
+	return renderMarkdown({
+		element: 'document',
+		children:
+			example.title === undefined
+				? [fence]
+				: [
+						{
+							element: 'heading',
+							level: 3,
+							children: [{ element: 'text', value: example.title }],
+						},
+						fence,
+					],
+	})
+}
+
+/**
+ * Replaces one compared cell in a guide's text and returns the whole guide back. `key` names the
+ * row the way {@link findDrift} names it — a {@link computeSymbolKey} key for a `## Surface` row,
+ * an `Owner.member` key for a `## Methods` row — and the row's {@link SUMMARY} cell becomes
+ * `summary`. Only the table's own source region is rewritten, so every byte outside it travels
+ * unchanged.
+ *
+ * @remarks
+ * A row the key does not reach, a table carrying no {@link SUMMARY} column, and a document whose
+ * parse recorded no region for the table are each a miss, and a miss returns `undefined` rather
+ * than throwing, so a caller reports the key it could not place — the one meaning `undefined`
+ * carries in every replacer here. A row already carrying `summary` returns the guide byte for
+ * byte, because a rewrite would re-pad the whole table for no change; that identity reads both
+ * sides through {@link normalizeSummary}, so a caller passing text the compared form still moves
+ * is a fixed point on the second run rather than a row rewritten forever. The rewritten table
+ * renders one-space padded whatever padding it carried, so the checkout's formatter re-aligns it.
+ *
+ * @param guide - The guide's markdown source
+ * @param key - The compared key naming the row
+ * @param summary - The row's new compared text
+ * @returns The guide's text with that cell replaced, or `undefined` when the key reaches no cell
+ *
+ * @example
+ * ```ts
+ * replaceCell('## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks. |', 'function walk', 'Walks a tree.')
+ * // '## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks a tree. |'
+ * ```
+ */
+export function replaceCell(guide: string, key: string, summary: string): string | undefined {
+	const markdown = createMarkdown(guide)
+	const document = markdown.document
+	let located: TableNode | undefined
+	let index = -1
+
+	for (const block of selectSectionBlocks(document, SURFACE)) {
+		if (located !== undefined || !isTableNode(block)) continue
+		for (let row = 0; row < block.rows.length && located === undefined; row += 1) {
+			const symbol = extractRowSymbol(block, row)
+			if (symbol === undefined || computeSymbolKey(symbol) !== key) continue
+			located = block
+			index = row
+		}
+	}
+
+	for (const [table, owner] of collectGroups(document)) {
+		if (located !== undefined) break
+		for (let row = 0; row < table.rows.length && located === undefined; row += 1) {
+			const entry = extractRowEntry(table, row)
+			if (entry === undefined || `${owner}.${entry.name}` !== key) continue
+			located = table
+			index = row
+		}
+	}
+
+	if (located === undefined) return undefined
+	const column = findColumnIndex(located, SUMMARY)
+	if (column === undefined) return undefined
+	if ((extractRowSummary(located, index) ?? '') === normalizeSummary(summary)) return guide
+
+	const span = markdown.span(located)
+	if (span === undefined) return undefined
+	return spliceSpan(guide, span, renderMarkdown(buildTable(located, index, column, summary)))
+}
+
+/**
+ * Replaces one titled fence in a guide's text and returns the whole guide back. The first fence
+ * carrying `title` — the pairing {@link findDrift} compares on — takes `example`'s language and
+ * code. Only the fence's own source region is rewritten, so every byte outside it travels
+ * unchanged.
+ *
+ * @remarks
+ * A title no fence carries and a document whose parse recorded no region for the fence are each a
+ * miss, and a miss returns `undefined` rather than throwing — the one meaning `undefined` carries
+ * in every replacer here. A fence already carrying that language and code returns the guide
+ * byte for byte. A later fence of the same title is outside the pairing and is never rewritten,
+ * which is the rule {@link findDrift} compares under.
+ *
+ * @param guide - The guide's markdown source
+ * @param title - The heading text the fence pairs on
+ * @param example - The block whose language and code the fence takes
+ * @returns The guide's text with that fence replaced, or `undefined` when no fence carries the title
+ *
+ * @example
+ * ```ts
+ * replaceFence(guide, 'Walk', { name: 'walk', title: 'Walk', code: 'walk()', language: 'ts' })
+ * // the guide's text with the fence under its `### Walk` heading carrying `walk()`
+ * ```
+ */
+export function replaceFence(
+	guide: string,
+	title: string,
+	example: SourceExample,
+): string | undefined {
+	const markdown = createMarkdown(guide)
+	let located: CodeBlockNode | undefined
+	let current: GuideFence | undefined
+
+	for (const [node, fence] of collectFences(markdown.document)) {
+		if (located !== undefined || fence.title !== title) continue
+		located = node
+		current = fence
+	}
+
+	if (located === undefined || current === undefined) return undefined
+	if (current.code === example.code && current.language === example.language) return guide
+
+	const span = markdown.span(located)
+	if (span === undefined) return undefined
+	return spliceSpan(guide, span, renderMarkdown(buildFence(example)))
+}
+
+/**
+ * Replaces one doc block's description paragraph with `summary` and returns the whole block back.
+ * The paragraph is the block's text before its first block tag, and it re-wraps inside `width`;
+ * the blank line before the first tag, every tag line, the block's indentation, and its
+ * continuation markers all survive.
+ *
+ * @remarks
+ * A miss returns `undefined`, the one meaning `undefined` carries in every replacer here, so a
+ * caller reports the block it could not rewrite. Text that opens with no
+ * `/**` is no doc block: a single-star `/*` comment reaches this function only by a caller's
+ * mistake, and reshaping it into a doc block would be a silent edit. A `summary` carrying no word
+ * names no paragraph to write, and deleting the block's description on that argument would erase
+ * documentation on the strength of an absent value — a caller with nothing to write writes
+ * nothing.
+ *
+ * A block already carrying `summary` returns byte for byte, which is what keeps a propagation
+ * that finds no drift from rewriting the file: a doc block's own wrapping is not recoverable from
+ * its text, so re-wrapping an unchanged paragraph would move most blocks this package's source
+ * carries. That identity reads both sides through {@link normalizeSummary}, and it holds for a
+ * block carrying no tag as much as for a block carrying several. A block written on one physical
+ * line stays on one line while `summary` still fits inside `width`, and expands otherwise.
+ *
+ * `width` counts characters from the line's first, a tab counting as one, so a wrapped line reads
+ * `${indent} * ${text}` and never passes that count. A caller whose formatter measures a tab as
+ * more than one column passes a smaller width rather than taking the default.
+ *
+ * @param comment - One complete genuine JSDoc span's raw text, as it sits in the file
+ * @param summary - The block's new description paragraph
+ * @param width - The character budget a re-wrapped line stays inside. Default: {@link WRAP_WIDTH}
+ * @returns The block's raw text with that paragraph replaced, or `undefined` for a text that is
+ * no doc block and for a `summary` carrying no word
+ *
+ * @example
+ * ```ts
+ * replaceSummary('/**' + ' Walks. *' + '/', 'Walks a tree.') // '/**' + ' Walks a tree. *' + '/'
+ * ```
+ */
+export function replaceSummary(
+	comment: string,
+	summary: string,
+	width: number = WRAP_WIDTH,
+): string | undefined {
+	if (!/^[ \t]*\/\*\*/.test(comment)) return undefined
+	const content = unwrapComment(comment)
+	const indent = /^[ \t]*/.exec(comment)?.[0] ?? ''
+	const wrapped = wrapText(summary, width - indent.length - 3)
+	if (wrapped.length === 0) return undefined
+
+	const masked = maskFences(content.join('\n')).split('\n')
+	let tag = -1
+	for (let index = 0; index < masked.length && tag < 0; index += 1) {
+		if (/^[ \t]*@\w/.test(masked[index] ?? '')) tag = index
+	}
+
+	const described = content.slice(0, tag < 0 ? content.length : tag).join('\n')
+	if (normalizeSummary(described) === normalizeSummary(summary)) return comment
+
+	const tail = tag < 0 ? [] : content.slice(tag)
+	if (tail.length === 0 && wrapped.length === 1 && content.length === 1) {
+		const single = `${indent}/** ${wrapped[0] ?? ''} */`
+		if (single.length <= width) return single
+	}
+
+	const lines = [...wrapped]
+	if (tail.length > 0) lines.push('')
+	return buildComment([...lines, ...tail], indent)
+}
+
+/**
+ * Replaces the body of one titled `@example` tag in a doc block's raw text and returns the whole
+ * block back. The tag carrying `example`'s title takes a fence of its language and its code;
+ * every other tag, the description paragraph, the block's indentation, and its continuation
+ * markers all survive.
+ *
+ * @remarks
+ * A miss returns `undefined`, the one meaning `undefined` carries in every replacer here, so a
+ * caller reports the block it could not rewrite. Text that opens with no
+ * `/**` is no doc block, for the reason {@link replaceSummary} states. A block carrying no
+ * `@example` tag of that title has nowhere to write, so an untitled tag and a tag carrying
+ * another title are each left alone, and an `example` naming no title misses a block whose tags
+ * all carry one. Code carrying a run of three or more backticks is a body the emitted fence
+ * cannot enclose: the fence is three backticks, {@link maskFences} ends a body at the first line
+ * opening a run at least as long, and {@link collectExamples} reads to the first such run
+ * whatever column it sits at, so writing that body would truncate it and turn a following
+ * `@`-line into a tag. Refusing keeps the rewrite total over the bodies it can spell.
+ *
+ * A tag already carrying that language and code returns byte for byte. {@link maskFences} keeps
+ * the current body's own lines out of the tag search, so a fenced body carrying a tag-shaped line
+ * does not end the body early. The body ends at its last line carrying text, so the blank line
+ * separating it from the next tag survives.
+ *
+ * @param comment - One complete genuine JSDoc span's raw text, as it sits in the file
+ * @param example - The block whose language and code the tag's body takes
+ * @returns The block's raw text with that body replaced, or `undefined` for a text that is no
+ * doc block, for a title no `@example` tag carries, and for code the emitted fence cannot enclose
+ *
+ * @example
+ * ```ts
+ * replaceExample('/**' + '\n * @example Walk\n * old()\n *' + '/', { name: 'walk', title: 'Walk', code: 'walk()', language: 'ts' })
+ * // the same block, its `@example Walk` body now a fence tagged `ts` carrying `walk()`
+ * ```
+ */
+export function replaceExample(comment: string, example: SourceExample): string | undefined {
+	if (!/^[ \t]*\/\*\*/.test(comment)) return undefined
+	if (example.code.includes('```')) return undefined
+	const content = unwrapComment(comment)
+	const masked = maskFences(content.join('\n')).split('\n')
+	const title = example.title ?? ''
+	let start = -1
+
+	for (let index = 0; index < masked.length && start < 0; index += 1) {
+		const tag = /^[ \t]*@example(?=[ \t]|$)[ \t]*(.*)$/.exec(masked[index] ?? '')
+		if (tag !== null && (tag[1] ?? '').trim() === title) start = index
+	}
+	if (start < 0) return undefined
+
+	const current = collectExamples(content.join('\n'), example.name).find(
+		(entry) => (entry.title ?? '') === title,
+	)
+	if (
+		current !== undefined &&
+		current.code === example.code &&
+		current.language === example.language
+	) {
+		return comment
+	}
+
+	let end = content.length
+	for (let index = start + 1; index < masked.length && end === content.length; index += 1) {
+		if (/^[ \t]*@\w/.test(masked[index] ?? '')) end = index
+	}
+	while (end > start + 1 && (content[end - 1] ?? '').length === 0) end -= 1
+
+	const indent = /^[ \t]*/.exec(comment)?.[0] ?? ''
+	const body = [`\`\`\`${example.language ?? ''}`, ...example.code.split('\n'), '```']
+	return buildComment([...content.slice(0, start + 1), ...body, ...content.slice(end)], indent)
+}
+
+/**
+ * Locates the doc block a compared key attaches to inside one file's text and returns the block's
+ * own character region, so a caller can `slice` the block, rewrite it through
+ * {@link replaceSummary} or {@link replaceExample}, and write the result back through
+ * {@link spliceSpan}. `key` names the pair the way {@link findDrift} names it — a
+ * {@link computeSymbolKey} key for a declaration, an `Owner.member` key for an interface or class
+ * member.
+ *
+ * @remarks
+ * Attachment is {@link extractSourceComments}'s, not a second reading of the file: that walk
+ * pairs each eligible block with the physical record it documents, and this function keeps the
+ * record {@link collectKeys} gives `key`. The keys are that one grammar's — the map
+ * {@link extractExports} and {@link extractMemberMethods} each read their own part out of — so
+ * this function runs no head pattern, no member pattern, and no owner-close rule of its own, and
+ * a change to any of them reaches the locator too. Every block {@link collectSummaries} reports
+ * a summary for is reachable by its key, and a block carrying only block tags is reachable too although it carries no summary.
+ * A block it misses is one the comparison never had: a block a blank line separates from its
+ * declaration attaches to the blank line, and a block written inside a template literal or a
+ * string is no genuine span at all. The first block whose record carries the key answers for it,
+ * as the first declaration of a name does everywhere else.
+ *
+ * The region runs from the start of the opener's line, the block's indentation included, to the
+ * character past its closing marker — the raw text {@link replaceSummary} and
+ * {@link replaceExample} each document as the span "as it sits in the file", so a caller slices,
+ * rewrites, and splices with no adjustment and the rewrite keeps the indentation it found. A
+ * block that source material precedes on its own line starts at the opener instead. The region
+ * is read off the aligned JSDoc projection rather than searched for in the text, so an opener
+ * written inside a string never yields one, and line offsets come from
+ * {@link extractSourceLines}'s own records under its stated LF-or-CRLF terminator rule, so a
+ * CRLF file reports the offsets its own bytes carry.
+ *
+ * @param text - One file's whole source text
+ * @param key - The compared key naming the declaration or the member
+ * @returns The block's half-open character region, or `undefined` when no block carries the key
+ *
+ * @example
+ * ```ts
+ * const text = '/**' + ' Walks. *' + '/\nexport function walk(): void {}\n'
+ * locateComment(text, 'function walk') // { start: 0, end: 13 }
+ * ```
+ */
+export function locateComment(text: string, key: string): MarkdownSpan | undefined {
+	const lines = extractSourceLines(text)
+	const keys = collectKeys(lines)
+	const offsets: number[] = []
+	const positions = new Map<SourceLine, number>()
+	let offset = 0
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index]
+		if (line === undefined) continue
+		offsets.push(offset)
+		positions.set(line, index)
+		const after = offset + line.source.length
+		offset = after + (text.startsWith('\r\n', after) ? 2 : 1)
+	}
+
+	for (const comment of extractSourceComments(lines)) {
+		if (keys.get(comment.line) !== key) continue
+		const close = (positions.get(comment.line) ?? 0) - 1
+		const closing = lines[close]?.jsdoc
+		const end = closing === undefined ? -1 : closing.lastIndexOf('*/')
+		if (end < 0) continue
+
+		let first = close
+		while (first > 0 && lines[first - 1]?.jsdoc !== undefined) first -= 1
+
+		// The run's spans are read forward, because an opener written inside a span — an
+		// `@example` quoting one — is body text rather than a second block, and a backward
+		// search would stop at it. The authoritative span is the last one the run opens.
+		let inside = false
+		let line = -1
+		let column = -1
+		for (let index = first; index <= close; index += 1) {
+			const projection = lines[index]?.jsdoc ?? ''
+			let cursor = 0
+			while (cursor < projection.length) {
+				const at = projection.indexOf(inside ? '*/' : '/**', cursor)
+				if (at < 0) break
+				if (!inside) {
+					line = index
+					column = at
+				}
+				cursor = at + (inside ? 2 : 3)
+				inside = !inside
+			}
+		}
+		if (line < 0) continue
+
+		const source = lines[line]?.source ?? ''
+		const start = source.slice(0, column).trim() === '' ? 0 : column
+		return { start: (offsets[line] ?? 0) + start, end: (offsets[close] ?? 0) + end + 2 }
+	}
+
+	return undefined
 }

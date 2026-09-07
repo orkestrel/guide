@@ -49,6 +49,22 @@ export const SUMMARY: string = 'Summary'
 export const MANIFEST: string = 'By concept'
 
 /**
+ * Holds the default character budget a rewritten doc block's description paragraph wraps
+ * inside — the greatest number of characters a re-wrapped line may carry, counted from the
+ * line's first character with a tab counting as one, so a wrapped line reads
+ * `${indent} * ${text}` and never passes that count.
+ *
+ * @remarks
+ * The budget counts characters, not rendered columns. A block indented with tabs therefore
+ * measures each tab as one character, and a formatter that renders a tab wider reads the same
+ * line as longer; a caller whose formatter measures differently passes its own width instead of
+ * taking this default. A doc block's own wrapping is not recoverable from its text either — the
+ * blocks this package's own source carries are hand-wrapped, and no single greedy width
+ * reproduces them — so a rewrite cannot infer a per-block width and falls back to this budget.
+ */
+export const WRAP_WIDTH: number = 100
+
+/**
  * Lists the link `href` schemes a guides-parity link check skips as external — a link
  * with one of these prefixes (or a bare `#` anchor, handled separately in
  * `isExternalLink`) is never resolved against the filesystem.
