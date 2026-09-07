@@ -2118,6 +2118,36 @@ describe('normalizeSummary', () => {
 		expect(normalizeSummary('{@link A} and {@link B | b}.')).toBe('`A` and `b`.')
 	})
 
+	// The module-part clause. A cross-file link names the declaring module in the doc block, and
+	// the guide cell documenting it carries the code token alone, so the compared form drops that
+	// part from a target and keeps everything after it. The qualified-target case earlier is the
+	// control: a dot that no module part precedes stays.
+	it('drops the module part of an inline import target', () => {
+		expect(normalizeSummary("Reads {@link import('./widgets.js').Widget}.")).toBe('Reads `Widget`.')
+		expect(normalizeSummary("Reads {@link import('@scope/widgets').Widget}.")).toBe(
+			'Reads `Widget`.',
+		)
+	})
+
+	it('keeps the member of an inline import target', () => {
+		expect(normalizeSummary("Reads {@link import('./widgets.js').Widget.render}.")).toBe(
+			'Reads `Widget.render`.',
+		)
+	})
+
+	it('drops the package part of a declaration reference target', () => {
+		expect(normalizeSummary('Reads {@link @scope/widgets#Widget}.')).toBe('Reads `Widget`.')
+		expect(normalizeSummary('Reads {@link @scope/widgets#Widget.render}.')).toBe(
+			'Reads `Widget.render`.',
+		)
+	})
+
+	it('renders the label of a labelled link whose target names a module', () => {
+		expect(normalizeSummary("Creates {@link import('./widgets.js').Widget | a widget}.")).toBe(
+			'Creates `a widget`.',
+		)
+	})
+
 	it('collapses a line break and its continuation whitespace into one space', () => {
 		expect(normalizeSummary('Creates a widget\nfrom a name.')).toBe('Creates a widget from a name.')
 	})
@@ -2706,6 +2736,29 @@ describe('findDrift', () => {
 				source: 'ts\nwidget.render()',
 			},
 		])
+	})
+
+	// A cross-file link names its declaring module in the doc block, and the cell documenting it
+	// carries the code token alone. Both sides read through the compared form, so the pair agrees.
+	it('reads a module-qualified link against the bare token documenting it', () => {
+		const linked = AGREEING_GUIDE.replace(
+			'| `createWidget` | function | Creates a widget. |',
+			'| `createWidget` | function | Creates a `Widget`. |',
+		)
+		const cross = createSource({
+			files: {
+				...FILES,
+				'module/factories.ts': [
+					'/**',
+					" * Creates a {@link import('./widgets.js').Widget}.",
+					' */',
+					'export function createWidget(): void {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(findDrift(createGuide(linked), cross)).toEqual([])
 	})
 
 	it('reports the guide side absent when the table carries no Summary column', () => {

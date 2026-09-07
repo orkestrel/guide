@@ -1680,10 +1680,11 @@ export function unwrapComment(comment: string): readonly string[] {
 
 /**
  * Returns the canonical compared form of a description paragraph — `{@link Target}` and
- * `{@link Target | label}` become the code token of the label or the target text, every run of
- * whitespace, including a collapsed continuation marker and a line break, becomes one space,
- * the ends trim, and a code span keeps its delimiters while its own boundary whitespace goes.
- * The guide's side and the source's side read through this one form.
+ * `{@link Target | label}` become the code token of the label or the target text with the
+ * target's `import('./module.js').` or `module#` module part dropped, every run of whitespace,
+ * including a collapsed continuation marker and a line break, becomes one space, the ends trim,
+ * and a code span keeps its delimiters while its own boundary whitespace goes. The guide's side
+ * and the source's side read through this one form.
  *
  * @remarks
  * The clauses land in a fixed order, because each one decides what the next one sees. Every
@@ -1698,6 +1699,12 @@ export function unwrapComment(comment: string): readonly string[] {
  * whose content is all whitespace keeps one space, because a parser strips nothing from that
  * one.
  *
+ * A target's module part is the inline import form `import('<specifier>').` or the declaration
+ * reference form `<module>#`, and the expansion drops it, so a cross-file link and the code
+ * token a guide cell documents it with reach the same text. Everything after that part travels:
+ * `Owner.member` keeps its owner, and a dotted target no module part precedes is untouched. A
+ * label is text rather than a target, so `{@link Target | label}` renders its label whole.
+ *
  * A code span delimited by more than one backtick is outside the compared form's representable
  * set and travels untouched, as does a code span whose own text carries a backtick: the form
  * spells every span with one backtick per side, so neither can be written back. A summary that
@@ -1710,6 +1717,7 @@ export function unwrapComment(comment: string): readonly string[] {
  * @example
  * ```ts
  * normalizeSummary('Creates a\n{@link Widget}.') // 'Creates a `Widget`.'
+ * normalizeSummary("Reads {@link import('./widgets.js').Widget}.") // 'Reads `Widget`.'
  * normalizeSummary('cells joined by ` | `.') // 'cells joined by `|`.'
  * ```
  */
@@ -1722,7 +1730,7 @@ export function normalizeSummary(text: string): string {
 		if (index % 2 === 0) {
 			normalized += part
 				.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
-				.replace(/\{@link\s+([^}|]*?)\s*\}/g, '`$1`')
+				.replace(/\{@link\s+(?:import\([^)]*\)\.|[^}|#\s]*#)?([^}|]*?)\s*\}/g, '`$1`')
 			continue
 		}
 		const value = part.slice(1, -1).replace(/\s+/g, ' ').trim()
