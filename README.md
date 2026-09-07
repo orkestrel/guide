@@ -122,6 +122,8 @@ declaration.
   doc-block description paragraph, every documented method's cell equals its
   member's, and every titled guide fence equals the `@example` block of that
   title. `findDrift` names both sides of each disagreement.
+- **README pitch equality** — the blockquote under the README's H1 equals the
+  guide's tagline, both read through `createGuide(text).tagline()`.
 
 ## API
 
