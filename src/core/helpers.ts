@@ -2083,21 +2083,23 @@ export function collectExamples(comment: string, name: string): readonly SourceE
 }
 
 /**
- * Extracts the `@example` blocks carried by the exported functions in one file's source text,
- * each named for the function its block documents. Shared adjacency comes from
- * {@link extractSourceComments} and each block is read by {@link collectExamples};
- * exported-function membership is the {@link collectKeys} key of the documented record, narrowed
- * to the `function` keyword, so comment and template payload cannot qualify and the head grammar
- * stays the one every reader here shares. A function carrying several blocks contributes each.
+ * Extracts the `@example` blocks carried by the exported declaration heads in one file's source
+ * text, each named for the declaration its block documents. Shared adjacency comes from
+ * {@link extractSourceComments} and each block is read by {@link collectExamples}; head
+ * membership is the {@link collectKeys} key of the documented record under every keyword that
+ * grammar heads, so comment and template payload cannot qualify and the head grammar stays the
+ * one every reader here shares. A member key carries a dot and a head key does not, so a
+ * member's block belongs to {@link extractExampleMethods} instead. A head carrying several
+ * blocks contributes each.
  *
  * @param source - The file's source text
- * @returns The exported functions' `@example` blocks, in file order, deduplicated by name and title
+ * @returns The exported declaration heads' `@example` blocks, in file order, deduplicated by name and title
  *
  * @example
  * ```ts
- * const block = ['/**', ' * @example', ' * walk()', ' *' + '/', 'export function walk() {}', ''].join('\n')
- * extractExamples(block) // [{ name: 'walk', code: 'walk()' }]
- * extractExamples('export function walk() {}\n') // []
+ * const block = ['/**', ' * @example', ' * new Widget()', ' *' + '/', 'export class Widget {}', ''].join('\n')
+ * extractExamples(block) // [{ name: 'Widget', code: 'new Widget()' }]
+ * extractExamples('export class Widget {}\n') // []
  * ```
  */
 export function extractExamples(source: string): readonly SourceExample[] {
@@ -2107,12 +2109,12 @@ export function extractExamples(source: string): readonly SourceExample[] {
 	const keys = collectKeys(lines)
 
 	for (const comment of extractSourceComments(lines)) {
-		// Only the `function` keyword carries an `@example` into a guide fence, so the declaration
-		// key is read for that keyword and its name is the text past the one space.
-		const key = keys.get(comment.line) ?? ''
-		if (!key.startsWith('function ')) continue
+		// A head key is `${keyword} ${name}` and a member key is `Owner.member`, so the dot is
+		// what separates them and the block's name is the text past the head's one space.
+		const key = keys.get(comment.line)
+		if (key === undefined || key.includes('.')) continue
 
-		const name = key.slice('function '.length)
+		const name = key.slice(key.indexOf(' ') + 1)
 		for (const example of collectExamples(comment.text, name)) {
 			const entry = `${name}\n${example.title ?? ''}`
 			if (seen.has(entry)) continue
@@ -2354,7 +2356,7 @@ export function findDrift(guide: GuideInterface, source: SourceInterface): reado
 
 /**
  * Collects the titled `@example` blocks a guide's documented surface reaches — the module's
- * exported functions, plus the own members of every documented `class` and `interface` —
+ * exported declaration heads, plus the own members of every documented `class` and `interface` —
  * keyed by title, the first block of a title answering for it.
  *
  * @param guide - The parsed guide naming the documented declarations

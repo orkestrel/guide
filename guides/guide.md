@@ -104,7 +104,7 @@ directly.
 | `collectKeys`           | function | `(lines: readonly SourceLine[]) => ReadonlyMap<SourceLine, string>`                                       | The compared key of every record a key names — a `computeSymbolKey` symbol key for a column-zero `export` head, an `Owner.member` key for a one-tab callable member inside one — keyed by the record; the owner closes at the first column-zero `}` or at a column-zero `export` declaration carrying another keyword. |
 | `collectExamples`       | function | `(comment: string, name: string) => readonly SourceExample[]`                                             | The `@example` blocks one doc block's unwrapped text carries, each with its title, its fence language, and its body.                                                                                                                                                                                                   |
 | `extractExampleLines`   | function | `(lines: readonly SourceLine[]) => readonly SourceLine[]`                                                 | The `extractSourceComments` walk filtered to the blocks carrying an `@example` tag opening a line at its first non-blank column, projected to the records they document.                                                                                                                                               |
-| `extractExamples`       | function | `(source: string) => readonly SourceExample[]`                                                            | The exported functions' `@example` blocks, matched against shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                                                                                   |
+| `extractExamples`       | function | `(source: string) => readonly SourceExample[]`                                                            | The exported declaration heads' `@example` blocks, matched against shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                                                                           |
 | `extractExampleMethods` | function | `(lines: readonly string[]) => readonly SourceExample[]`                                                  | The callable members' `@example` blocks, matched against the same shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                                                                            |
 | `selectSectionBlocks`   | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                                   | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                                                                                                                                                                                                             |
 | `extractTagline`        | function | `(document: MarkdownDocument) => string \| undefined`                                                     | The text of the blockquote following the document's H1, or `undefined` when a heading intervenes first.                                                                                                                                                                                                                |
@@ -260,14 +260,14 @@ backticked name (`.claude/rules/documentation.md` § Parity).
 
 #### `SourceInterface`
 
-| Method     | Returns                    | Behavior                                                                                                                                                                                                                                                                            |
-| ---------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exports`  | `readonly SurfaceSymbol[]` | What the package **declares** — direct `type`, `interface`, `const`, `function`, and `class` declarations in the selected module keys.                                                                                                                                              |
-| `surface`  | `readonly SurfaceSymbol[]` | What a consumer can **import** — every declaration reachable through the selected directories' conventional root `index.ts` barrels.                                                                                                                                                |
-| `methods`  | `readonly MethodEntry[]`   | The call-signature members of the `class` / `interface` named `name`, unioned with those of every declaration it extends within the module scope, each with its own doc block's description paragraph. The first file declaring the name answers for it.                            |
-| `exists`   | `boolean`                  | Whether a workspace-root-relative path names an inventory key exactly, or a directory any inventory key sits beneath — which is what lets a guide link to a directory resolve.                                                                                                      |
-| `hidden`   | `readonly SurfaceSymbol[]` | Every module-scope declaration **lacking** `export` (`.claude/rules/architecture.md` § Barrel exports).                                                                                                                                                                             |
-| `examples` | `readonly SourceExample[]` | The `@example` blocks carried by the exported functions (or, given `name`, that declaration's own members) whose eligible leading JSDoc chain ends in a span carrying an `@example` tag opening a line at its first non-blank column. Given `name`, it follows no `extends` clause. |
+| Method     | Returns                    | Behavior                                                                                                                                                                                                                                                                                    |
+| ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exports`  | `readonly SurfaceSymbol[]` | What the package **declares** — direct `type`, `interface`, `const`, `function`, and `class` declarations in the selected module keys.                                                                                                                                                      |
+| `surface`  | `readonly SurfaceSymbol[]` | What a consumer can **import** — every declaration reachable through the selected directories' conventional root `index.ts` barrels.                                                                                                                                                        |
+| `methods`  | `readonly MethodEntry[]`   | The call-signature members of the `class` / `interface` named `name`, unioned with those of every declaration it extends within the module scope, each with its own doc block's description paragraph. The first file declaring the name answers for it.                                    |
+| `exists`   | `boolean`                  | Whether a workspace-root-relative path names an inventory key exactly, or a directory any inventory key sits beneath — which is what lets a guide link to a directory resolve.                                                                                                              |
+| `hidden`   | `readonly SurfaceSymbol[]` | Every module-scope declaration **lacking** `export` (`.claude/rules/architecture.md` § Barrel exports).                                                                                                                                                                                     |
+| `examples` | `readonly SourceExample[]` | The `@example` blocks carried by the exported declaration heads (or, given `name`, that declaration's own members) whose eligible leading JSDoc chain ends in a span carrying an `@example` tag opening a line at its first non-blank column. Given `name`, it follows no `extends` clause. |
 
 #### Which projector a check uses
 
@@ -422,8 +422,9 @@ each later span replaces the earlier one and is authoritative. Only an `@example
 at its first non-blank column qualifies; same-line title text is allowed. Source material between or after spans
 severs association, a leading JSDoc on the next line replaces pending state, and any other next
 physical record is returned once as the candidate. `extractExamples` and `extractExampleMethods` share this
-adjacency parser and apply their distinct exported-function and callable-member grammars only to
-`code`.
+adjacency parser and apply their distinct declaration-head and callable-member grammars only to
+`code`. `extractExamples` dedupes by name and title, so a `type` and a `const` sharing one name
+contribute the first block of a title rather than one block each.
 
 Across the `.ts` module keys under each selected directory, excluding its root `index.ts` and
 every `*.test.ts`, `collectKeys` matches
@@ -552,7 +553,10 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
 - **MQ — Methods summary equality.** The same comparison per `MethodGroup`, over the members
   `group.methods` and `source.methods(group.interface)` both carry, keyed `Owner.member`.
 - **EQ — Example equality.** Every titled guide fence against the `@example` block of the same title,
-  body and fence language together. The pairing is per title across the document, not per heading: the
+  body and fence language together. The block is a declaration head's own — a `type`, `interface`,
+  `const`, `function`, or `class` head at column zero — or a documented `class` or `interface`
+  member's, so a head's titled block is compared the way a member's is. The pairing is per title
+  across the document, not per heading: the
   first fence a title reaches is the compared one, and every later fence of that title is outside the
   comparison, whether it sits under the same heading or under a second heading of the same text. A title one side alone carries is outside
   the comparison too, and an untitled `@example` stays EX's presence evidence.

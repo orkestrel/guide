@@ -144,6 +144,38 @@ describe('Source', () => {
 		}).toEqual({ functions: ['genuine'], members: ['genuine'] })
 	})
 
+	it('unions every declaration head across the module and leaves each member to the name overload', () => {
+		const source = new Source({
+			files: {
+				'module/Widget.ts': [
+					'/** @example Build a widget */',
+					'export class Widget {',
+					'\t/** @example Render a widget */',
+					'\trender(): void {}',
+					'}',
+				].join('\n'),
+				'module/types.ts': [
+					'/** @example Name a widget */',
+					"export type WidgetSide = 'left' | 'right'",
+					'/** @example Count the widgets */',
+					'export const WIDGETS = 0',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.examples().map((example) => example.title)).toEqual([
+			'Build a widget',
+			'Name a widget',
+			'Count the widgets',
+		])
+		expect(source.examples().map((example) => example.name)).toEqual([
+			'Widget',
+			'WidgetSide',
+			'WIDGETS',
+		])
+		expect(source.examples('Widget').map((example) => example.name)).toEqual(['render'])
+	})
+
 	it('uses exact titled example tags and last-span replacement in both overloads', () => {
 		const source = new Source({
 			files: {

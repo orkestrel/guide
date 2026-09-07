@@ -356,12 +356,14 @@ export interface SourceInterface {
 	 */
 	hidden(): readonly SurfaceSymbol[]
 	/**
-	 * Lists every `@example` block carried by an exported function whose next-physical-record
-	 * eligible genuine JSDoc chain ends in a span holding an `@example` tag opening a line at its
-	 * first non-blank column. Each block carries its title, its fence language, and its code;
-	 * intervening material severs association.
+	 * Lists every `@example` block carried by an exported declaration head — a `type`,
+	 * `interface`, `const`, `function`, or `class` head at column zero — whose
+	 * next-physical-record eligible genuine JSDoc chain ends in a span holding an `@example` tag
+	 * opening a line at its first non-blank column. Each block carries its title, its fence
+	 * language, and its code; intervening material severs association. A member's block belongs
+	 * to the `name` overload instead.
 	 *
-	 * @returns The exported functions' `@example` blocks, in first-seen order
+	 * @returns The exported declaration heads' `@example` blocks, in first-seen order
 	 *
 	 * @example
 	 * ```ts
@@ -376,7 +378,9 @@ export interface SourceInterface {
 	 * Each block carries its title, its fence language, and its code; intervening material severs
 	 * association. Declaration and callable
 	 * member eligibility comes from aligned projected code while genuine JSDoc
-	 * evidence retains its source columns.
+	 * evidence retains its source columns. The head's own block belongs to the
+	 * no-argument overload instead, so the overloads split the axis at the
+	 * declaration head against its members.
 	 *
 	 * @remarks
 	 * This overload reads only the named declaration's own body, in the first

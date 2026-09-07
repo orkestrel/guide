@@ -125,9 +125,9 @@ export class Source implements SourceInterface {
 		return this.#exampleMembers(name)
 	}
 
-	// The union of exported-function `@example` blocks across the module's files,
-	// deduped by name and title in first-seen order — mirrors `#scanSymbols`, but
-	// over the `@example` scanner rather than a `SurfaceSymbol` one.
+	// The union of exported declaration heads' `@example` blocks across the module's
+	// files, deduped by name and title in first-seen order — mirrors `#scanSymbols`,
+	// but over the `@example` scanner rather than a `SurfaceSymbol` one.
 	#scanExamples(): readonly SourceExample[] {
 		const examples: SourceExample[] = []
 		const seen = new Set<string>()

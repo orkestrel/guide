@@ -1744,6 +1744,100 @@ describe('extractExamples', () => {
 		].join('\n')
 		expect(extractExamples(source).map((example) => example.name)).toEqual(['walk'])
 	})
+
+	// The axis is the declaration head against the member, with no keyword carve-out: every
+	// `collectKeys` head key contributes its blocks, and a member key belongs to the member
+	// reader beside this one.
+	it('collects a titled block above a class head, named for the class', () => {
+		const source = [
+			'/**',
+			' * @example Build a widget',
+			' * ```ts',
+			' * new Widget()',
+			' * ```',
+			' */',
+			'export class Widget {}',
+			'',
+		].join('\n')
+		expect(extractExamples(source)).toEqual([
+			{ name: 'Widget', title: 'Build a widget', code: 'new Widget()', language: 'ts' },
+		])
+	})
+
+	it('collects an untitled class-head block, which carries no title', () => {
+		const source = [
+			'/**',
+			' * @example',
+			' * new Widget()',
+			' */',
+			'export class Widget {}',
+			'',
+		].join('\n')
+		expect(extractExamples(source)).toEqual([{ name: 'Widget', code: 'new Widget()' }])
+		expect(extractExamples('export class Widget {}\n')).toEqual([])
+	})
+
+	it('collects a titled block above a type head and above an interface head', () => {
+		const source = [
+			'/**',
+			' * @example Name a widget',
+			' * ```ts',
+			" * const side: WidgetSide = 'left'",
+			' * ```',
+			' */',
+			"export type WidgetSide = 'left' | 'right'",
+			'/**',
+			' * @example Render a widget',
+			' * ```ts',
+			' * widget.render()',
+			' * ```',
+			' */',
+			'export interface WidgetInterface {',
+			'\trender(): void',
+			'}',
+			'',
+		].join('\n')
+		expect(extractExamples(source)).toEqual([
+			{
+				name: 'WidgetSide',
+				title: 'Name a widget',
+				code: "const side: WidgetSide = 'left'",
+				language: 'ts',
+			},
+			{
+				name: 'WidgetInterface',
+				title: 'Render a widget',
+				code: 'widget.render()',
+				language: 'ts',
+			},
+		])
+	})
+
+	it('collects a block above a const head', () => {
+		const source = [
+			'/**',
+			' * @example',
+			' * LANGUAGES.size',
+			' */',
+			'export const LANGUAGES = new Set()',
+			'',
+		].join('\n')
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['LANGUAGES'])
+	})
+
+	it('skips a member block, which the member reader collects instead', () => {
+		const body = ['\t/**', '\t * @example', '\t * widget.render()', '\t */', '\trender(): void']
+		const source = ['export interface WidgetInterface {', ...body, '}', ''].join('\n')
+		expect(extractExamples(source)).toEqual([])
+		expect(extractExampleMethods(body).map((example) => example.name)).toEqual(['render'])
+	})
+
+	it('skips a block attached to a declaration no key names', () => {
+		const source = ['/**', ' * @example', ' * hidden()', ' */', 'const hidden = true', ''].join(
+			'\n',
+		)
+		expect(extractExamples(source)).toEqual([])
+	})
 })
 
 describe('extractExampleLines exact tags and physical adjacency', () => {
@@ -2712,6 +2806,59 @@ describe('findDrift', () => {
 			'| `render` | Renders the widget. |\n| `destroy` | Tears the widget down. |',
 		).replace('### Render a widget', '### Render a widget elsewhere')
 		expect(findDrift(createGuide(extra), source)).toEqual([])
+	})
+
+	// A titled block on a declaration head that is not a function enters the comparison the
+	// same way a member's block does, so the `class` head below pairs with the guide fence of
+	// its title.
+	const HEAD_GUIDE = [
+		'# Widget',
+		'',
+		'> A widget module.',
+		'',
+		'## Surface',
+		'',
+		'| Name | Kind | Summary |',
+		'| --- | --- | --- |',
+		'| `Widget` | class | Represents a widget. |',
+		'',
+		'## Patterns',
+		'',
+		'### Build a widget',
+		'',
+		'```ts',
+		'new Widget()',
+		'```',
+		'',
+	].join('\n')
+	const headSource = createSource({
+		files: {
+			'module/index.ts': "export * from './Widget.js'\n",
+			'module/Widget.ts': [
+				'/**',
+				' * Represents a widget.',
+				' *',
+				' * @example Build a widget',
+				' * ```ts',
+				' * new Widget()',
+				' * ```',
+				' */',
+				'export class Widget {}',
+				'',
+			].join('\n'),
+		},
+		module: 'module',
+	})
+
+	it('reports nothing when a class-head block and the fence of its title agree', () => {
+		expect(findDrift(createGuide(HEAD_GUIDE), headSource)).toEqual([])
+	})
+
+	it('reports a class-head block against a same-titled fence carrying another body', () => {
+		const drifted = HEAD_GUIDE.replace('```ts\nnew Widget()\n```', '```ts\nnew Widget(1)\n```')
+		expect(findDrift(createGuide(drifted), headSource)).toEqual([
+			{ key: 'Build a widget', guide: 'ts\nnew Widget(1)', source: 'ts\nnew Widget()' },
+		])
 	})
 })
 
@@ -4102,6 +4249,50 @@ describe('locateComment', () => {
 		].join('\n')
 		const span = locateComment(text, 'function walk')
 		expect(text.slice(span?.start, span?.end)).toBe(['/**', ' * Second.', ' */'].join('\n'))
+	})
+
+	// The seed's source-writing direction over a head that is not a function: the key names a
+	// `class`, the locator reaches its block, `replaceExample` rewrites the body, and the
+	// reader the gate compares on reads the rewritten block back.
+	it('carries an example rewrite back into a class head, read by the reader the gate compares on', () => {
+		const text = [
+			'/**',
+			' * Represents a widget.',
+			' *',
+			' * @example Build a widget',
+			' * ```ts',
+			' * new Widget()',
+			' * ```',
+			' */',
+			'export class Widget {}',
+			'',
+		].join('\n')
+		const span = locateComment(text, 'class Widget')
+		expect(span).toBeDefined()
+		const block = text.slice(span?.start, span?.end)
+		expect(block).toBe(
+			[
+				'/**',
+				' * Represents a widget.',
+				' *',
+				' * @example Build a widget',
+				' * ```ts',
+				' * new Widget()',
+				' * ```',
+				' */',
+			].join('\n'),
+		)
+
+		const example: SourceExample = {
+			name: 'Widget',
+			title: 'Build a widget',
+			code: 'new Widget(1)',
+			language: 'ts',
+		}
+		const rewritten = replaceExample(block, example)
+		expect(rewritten).toBeDefined()
+		const written = spliceSpan(text, span ?? { start: 0, end: 0 }, rewritten ?? '')
+		expect(extractExamples(written)).toEqual([example])
 	})
 
 	// The end-to-end the seed runs: locate the block, rewrite it, splice it back, and read the
