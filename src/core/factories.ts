@@ -33,12 +33,13 @@ import { SourceManager } from './sources/SourceManager.js'
  * @param source - The guide's markdown source text
  * @returns A working {@link GuideInterface}
  *
- * @example
+ * @example Construct a Guide from markdown text
  * ```ts
  * import { createGuide } from '@orkestrel/guide'
  *
  * const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
  * guide.surface() // [{ name: 'X', keyword: 'class' }]
+ * guide.sections() // ['Surface']
  * ```
  */
 export function createGuide(source: string): GuideInterface {
@@ -52,15 +53,23 @@ export function createGuide(source: string): GuideInterface {
  * @param options - The file inventory and module scope to reflect
  * @returns A `SourceInterface` reflecting the given module scope
  *
- * @example
+ * @example Construct a Source from an inline files record
  * ```ts
  * import { createSource } from '@orkestrel/guide'
  *
  * const source = createSource({
- * 	files: { 'src/core/Guide.ts': 'export class Guide {}\n' },
+ * 	files: {
+ * 		'src/core/index.ts': "export * from './Guide.js'\nexport * from './types.js'\n",
+ * 		'src/core/Guide.ts': 'export class Guide {}\n',
+ * 		'src/core/types.ts': 'export interface GuideInterface {\n\tsections(): void\n}\n',
+ * 	},
  * 	module: 'src/core',
  * })
- * source.exports() // [{ name: 'Guide', keyword: 'class' }]
+ * source.exports() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
+ * source.surface() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
+ * source.methods('GuideInterface') // [{ name: 'sections' }]
+ * source.exists('src/core/Guide.ts') // true
+ * source.exists('src/core') // true — a directory any inventory key sits beneath
  * ```
  */
 export function createSource(options: SourceOptions): SourceInterface {
@@ -74,15 +83,22 @@ export function createSource(options: SourceOptions): SourceInterface {
  * @param options - The shared file inventory and specifier-to-module policy
  * @returns A source manager over the supplied policy
  *
- * @example
+ * @example Resolve a fence's import specifier to the right Source
  * ```ts
  * import { createSourceManager } from '@orkestrel/guide'
  *
  * const sources = createSourceManager({
- * 	files: { 'src/core/index.ts': "export * from './types.js'" },
- * 	modules: { '@scope/package': 'src/core' },
+ * 	files: {
+ * 		'src/core/index.ts': "export * from './Guide.js'\n",
+ * 		'src/core/Guide.ts': 'export class Guide {}\n',
+ * 	},
+ * 	modules: { '@scope/package': 'src/core', '@scope/package/core': 'src/core' },
  * })
- * sources.source('@scope/package')?.surface()
+ *
+ * sources.source('@scope/package')?.surface() // [{ name: 'Guide', keyword: 'class' }]
+ * sources.source('node:fs') // undefined — a foreign import, which a fence check skips
+ * sources.source('@scope/package') === sources.source('@scope/package/core') // true
+ * sources.sources() // [the one shared view both specifiers name]
  * ```
  */
 export function createSourceManager(options: SourceManagerOptions): SourceManagerInterface {

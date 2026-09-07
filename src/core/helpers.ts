@@ -73,10 +73,13 @@ import { isExportKeyword } from './validators.js'
  * @param source - The TypeScript source text to project
  * @returns One aligned terminator-free record per LF or CRLF physical line, including the final line
  *
- * @example
+ * @example Project source into physical code lines
  * ```ts
+ * import { extractSourceLines } from '@orkestrel/guide'
+ *
  * extractSourceLines('export const visible = true // note\n')
- * // [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }, ...]
+ * // [{ source: 'export const visible = true // note', code: 'export const visible = true        ', jsdoc: undefined }]
+ * // … one record per remaining line
  * ```
  */
 export function extractSourceLines(source: string): readonly SourceLine[] {
@@ -677,8 +680,8 @@ export function selectModuleKeys(
 }
 
 /**
- * Computes the bijection key for a surface symbol — its keyword and name combined — so a
- * symbol-set comparison diffs (name, keyword) pairs rather than names alone.
+ * Computes the bijection key for a surface symbol — `${keyword} ${name}` — so a symbol-set
+ * comparison diffs (name, keyword) pairs rather than names alone.
  *
  * @param symbol - The symbol to key
  * @returns The `${keyword} ${name}` key
@@ -786,10 +789,11 @@ export function findUnexampled(
 }
 
 /**
- * Parses a fence's `import` statements into per-specifier imported identifier
- * names — handles `import type`, mixed multiline braces, and `x as y` aliases,
- * resolving each alias to the exported name `x` because that is the name the
- * checked barrel surface must hold.
+ * Parses a fence's brace `import` statements into per-specifier imported identifier names —
+ * `import type`, mixed multiline braces, and `x as y` aliases all count, each alias resolved to
+ * the exported name `x` because that is the name the checked barrel surface must hold. Brace
+ * bindings only: a default, namespace, side-effect, or mixed `import Default, { named }`
+ * statement is not surfaced.
  *
  * @param fence - A ```ts Patterns fence's verbatim body text
  * @returns One entry per `import ... from 'specifier'` statement, in fence order
@@ -924,7 +928,7 @@ export function findFirstCode(nodes: readonly InlineNode[]): string | undefined 
 }
 
 /**
- * Extracts the link hrefs within one table cell's inline content.
+ * Extracts the link hrefs within one table cell's inline content, in walk order.
  *
  * @param cell - The cell's inline nodes
  * @returns The cell's link hrefs, in walk order
@@ -1206,10 +1210,10 @@ export function escapeRegExp(value: string): string {
 }
 
 /**
- * Locates the named `export class` / `export interface` declaration in one
- * file's source text and returns its body lines and its base identifiers read
- * from that one head, so a body and a heritage clause always come from the same
- * declaration.
+ * Locates the named `export class` / `export interface` declaration in one file's source text
+ * and returns its body lines and its base identifiers read from that one head, so a body and a
+ * heritage clause always come from the same declaration, or `undefined` when the file declares
+ * no such head.
  *
  * @remarks
  * The head is matched on projected lines (column 0, an oxfmt-wrapped signature
@@ -1963,8 +1967,9 @@ export function collectSummaries(lines: readonly SourceLine[]): ReadonlyMap<Sour
 /**
  * Extracts the aligned physical records of a declaration's body, read inside an owner head this
  * function supplies, so a callable member in the body carries the `Owner.member` key
- * {@link collectKeys} reports for it. A body read on its own carries no head, and the member
- * grammar attaches a member to the head enclosing it.
+ * {@link collectKeys} reports for it, and that head's own record opens the projection. A body
+ * read on its own carries no head, and the member grammar attaches a member to the head
+ * enclosing it.
  *
  * @remarks
  * The supplied head is an `export interface` line, so the projection opens with that head's own
@@ -1987,8 +1992,9 @@ export function extractBodyLines(lines: readonly string[]): readonly SourceLine[
 /**
  * Collects the compared key of every physical record a key names — a {@link computeSymbolKey}
  * symbol key for a column-zero `export` declaration head, an `Owner.member` key for a one-tab
- * callable member inside one — keyed by the record itself. A record no key names contributes no
- * entry.
+ * callable member inside one — keyed by the record itself. The owner closes at the first
+ * column-zero `}` or at a column-zero `export` declaration carrying another keyword, and a
+ * record no key names contributes no entry.
  *
  * @remarks
  * This is the package's one key grammar, and each keyed reader projects its own part back out of
@@ -2578,7 +2584,8 @@ export function renderExample(example: SourceExample): string {
  * row the way {@link findDrift} names it — a {@link computeSymbolKey} key for a `## Surface` row,
  * an `Owner.member` key for a `## Methods` row — and the row's {@link SUMMARY} cell becomes
  * `summary`. Only the table's own source region is rewritten, so every byte outside it travels
- * unchanged.
+ * unchanged; a key reaching no cell returns `undefined`, and a row already carrying the summary
+ * returns the guide byte for byte.
  *
  * @remarks
  * A row the key does not reach, a table carrying no {@link SUMMARY} column, and a document whose
@@ -2641,7 +2648,8 @@ export function replaceCell(guide: string, key: string, summary: string): string
  * Replaces one titled fence in a guide's text and returns the whole guide back. The first fence
  * carrying `title` — the pairing {@link findDrift} compares on — takes `example`'s language and
  * code. Only the fence's own source region is rewritten, so every byte outside it travels
- * unchanged.
+ * unchanged; a title no fence carries returns `undefined`, and a fence already carrying that
+ * body returns the guide byte for byte.
  *
  * @remarks
  * A title no fence carries and a document whose parse recorded no region for the fence are each a
@@ -2688,7 +2696,8 @@ export function replaceFence(
  * Replaces one doc block's description paragraph with `summary` and returns the whole block back.
  * The paragraph is the block's text before its first block tag, and it re-wraps inside `width`;
  * the blank line before the first tag, every tag line, the block's indentation, and its
- * continuation markers all survive.
+ * continuation markers all survive. A block already carrying the summary returns byte for byte,
+ * and a text that is no doc block and a summary carrying no word each return `undefined`.
  *
  * @remarks
  * A miss returns `undefined`, the one meaning `undefined` carries in every replacer here, so a
@@ -2756,7 +2765,8 @@ export function replaceSummary(
  * Replaces the body of one titled `@example` tag in a doc block's raw text and returns the whole
  * block back. The tag carrying `example`'s title takes a fence of its language and its code;
  * every other tag, the description paragraph, the block's indentation, and its continuation
- * markers all survive.
+ * markers all survive. A text that is no doc block, a title no tag carries, and code the emitted
+ * three-backtick fence cannot enclose each return `undefined`.
  *
  * @remarks
  * A miss returns `undefined`, the one meaning `undefined` carries in every replacer here, so a
@@ -2828,7 +2838,8 @@ export function replaceExample(comment: string, example: SourceExample): string 
  * {@link replaceSummary} or {@link replaceExample}, and write the result back through
  * {@link spliceSpan}. `key` names the pair the way {@link findDrift} names it — a
  * {@link computeSymbolKey} key for a declaration, an `Owner.member` key for an interface or class
- * member.
+ * member; the region covers the block's own indentation, and no block carrying the key returns
+ * `undefined`.
  *
  * @remarks
  * Attachment is {@link extractSourceComments}'s, not a second reading of the file: that walk

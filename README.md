@@ -1,13 +1,12 @@
 # @orkestrel/guide
 
-A guides-parity **test helper** for `@orkestrel` packages. Add it as a
-devDependency, drop one short test file into `tests/guides.test.ts`,
-wire a vitest `guides` project, and thereafter every guide is proven —
-mechanically, in CI, as ordinary vitest assertions — to be in **bijection**
-with the code it documents: every documented export exists in source and
-vice versa, every documented method matches the class, and every relative
-link resolves. No CLI, no runner, no exit-code contract: it is a library of
-extraction + reflection helpers your test suite calls. Built on
+> A pure, I/O-free guides-parity toolkit: the `Guide` and `Source` readers, the `findDrift`
+> comparison, and the renderers and replacers that carry a change across.
+
+Add it as a devDependency, drop one short test file into `tests/guides.test.ts`, wire a vitest
+`guides` project, and thereafter every guide is proven — mechanically, in CI, as ordinary vitest
+assertions — against the code it documents. No CLI, no runner, no exit-code contract: it is a
+library of extraction and reflection helpers your test suite calls. Built on
 `@orkestrel/markdown`. Part of the `@orkestrel` line.
 
 ## Install
@@ -119,6 +118,10 @@ declaration.
   association.
 - **Fence-import reality** — every self-package name imported in a TypeScript
   fence exists on the conventional public/barrel surface.
+- **Summary and example equality** — every `Summary` cell equals its export's
+  doc-block description paragraph, every documented method's cell equals its
+  member's, and every titled guide fence equals the `@example` block of that
+  title. `findDrift` names both sides of each disagreement.
 
 ## API
 

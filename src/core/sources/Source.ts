@@ -30,7 +30,10 @@ import {
  * filesystem. `Source` never touches disk:
  * the consumer gathers the inventory however their environment allows
  * (`node:fs` in a Node script, `import.meta.glob` in a browser/vitest run) and
- * passes it in as `files`. Conventional barrel traversal recurses through both
+ * passes it in as `files`.
+ *
+ * @remarks
+ * Conventional barrel traversal recurses through both
  * exact workspace-root `index.ts` and nested `/index.ts` targets. `'.'` is the
  * canonical workspace-root module, module spellings normalize once at
  * construction, and exact opaque inventory keys are never rewritten; keys with

@@ -40,7 +40,7 @@ export interface MethodEntry {
 
 /**
  * Represents one `@example` block read from a doc comment — the declaration it documents, its
- * title, and the code it carries.
+ * pairing title, its code, and its fence language.
  */
 export interface SourceExample {
 	/** Names the declaration or member whose doc block carries the block. */
@@ -55,7 +55,7 @@ export interface SourceExample {
 
 /**
  * Represents one disagreement between a guide and the source it documents — the compared key
- * with the text each side carries there.
+ * with the text each side carries there, the side carrying no text omitted.
  */
 export interface Drift {
 	/**
@@ -145,7 +145,11 @@ export interface FenceImport {
 	readonly names: readonly string[]
 }
 
-/** Represents one fenced code block projected from a guide document. */
+/**
+ * Represents one fenced code block projected from a guide document — its `language` is the
+ * fence's info-string tag and is absent when the fence is untagged, and its `title` is the
+ * flattened text of its nearest preceding heading.
+ */
 export interface GuideFence {
 	/** Holds the info-string language tag, or `undefined` when the fence is untagged. */
 	readonly language: string | undefined
@@ -171,13 +175,17 @@ export interface GuideInterface {
 	 */
 	sections(): readonly string[]
 	/**
-	 * Returns the text of the blockquote following the document's H1 — the guide's tagline.
+	 * Returns the text of the blockquote following the document's H1 — the guide's tagline, or
+	 * `undefined` when a heading intervenes first.
 	 *
 	 * @returns The tagline, or `undefined` when no blockquote follows an H1 before the next heading
 	 *
-	 * @example
+	 * @example Read a guide's tagline
 	 * ```ts
-	 * guide.tagline() // 'A pure, I/O-free guides-parity toolkit'
+	 * import { createGuide } from '@orkestrel/guide'
+	 *
+	 * const guide = createGuide('# Widget\n\n> A widget toolkit.\n\n## Surface\n')
+	 * guide.tagline() // 'A widget toolkit.'
 	 * ```
 	 */
 	tagline(): string | undefined
@@ -189,7 +197,8 @@ export interface GuideInterface {
 	 */
 	surface(): readonly SurfaceSymbol[]
 	/**
-	 * Returns one {@link MethodGroup} per documented behavioral interface in `## Methods`.
+	 * Returns one {@link MethodGroup} per documented behavioral interface in `## Methods`, each
+	 * row carrying its `Summary` cell.
 	 *
 	 * @returns One group per documented behavioral interface, in document order
 	 */
@@ -232,8 +241,9 @@ export interface GuideInterface {
 	 */
 	tests(): readonly string[]
 	/**
-	 * Lists every fenced code block in the whole document, in document order — no
-	 * language filter, so a consumer decides which languages its checks read.
+	 * Lists every fenced code block in the whole document, tagged or not, each carrying its
+	 * nearest preceding heading as `title` — no language filter, so a consumer decides which
+	 * languages its checks read.
 	 *
 	 * @returns Every fence's language, verbatim code, and nearest preceding heading title, in document order
 	 *
@@ -307,8 +317,9 @@ export interface SourceInterface {
 	 */
 	surface(): readonly SurfaceSymbol[]
 	/**
-	 * Returns the call-signature members of the `class` / `interface` named `name`,
-	 * unioned with the members of every declaration it extends.
+	 * Returns the call-signature members of the `class` / `interface` named `name`, unioned with
+	 * those of every declaration it extends within the module scope, each with its own doc
+	 * block's description paragraph. The first file declaring the name answers for it.
 	 *
 	 * @remarks
 	 * One declaration answers for `name`: the module scope's files are read in
@@ -429,10 +440,14 @@ export interface SourceManagerOptions {
 	readonly modules: Readonly<Record<string, GuideModule>>
 }
 
-/** Represents a specifier resolver that shares one {@link SourceInterface} per module. */
+/**
+ * Represents a specifier resolver that shares one {@link SourceInterface} per module and
+ * enumerates those views.
+ */
 export interface SourceManagerInterface {
 	/**
-	 * Resolves a mapped specifier to its shared source view.
+	 * Resolves a mapped specifier to the shared source view of the module it names, and returns
+	 * `undefined` when the policy does not map it — a foreign import.
 	 *
 	 * @param specifier - The import specifier to resolve
 	 * @returns Its source view, or `undefined` when the specifier is not mapped
@@ -444,8 +459,8 @@ export interface SourceManagerInterface {
 	 */
 	source(specifier: string): SourceInterface | undefined
 	/**
-	 * Lists every source view the policy maps, sharing the same per-module entities
-	 * {@link source} returns.
+	 * Lists one shared source view per distinct module the policy maps, in first-seen specifier
+	 * order, sharing the same per-module entities {@link source} returns.
 	 *
 	 * @returns One shared source view per distinct module the policy maps, in first-seen specifier order
 	 *

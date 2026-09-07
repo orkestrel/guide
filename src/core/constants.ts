@@ -1,10 +1,10 @@
 /**
- * Lists the declaration keywords a documented or exported symbol carries, in
- * the order the reflection grammar names them.
+ * Lists the declaration keywords a documented or exported symbol carries, in the order the
+ * reflection grammar names them — the frozen population `ExportKeyword`, `isExportKeyword`, and
+ * `surfaceSymbolShape` all derive from.
  *
  * @remarks
- * One frozen list feeds the `ExportKeyword` type, the `isExportKeyword` guard, and
- * `surfaceSymbolShape`, so a keyword cannot be admitted by one and refused by
+ * One frozen list feeds all three, so a keyword cannot be admitted by one and refused by
  * another. Comment and template payload is excluded before reflection, and
  * `enum` is outside this population rather than forbidden by general package
  * policy.
