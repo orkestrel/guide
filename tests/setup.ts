@@ -11,7 +11,7 @@ import { requireValue } from '@orkestrel/test'
 export const TEST_SEED = 42
 
 /**
- * Require markdown whose first block is a table.
+ * Requires markdown whose first block is a table.
  *
  * @param markdown - The markdown source containing a leading table
  * @returns The parsed leading table

@@ -3,6 +3,8 @@
 // so EX's `findUnexampled` catches it with exactly `['farewell']`.
 
 /**
+ * Greets `name`.
+ *
  * @example
  * ```ts
  * greet('world')

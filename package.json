@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/guide",
-	"version": "0.0.17",
+	"version": "0.0.18",
 	"description": "Guides-parity test helpers — prove a package's guides are in bijection with the code they document: surface and methods bijection, link integrity, and non-vacuous extraction, built on @orkestrel/markdown. Part of the @orkestrel line.",
 	"keywords": [
 		"bijection",
@@ -69,7 +69,8 @@
 		"test:probe": "vitest run --config vite.config.ts --no-cache --reporter=verbose --project probe",
 		"test:bench": "vitest bench --config vite.config.ts --no-cache --project probe",
 		"prepack": "npm run build",
-		"test:setup": "vitest run --config vite.config.ts --no-cache --reporter=dot --project setup"
+		"test:setup": "vitest run --config vite.config.ts --no-cache --reporter=dot --project setup",
+		"docs": "node --experimental-strip-types scripts/docs.ts"
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.16",
