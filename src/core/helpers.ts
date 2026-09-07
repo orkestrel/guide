@@ -2769,8 +2769,9 @@ export function replaceSummary(
  * Replaces the body of one titled `@example` tag in a doc block's raw text and returns the whole
  * block back. The tag carrying `example`'s title takes a fence of its language and its code;
  * every other tag, the description paragraph, the block's indentation, and its continuation
- * markers all survive. A text that is no doc block, a title no tag carries, and code the emitted
- * three-backtick fence cannot enclose each return `undefined`.
+ * markers all survive. A text that is no doc block, a title no tag carries, and a language or
+ * code the emitted three-backtick fence cannot enclose or the doc block cannot hold each return
+ * `undefined`.
  *
  * @remarks
  * A miss returns `undefined`, the one meaning `undefined` carries in every replacer here, so a
@@ -2782,7 +2783,9 @@ export function replaceSummary(
  * cannot enclose: the fence is three backticks, {@link maskFences} ends a body at the first line
  * opening a run at least as long, and {@link collectExamples} reads to the first such run
  * whatever column it sits at, so writing that body would truncate it and turn a following
- * `@`-line into a tag. Refusing keeps the rewrite total over the bodies it can spell.
+ * `@`-line into a tag. A language or code carrying the doc-comment terminator is a body the
+ * block itself cannot hold: the terminator closes the block where it lands and the file stops
+ * parsing there. Refusing keeps the rewrite total over the bodies it can spell.
  *
  * A tag already carrying that language and code returns byte for byte. {@link maskFences} keeps
  * the current body's own lines out of the tag search, so a fenced body carrying a tag-shaped line
@@ -2792,8 +2795,8 @@ export function replaceSummary(
  * @param comment - One complete genuine JSDoc span's raw text, as it sits in the file
  * @param example - The block whose language and code the tag's body takes
  * @returns The block's raw text with that body replaced, or `undefined` for a text that is no
- * doc block, for a title no `@example` tag carries, and for code the emitted fence cannot
- * enclose or the doc block cannot hold — a body carrying the doc-comment terminator
+ * doc block, for a title no `@example` tag carries, and for a language or code the emitted
+ * fence cannot enclose or the doc block cannot hold — a body carrying the doc-comment terminator
  *
  * @example
  * ```ts
@@ -2803,8 +2806,8 @@ export function replaceSummary(
  */
 export function replaceExample(comment: string, example: SourceExample): string | undefined {
 	if (!/^[ \t]*\/\*\*/.test(comment)) return undefined
-	if (example.code.includes('```')) return undefined
-	if (example.code.includes('*/')) return undefined
+	const spelled = [example.language ?? '', ...example.code.split('\n')]
+	if (spelled.some((line) => line.includes('```') || line.includes('*/'))) return undefined
 	const content = unwrapComment(comment)
 	const masked = maskFences(content.join('\n')).split('\n')
 	const title = example.title ?? ''

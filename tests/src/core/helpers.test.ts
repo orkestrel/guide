@@ -4021,6 +4021,17 @@ describe('replaceExample', () => {
 		expect(replaceExample(TAGGED, example)).toBeUndefined()
 	})
 
+	it('returns undefined for a language the fence line cannot carry', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'First',
+			code: 'walk()',
+			language: 'ts */',
+		}
+		expect(replaceExample(TAGGED, example)).toBeUndefined()
+		expect(replaceExample(TAGGED, { ...example, language: `ts ${'```'}` })).toBeUndefined()
+	})
+
 	it('replaces the untitled tag of a block whose tag carries no title', () => {
 		const untitled = ['/**', ' * @example', ' * ```ts', ' * old()', ' * ```', ' */'].join('\n')
 		expect(replaceExample(untitled, { name: 'walk', code: 'walk()', language: 'ts' })).toBe(
