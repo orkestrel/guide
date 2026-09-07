@@ -262,16 +262,16 @@ export interface GuideInterface {
 export interface SourceInterface {
 	/**
 	 * Lists every direct declaration in the selected module keys matching
-	 * `export (async )?(function*?|class|const|interface|type) Name`, by
-	 * (name, keyword). Module keys are `.ts` inventory keys under the selected
-	 * directories, excluding each directory's exact root `index.ts` and every
-	 * `*.test.ts` key. Inventory keys are exact opaque workspace-relative keys,
-	 * must contain no empty, `.` or `..` segment, and are never normalized.
-	 * Comment/template payload is excluded through a
-	 * length-preserving projection, but membership still follows this consumer's
-	 * uninterrupted column-zero declaration-head grammar. `enum`
-	 * and other TypeScript export forms are outside this declaration-keyword
-	 * reflection population, not forbidden by general package policy.
+	 * `export (async )?(function*?|class|const|interface|type) Name`, by (name, keyword).
+	 *
+	 * @remarks
+	 * Module keys are `.ts` inventory keys under the selected directories, excluding each directory's
+	 * exact root `index.ts` and every `*.test.ts` key. Inventory keys are exact opaque
+	 * workspace-relative keys, must contain no empty, `.` or `..` segment, and are never normalized.
+	 * Comment/template payload is excluded through a length-preserving projection, but membership
+	 * still follows this consumer's uninterrupted column-zero declaration-head grammar. `enum` and
+	 * other TypeScript export forms are outside this declaration-keyword reflection population, not
+	 * forbidden by general package policy.
 	 *
 	 * @returns The selected modules' direct declarations, deduplicated and sorted by name
 	 */
@@ -344,6 +344,9 @@ export interface SourceInterface {
 	/**
 	 * Checks whether a workspace-root-relative path names a file or a directory present
 	 * in the inventory.
+	 *
+	 * @remarks
+	 * A directory counts so a guide's link to a directory resolves.
 	 *
 	 * @param relative - The workspace-root-relative path to look up
 	 * @returns True if the inventory holds that exact key or any key beneath it; false otherwise

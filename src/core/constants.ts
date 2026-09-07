@@ -4,10 +4,9 @@
  * `surfaceSymbolShape` all derive from.
  *
  * @remarks
- * One frozen list feeds all three, so a keyword cannot be admitted by one and refused by
- * another. Comment and template payload is excluded before reflection, and
- * `enum` is outside this population rather than forbidden by general package
- * policy.
+ * One frozen list feeds the type, the guard, and the shape, so a keyword cannot be admitted by one
+ * and refused by another. Comment and template payload is excluded before reflection, and `enum`
+ * is outside this population rather than forbidden by general package policy.
  */
 export const EXPORT_KEYWORDS = Object.freeze([
 	'type',

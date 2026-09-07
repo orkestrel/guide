@@ -4008,6 +4008,19 @@ describe('replaceExample', () => {
 		expect(replaceExample(TAGGED, { ...example, code: '~~~md\ninner\n~~~' })).toBeDefined()
 	})
 
+	// A doc block ends at its first `*/`, so a body carrying that terminator would close the
+	// block early and leave the tags after it outside the comment. The replacement refuses
+	// instead of writing a block the parser reads back as something else.
+	it('returns undefined for code carrying the comment terminator the block cannot hold', () => {
+		const example: SourceExample = {
+			name: 'walk',
+			title: 'First',
+			code: '/**\n * Walks.\n */',
+			language: 'ts',
+		}
+		expect(replaceExample(TAGGED, example)).toBeUndefined()
+	})
+
 	it('replaces the untitled tag of a block whose tag carries no title', () => {
 		const untitled = ['/**', ' * @example', ' * ```ts', ' * old()', ' * ```', ' */'].join('\n')
 		expect(replaceExample(untitled, { name: 'walk', code: 'walk()', language: 'ts' })).toBe(

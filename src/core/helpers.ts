@@ -1067,16 +1067,17 @@ export function findColumnIndex(table: TableNode, header: string): number | unde
 
 /**
  * Extracts the module-scope exports declared in one file's source text — the declaration keys
- * {@link collectKeys} reports, each split back into the keyword and name that built it, deduped
- * by (keyword, name). That one grammar matches
- * `export (async)? (function(\*)?|class|const|interface|type) Name`; a generator export
- * (`export function* walk`) keys as the `function` keyword, its trailing `*` stripped before the
- * {@link ExportKeyword} check.
- * Scanning uses {@link extractSourceLines}, so comment and template payload is
- * excluded while its uninterrupted column-zero head remains required; preserved
- * columns do not grant membership to leading/interrupted comment forms. The population is
- * exactly `type`, `interface`, `const`, `function`, and `class`; `enum` is
- * outside this reflection contract, not forbidden by general package policy.
+ * {@link collectKeys} reports, each split back into the keyword and name that built it, deduped by
+ * (keyword, name).
+ *
+ * @remarks
+ * That one grammar matches `export (async)? (function(\*)?|class|const|interface|type) Name`; a
+ * generator export (`export function* walk`) keys as the `function` keyword, its trailing `*`
+ * stripped before the {@link ExportKeyword} check. Scanning uses {@link extractSourceLines}, so
+ * comment and template payload is excluded while its uninterrupted column-zero head remains
+ * required; preserved columns do not grant membership to leading/interrupted comment forms. The
+ * population is exactly `type`, `interface`, `const`, `function`, and `class`; `enum` is outside
+ * this reflection contract, not forbidden by general package policy.
  *
  * @param source - The file's source text
  * @returns The file's exported symbols, in file order
@@ -1115,16 +1116,17 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 }
 
 /**
- * Extracts the module-scope declarations lacking the `export` keyword in one file's
- * source text — the mirror image of {@link extractExports}'s grammar, anchored
- * the same way (column 0, so an indented inner declaration never matches).
- * Scans only the {@link ExportKeyword} keywords (`function` / `class` /
- * `const` / `interface` / `type`) — a module-scope `let` or `var` is outside
- * this scanner's declaration-keyword grammar and out of this check's contract.
- * Scanning uses {@link extractSourceLines}, so comment
- * and template payload is excluded while its uninterrupted column-zero head
- * remains required; preserved columns do not widen membership. `enum` is likewise outside this reflection population, not
- * forbidden by general package policy.
+ * Extracts the module-scope declarations lacking the `export` keyword in one file's source text —
+ * the mirror image of {@link extractExports}'s grammar, anchored the same way (column 0, so an
+ * indented inner declaration never matches).
+ *
+ * @remarks
+ * Scans only the {@link ExportKeyword} keywords (`function` / `class` / `const` / `interface` /
+ * `type`) — a module-scope `let` or `var` is outside this scanner's declaration-keyword grammar
+ * and out of this check's contract. Scanning uses {@link extractSourceLines}, so comment and
+ * template payload is excluded while its uninterrupted column-zero head remains required;
+ * preserved columns do not widen membership. `enum` is likewise outside this reflection
+ * population, not forbidden by general package policy.
  *
  * @param source - The file's source text
  * @returns The file's hidden (non-exported) symbols, in file order
@@ -1826,13 +1828,15 @@ export function maskFences(text: string): string {
 
 /**
  * Extracts every eligible genuine JSDoc block paired with the physical record it documents.
- * An opener is eligible only when it is the first non-whitespace source material of its
- * record; a leading whitespace-separated span chain is last-span authoritative; intervening
- * source material severs association, while a leading JSDoc on the next record replaces
- * pending state. Any other next physical record is returned once and consumes it. This
- * parser walks aligned records without rescanning source syntax or applying
- * declaration/member grammar, and every reader of a doc block's text — the description
- * paragraph, the `@example` blocks, the member summaries — reads it through this one walk.
+ *
+ * @remarks
+ * An opener is eligible only when it is the first non-whitespace source material of its record; a
+ * leading whitespace-separated span chain is last-span authoritative; intervening source material
+ * severs association, while a leading JSDoc on the next record replaces pending state. Any other
+ * next physical record is returned once and consumes it. This parser walks aligned records without
+ * rescanning source syntax or applying declaration/member grammar, and every reader of a doc
+ * block's text — the description paragraph, the `@example` blocks, the member summaries — reads it
+ * through this one walk.
  *
  * @param lines - Aligned physical source-line records
  * @returns One record per documented physical line, in source order
@@ -2788,7 +2792,8 @@ export function replaceSummary(
  * @param comment - One complete genuine JSDoc span's raw text, as it sits in the file
  * @param example - The block whose language and code the tag's body takes
  * @returns The block's raw text with that body replaced, or `undefined` for a text that is no
- * doc block, for a title no `@example` tag carries, and for code the emitted fence cannot enclose
+ * doc block, for a title no `@example` tag carries, and for code the emitted fence cannot
+ * enclose or the doc block cannot hold — a body carrying the doc-comment terminator
  *
  * @example
  * ```ts
@@ -2799,6 +2804,7 @@ export function replaceSummary(
 export function replaceExample(comment: string, example: SourceExample): string | undefined {
 	if (!/^[ \t]*\/\*\*/.test(comment)) return undefined
 	if (example.code.includes('```')) return undefined
+	if (example.code.includes('*/')) return undefined
 	const content = unwrapComment(comment)
 	const masked = maskFences(content.join('\n')).split('\n')
 	const title = example.title ?? ''
