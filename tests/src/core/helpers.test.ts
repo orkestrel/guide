@@ -2200,11 +2200,24 @@ describe('normalizeSummary', () => {
 		)
 	})
 
-	it('drops the package part of a declaration reference target', () => {
+	it('drops the module part of a package-qualified target', () => {
 		expect(normalizeSummary('Reads {@link @scope/widgets#Widget}.')).toBe('Reads `Widget`.')
 		expect(normalizeSummary('Reads {@link @scope/widgets#Widget.render}.')).toBe(
 			'Reads `Widget.render`.',
 		)
+		expect(normalizeSummary('Reads {@link ./widgets.js#Widget}.')).toBe('Reads `Widget`.')
+	})
+
+	// The other reading of `#`. A package-qualified target names its package before the `#`, and a
+	// package or path token carries `@` or `/`; the fleet writes JSDoc's member reference in the
+	// same syntax, and the guide cell documenting one carries its text whole. So a target whose
+	// `#` no package precedes travels untouched, owner or no owner.
+	it('keeps the owner of a member reference', () => {
+		expect(normalizeSummary('Reads {@link Widget#render}.')).toBe('Reads `Widget#render`.')
+	})
+
+	it('keeps a member reference written with no owner', () => {
+		expect(normalizeSummary('Reads {@link #render}.')).toBe('Reads `#render`.')
 	})
 
 	it('renders the label of a labelled link whose target names a module', () => {
