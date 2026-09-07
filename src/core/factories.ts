@@ -1,8 +1,11 @@
 import type { ContractInterface } from '@orkestrel/contract'
 import type {
+	Drift,
 	GuideInterface,
 	ManifestEntry,
+	MethodEntry,
 	MethodGroup,
+	SourceExample,
 	SourceInterface,
 	SourceManagerInterface,
 	SourceManagerOptions,
@@ -11,7 +14,14 @@ import type {
 } from './types.js'
 import { createContract } from '@orkestrel/contract'
 import { Guide } from './Guide.js'
-import { manifestEntryShape, methodGroupShape, surfaceSymbolShape } from './shapers.js'
+import {
+	driftShape,
+	manifestEntryShape,
+	methodEntryShape,
+	methodGroupShape,
+	sourceExampleShape,
+	surfaceSymbolShape,
+} from './shapers.js'
 import { Source } from './sources/Source.js'
 import { SourceManager } from './sources/SourceManager.js'
 
@@ -99,6 +109,63 @@ export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> 
 }
 
 /**
+ * Compiles the {@link methodEntryShape} into a {@link ContractInterface} for
+ * {@link MethodEntry} — a guard, coercing parser, JSON Schema, and seeded
+ * generator from one shape declaration (AGENTS.md § Design laws).
+ *
+ * @returns A `MethodEntry` contract bundling `schema` / `is` / `parse` / `generate`
+ *
+ * @example
+ * ```ts
+ * import { createMethodEntryContract } from '@orkestrel/guide'
+ *
+ * const methodEntry = createMethodEntryContract()
+ * methodEntry.is({ name: 'walk' }) // true
+ * ```
+ */
+export function createMethodEntryContract(): ContractInterface<MethodEntry> {
+	return createContract(methodEntryShape)
+}
+
+/**
+ * Compiles the {@link sourceExampleShape} into a {@link ContractInterface} for
+ * {@link SourceExample} — a guard, coercing parser, JSON Schema, and seeded
+ * generator from one shape declaration (AGENTS.md § Design laws).
+ *
+ * @returns A `SourceExample` contract bundling `schema` / `is` / `parse` / `generate`
+ *
+ * @example
+ * ```ts
+ * import { createSourceExampleContract } from '@orkestrel/guide'
+ *
+ * const sourceExample = createSourceExampleContract()
+ * sourceExample.is({ name: 'walk', code: 'walk()' }) // true
+ * ```
+ */
+export function createSourceExampleContract(): ContractInterface<SourceExample> {
+	return createContract(sourceExampleShape)
+}
+
+/**
+ * Compiles the {@link driftShape} into a {@link ContractInterface} for
+ * {@link Drift} — a guard, coercing parser, JSON Schema, and seeded
+ * generator from one shape declaration (AGENTS.md § Design laws).
+ *
+ * @returns A `Drift` contract bundling `schema` / `is` / `parse` / `generate`
+ *
+ * @example
+ * ```ts
+ * import { createDriftContract } from '@orkestrel/guide'
+ *
+ * const drift = createDriftContract()
+ * drift.is({ key: 'class Widget', guide: 'A widget.' }) // true
+ * ```
+ */
+export function createDriftContract(): ContractInterface<Drift> {
+	return createContract(driftShape)
+}
+
+/**
  * Compiles the {@link methodGroupShape} into a {@link ContractInterface} for
  * {@link MethodGroup} — a guard, coercing parser, JSON Schema, and seeded
  * generator from one shape declaration (AGENTS.md § Design laws).
@@ -110,7 +177,7 @@ export function createSurfaceSymbolContract(): ContractInterface<SurfaceSymbol> 
  * import { createMethodGroupContract } from '@orkestrel/guide'
  *
  * const methodGroup = createMethodGroupContract()
- * methodGroup.is({ interface: 'MarkdownInterface', methods: ['walk'] }) // true
+ * methodGroup.is({ interface: 'MarkdownInterface', methods: [{ name: 'walk' }] }) // true
  * ```
  */
 export function createMethodGroupContract(): ContractInterface<MethodGroup> {

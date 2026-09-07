@@ -1,6 +1,8 @@
 import type {
 	Declaration,
 	DeclarationKeyword,
+	MethodEntry,
+	SourceExample,
 	SourceInterface,
 	SourceOptions,
 	SurfaceSymbol,
@@ -61,7 +63,7 @@ import {
  * })
  * source.exports() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
  * source.surface() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
- * source.methods('GuideInterface') // ['sections']
+ * source.methods('GuideInterface') // [{ name: 'sections' }]
  * source.exists('src/core/Guide.ts') // true
  * ```
  */
@@ -71,7 +73,7 @@ export class Source implements SourceInterface {
 	#exports: readonly SurfaceSymbol[] | undefined
 	#surface: readonly SurfaceSymbol[] | undefined
 	#hidden: readonly SurfaceSymbol[] | undefined
-	#examples: readonly string[] | undefined
+	#examples: readonly SourceExample[] | undefined
 
 	constructor(options: SourceOptions) {
 		this.#files = options.files
@@ -92,12 +94,12 @@ export class Source implements SourceInterface {
 		return this.#surface
 	}
 
-	methods(name: string): readonly string[] {
+	methods(name: string): readonly MethodEntry[] {
 		const declared = this.#members('interface', name, new Set<string>())
 		if (declared !== undefined) return declared
 
 		const inherited = this.#members('class', name, new Set<string>())
-		return inherited === undefined ? [] : inherited.filter((method) => method !== 'constructor')
+		return inherited === undefined ? [] : inherited.filter((entry) => entry.name !== 'constructor')
 	}
 
 	exists(relative: string): boolean {
@@ -112,9 +114,9 @@ export class Source implements SourceInterface {
 		return this.#hidden
 	}
 
-	examples(): readonly string[]
-	examples(name: string): readonly string[]
-	examples(name?: string): readonly string[] {
+	examples(): readonly SourceExample[]
+	examples(name: string): readonly SourceExample[]
+	examples(name?: string): readonly SourceExample[] {
 		if (name === undefined) {
 			if (this.#examples === undefined) this.#examples = this.#scanExamples()
 			return this.#examples
@@ -123,25 +125,26 @@ export class Source implements SourceInterface {
 		return this.#exampleMembers(name)
 	}
 
-	// The union of exported-function `@example` names across the module's
-	// files, deduped in first-seen order — mirrors `#scanSymbols`, but over a
-	// plain string scanner (`extractExamples`) rather than a `SurfaceSymbol` one.
-	#scanExamples(): readonly string[] {
-		const names: string[] = []
+	// The union of exported-function `@example` blocks across the module's files,
+	// deduped by name and title in first-seen order — mirrors `#scanSymbols`, but
+	// over the `@example` scanner rather than a `SurfaceSymbol` one.
+	#scanExamples(): readonly SourceExample[] {
+		const examples: SourceExample[] = []
 		const seen = new Set<string>()
 
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			for (const name of extractExamples(text)) {
-				if (seen.has(name)) continue
-				seen.add(name)
-				names.push(name)
+			for (const example of extractExamples(text)) {
+				const identity = `${example.name}\n${example.title ?? ''}`
+				if (seen.has(identity)) continue
+				seen.add(identity)
+				examples.push(example)
 			}
 		}
 
-		return names
+		return examples
 	}
 
 	// The graph closure of each selected directory's conventional root barrel,
@@ -202,15 +205,25 @@ export class Source implements SourceInterface {
 		}
 	}
 
-	// The `@example`-carrying members of the interface-or-class declaration
-	// body named `name`, unioning both shapes (an implementer may carry its
-	// own `@example` a documented interface member does not, or vice versa).
-	#exampleMembers(name: string): readonly string[] {
-		const members = new Set<string>([
+	// The `@example` blocks of the interface-or-class declaration body named
+	// `name`, unioning both shapes (an implementer may carry its own `@example` a
+	// documented interface member does not, or vice versa). The interface's own
+	// block answers first for a member both shapes document.
+	#exampleMembers(name: string): readonly SourceExample[] {
+		const members = new Map<string, SourceExample>()
+
+		for (const example of [
 			...extractExampleMethods(this.#locate('interface', name)?.body ?? []),
 			...extractExampleMethods(this.#locate('class', name)?.body ?? []),
-		])
-		return Array.from(members).sort()
+		]) {
+			const identity = `${example.name}\n${example.title ?? ''}`
+			if (members.has(identity)) continue
+			members.set(identity, example)
+		}
+
+		return Array.from(members.values()).sort((a, b) =>
+			a.name === b.name ? 0 : a.name < b.name ? -1 : 1,
+		)
 	}
 
 	// The pure union-and-dedupe-and-sort composition behind `exports()` and
@@ -236,29 +249,36 @@ export class Source implements SourceInterface {
 		return symbols.sort((a, b) => (a.name === b.name ? 0 : a.name < b.name ? -1 : 1))
 	}
 
-	// The declared method names of the `keyword` declaration named `name`
-	// unioned with those of every declaration it extends. `undefined` states one
-	// fact only — the module scope declares no such head — which is what sends
-	// `methods()` on to the class shape; a name already on the visit path is
-	// declared and returns an empty union, so a cycle and a diamond each collapse
-	// to one visit. A base the scope does not declare contributes nothing.
+	// The declared members of the `keyword` declaration named `name` unioned with
+	// those of every declaration it extends, each carrying its own doc block's
+	// description paragraph. `undefined` states one fact only — the module scope
+	// declares no such head — which is what sends `methods()` on to the class
+	// shape; a name already on the visit path is declared and returns an empty
+	// union, so a cycle and a diamond each collapse to one visit. A base the scope
+	// does not declare contributes nothing, and a member the declaration itself
+	// documents answers ahead of the base it overrides.
 	#members(
 		keyword: DeclarationKeyword,
 		name: string,
 		visited: Set<string>,
-	): readonly string[] | undefined {
+	): readonly MethodEntry[] | undefined {
 		if (visited.has(name)) return []
 		visited.add(name)
 
 		const declaration = this.#locate(keyword, name)
 		if (declaration === undefined) return undefined
 
-		const methods = new Set<string>(extractMemberMethods(declaration.body))
+		const methods = new Map<string, MethodEntry>()
+		for (const entry of extractMemberMethods(declaration.body)) methods.set(entry.name, entry)
 		for (const base of declaration.bases) {
-			for (const member of this.#members(keyword, base, visited) ?? []) methods.add(member)
+			for (const member of this.#members(keyword, base, visited) ?? []) {
+				if (!methods.has(member.name)) methods.set(member.name, member)
+			}
 		}
 
-		return Array.from(methods).sort()
+		return Array.from(methods.values()).sort((a, b) =>
+			a.name === b.name ? 0 : a.name < b.name ? -1 : 1,
+		)
 	}
 
 	// The one declaration that answers for `name` — the first file in sorted key

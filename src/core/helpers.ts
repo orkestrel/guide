@@ -3,26 +3,34 @@ import type {
 	Declaration,
 	DeclarationHead,
 	DeclarationKeyword,
+	Drift,
 	FenceImport,
 	GuideFence,
+	GuideInterface,
 	GuideModule,
+	MethodEntry,
 	MethodGroup,
+	SourceComment,
+	SourceExample,
+	SourceInterface,
 	SourceLine,
 	SurfaceSymbol,
 } from './types.js'
 import {
 	flattenText,
+	isBlockquoteNode,
 	isCodeBlockNode,
 	isCodeSpanNode,
 	isEmphasisNode,
 	isHeadingNode,
 	isImageNode,
 	isLinkNode,
+	isParagraphNode,
 	isTableNode,
 	walkNodes,
 } from '@orkestrel/markdown'
 import { isNonEmptyString } from '@orkestrel/contract'
-import { EXTERNAL_SCHEMES, METHODS, SURFACE, TESTS } from './constants.js'
+import { EXTERNAL_SCHEMES, KIND, METHODS, SUMMARY, SURFACE, TESTS } from './constants.js'
 import { isExportKeyword } from './validators.js'
 
 /**
@@ -938,24 +946,52 @@ export function normalizeIdentifier(code: string): string {
 }
 
 /**
- * Finds the index of a table's `Kind` column by its header text so it survives
- * column reordering. The match is exact and case-sensitive (`'Kind'`) — a table
- * without that exact header contributes no symbols to the surface it feeds.
+ * Extracts one table cell's compared text — the inline content flattened with every code
+ * span kept as a code span, so `` `Widget` `` reads the same on both sides of the parity
+ * comparison. Emphasis drops to its text, a link drops to its text, an image drops to its
+ * alternative text, and the markdown parser has already unescaped `\|`.
  *
- * @param table - The table to inspect
- * @returns The `Kind` column's index, or `undefined` when the table has no `Kind` header
+ * @param cell - The cell's inline nodes
+ * @returns The cell's text, code spans included
  *
  * @example
  * ```ts
- * findKindIndex(table) // 1, or undefined
+ * extractCellText([{ element: 'codeSpan', value: 'Widget' }]) // '`Widget`'
  * ```
  */
-export function findKindIndex(table: TableNode): number | undefined {
+export function extractCellText(cell: readonly InlineNode[]): string {
+	let text = ''
+	for (const node of cell) {
+		if (isCodeSpanNode(node)) text += `\`${node.value}\``
+		else if (isEmphasisNode(node) || isLinkNode(node) || isImageNode(node)) {
+			text += extractCellText(node.children)
+		} else text += flattenText(node)
+	}
+	return text
+}
+
+/**
+ * Finds the index of the column whose header text is `header` so a table's columns survive
+ * reordering. The match is exact and case-sensitive — a table without that exact header
+ * contributes nothing to the projection reading it, so a `## Surface` table with no
+ * {@link SUMMARY} column leaves every row's summary absent and {@link findDrift} reports each
+ * of those rows, never agreement.
+ *
+ * @param table - The table to inspect
+ * @param header - The exact header text to locate, for example `Kind`
+ * @returns The column's index, or `undefined` when the table has no such header
+ *
+ * @example
+ * ```ts
+ * findColumnIndex(table, 'Kind') // 1, or undefined
+ * ```
+ */
+export function findColumnIndex(table: TableNode, header: string): number | undefined {
 	for (let index = 0; index < table.header.length; index += 1) {
 		const cell = table.header[index]
 		if (
 			cell !== undefined &&
-			flattenText({ element: 'paragraph', children: cell }).trim() === 'Kind'
+			flattenText({ element: 'paragraph', children: cell }).trim() === header
 		) {
 			return index
 		}
@@ -987,8 +1023,10 @@ export function findKindIndex(table: TableNode): number | undefined {
 export function extractExports(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
+	const lines = extractSourceLines(source)
+	const summaries = collectSummaries(lines)
 
-	for (const line of extractSourceLines(source)) {
+	for (const line of lines) {
 		const match = line.code.match(
 			/^export (?:async )?(function\*?|class|const|interface|type) (\w+)/,
 		)
@@ -1000,7 +1038,8 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 		const key = `${keyword} ${name}`
 		if (seen.has(key)) continue
 		seen.add(key)
-		symbols.push({ name, keyword })
+		const summary = summaries.get(line)
+		symbols.push({ name, keyword, ...(summary === undefined ? {} : { summary }) })
 	}
 
 	return symbols
@@ -1030,8 +1069,10 @@ export function extractExports(source: string): readonly SurfaceSymbol[] {
 export function extractHidden(source: string): readonly SurfaceSymbol[] {
 	const symbols: SurfaceSymbol[] = []
 	const seen = new Set<string>()
+	const lines = extractSourceLines(source)
+	const summaries = collectSummaries(lines)
 
-	for (const line of extractSourceLines(source)) {
+	for (const line of lines) {
 		if (line.code.startsWith('export ')) continue
 		const match = line.code.match(/^(?:async )?(function\*?|class|const|interface|type) (\w+)/)
 		const rawKeyword = match?.[1]
@@ -1042,7 +1083,8 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
 		const key = `${keyword} ${name}`
 		if (seen.has(key)) continue
 		seen.add(key)
-		symbols.push({ name, keyword })
+		const summary = summaries.get(line)
+		symbols.push({ name, keyword, ...(summary === undefined ? {} : { summary }) })
 	}
 
 	return symbols
@@ -1178,25 +1220,35 @@ export function extractDeclaration(
  * (`*`), and optional (`records?(`) methods all count; getters, setters,
  * `static` members, and `#` privates never do (their keyword or `#` breaks
  * the `name(` shape). Matching runs once over projected lines so commented
- * method-like payload never becomes eligible.
+ * method-like payload never becomes eligible. Each member carries its own doc block's
+ * description paragraph, read through {@link collectSummaries}; the first declaration of a
+ * name answers for it.
  *
  * @param lines - A declaration's body lines
- * @returns The declared method names, deduped and sorted
+ * @returns The declared members, deduplicated by name and sorted by name
  *
  * @example
  * ```ts
- * extractMemberMethods(['\tmap(): void', '\tfilter(): void']) // ['filter', 'map']
+ * extractMemberMethods(['\tmap(): void', '\tfilter(): void']) // [{ name: 'filter' }, { name: 'map' }]
  * ```
  */
-export function extractMemberMethods(lines: readonly string[]): readonly string[] {
-	const methods: string[] = []
+export function extractMemberMethods(lines: readonly string[]): readonly MethodEntry[] {
+	const methods = new Map<string, MethodEntry>()
+	const projected = extractSourceLines(lines.join('\n'))
+	const summaries = collectSummaries(projected)
 
-	for (const line of extractSourceLines(lines.join('\n'))) {
+	for (const line of projected) {
 		const method = line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
-		if (method?.[1] !== undefined) methods.push(method[1])
+		const name = method?.[1]
+		if (name === undefined || methods.has(name)) continue
+
+		const summary = summaries.get(line)
+		methods.set(name, { name, ...(summary === undefined ? {} : { summary }) })
 	}
 
-	return Array.from(new Set(methods)).sort()
+	return Array.from(methods.values()).sort((a, b) =>
+		a.name === b.name ? 0 : a.name < b.name ? -1 : 1,
+	)
 }
 
 /**
@@ -1239,8 +1291,11 @@ export function selectSectionBlocks(
  * Extracts every `## Surface` identifier the guide documents — each table row's column 0
  * code span (the name) paired with its `Kind` column (located by header text)
  * unioned with every backticked H3 entity heading in the section
- * (`{name: <codeSpan>, keyword: 'class'}`), deduped by {@link computeSymbolKey}. A row with
- * no code-span name, or an unrecognized `Kind` text, is skipped.
+ * (`{name: <codeSpan>, keyword: 'class'}`), deduped by {@link computeSymbolKey}. A row with no
+ * code-span name has no name to key a symbol on, so this reader skips it and
+ * {@link extractUnnamed} reports it; a row with an unrecognized `Kind` text is skipped. A row
+ * also carries its {@link SUMMARY} column's compared text when the table has that column; a
+ * table without it leaves every row's summary absent, which {@link findDrift} reports.
  *
  * @param document - The parsed guide document
  * @returns The documented surface, in encounter order
@@ -1256,7 +1311,8 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 
 	for (const block of selectSectionBlocks(document, SURFACE)) {
 		if (isTableNode(block)) {
-			const column = findKindIndex(block)
+			const column = findColumnIndex(block, KIND)
+			const described = findColumnIndex(block, SUMMARY)
 			for (const row of block.rows) {
 				const nameCell = row[0]
 				const rawName = nameCell === undefined ? undefined : findFirstCode(nameCell)
@@ -1270,7 +1326,14 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 						: flattenText({ element: 'paragraph', children: kindCell }).trim()
 				if (!isExportKeyword(kindText)) continue
 
-				const symbol: SurfaceSymbol = { name, keyword: kindText }
+				const summaryCell = described === undefined ? undefined : row[described]
+				const summary =
+					summaryCell === undefined ? '' : normalizeSummary(extractCellText(summaryCell))
+				const symbol: SurfaceSymbol = {
+					name,
+					keyword: kindText,
+					...(summary.length === 0 ? {} : { summary }),
+				}
 				const key = computeSymbolKey(symbol)
 				if (seen.has(key)) continue
 				seen.add(key)
@@ -1297,14 +1360,16 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 /**
  * Extracts one {@link MethodGroup} per documented behavioral interface in `## Methods` —
  * an H4 with a code span sets the current interface, and the table immediately
- * following becomes its documented methods.
+ * following becomes its documented methods. A row with no code-span name has no name to key a
+ * member on, so this reader skips it and {@link extractUnnamed} reports it. Each row carries its
+ * {@link SUMMARY} column's compared text when the table has that column.
  *
  * @param document - The parsed guide document
  * @returns The documented method groups, in document order
  *
  * @example
  * ```ts
- * extractMethods(document) // [{ interface: 'MarkdownInterface', methods: ['walk', ...] }]
+ * extractMethods(document) // [{ interface: 'MarkdownInterface', methods: [{ name: 'walk' }] }]
  * ```
  */
 export function extractMethods(document: MarkdownDocument): readonly MethodGroup[] {
@@ -1319,12 +1384,18 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 		}
 
 		if (isTableNode(block) && current !== undefined) {
-			const methods: string[] = []
+			const methods: MethodEntry[] = []
+			const described = findColumnIndex(block, SUMMARY)
 			for (const row of block.rows) {
 				const cell = row[0]
 				const rawName = cell === undefined ? undefined : findFirstCode(cell)
 				const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
-				if (name !== undefined) methods.push(name)
+				if (name === undefined) continue
+
+				const summaryCell = described === undefined ? undefined : row[described]
+				const summary =
+					summaryCell === undefined ? '' : normalizeSummary(extractCellText(summaryCell))
+				methods.push({ name, ...(summary.length === 0 ? {} : { summary }) })
 			}
 			groups.push({ interface: current, methods })
 			current = undefined
@@ -1332,6 +1403,39 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 	}
 
 	return groups
+}
+
+/**
+ * Extracts every `## Surface` or `## Methods` table row whose first cell carries no code span.
+ * {@link extractSurface} and {@link extractMethods} skip such a row, because a row with no
+ * name gives them nothing to key a symbol or a member on, and this projection is what reports
+ * the skip. Each entry is the row's cells read through {@link extractCellText} and joined
+ * by ` | `, so a reader can locate the row in the guide; the `## Surface` rows come first,
+ * then the `## Methods` rows, each in document order. {@link GuideInterface.unnamed} caches it.
+ *
+ * @param document - The parsed guide document
+ * @returns One entry per row carrying no code-span name
+ *
+ * @example
+ * ```ts
+ * extractUnnamed(document) // ['Widget | class | Represents a widget.']
+ * ```
+ */
+export function extractUnnamed(document: MarkdownDocument): readonly string[] {
+	const unnamed: string[] = []
+
+	for (const heading of [SURFACE, METHODS]) {
+		for (const block of selectSectionBlocks(document, heading)) {
+			if (!isTableNode(block)) continue
+			for (const row of block.rows) {
+				const cell = row[0]
+				if (cell !== undefined && findFirstCode(cell) !== undefined) continue
+				unnamed.push(row.map((content) => extractCellText(content)).join(' | '))
+			}
+		}
+	}
+
+	return unnamed
 }
 
 /**
@@ -1377,40 +1481,123 @@ export function extractTests(document: MarkdownDocument): readonly string[] {
 }
 
 /**
- * Selects the next physical record after an eligible genuine JSDoc whose final
- * authoritative span carries an exact block-position `@example` tag. Title
- * text is allowed. A leading whitespace-separated span chain is last-span
- * authoritative; intervening source material severs association, while a
- * leading JSDoc on the next record replaces pending state. Any other next
- * physical record is returned once and consumes it. This parser walks aligned
- * records without rescanning source syntax or applying declaration/member
- * grammar.
+ * Returns the canonical body of one genuine JSDoc span — the `/**` opener, the closing
+ * marker, each line's continuation marker, and the block's leading indentation removed,
+ * with per-line trailing whitespace trimmed and the surrounding blank lines dropped. A
+ * line's own indentation beyond the marker is kept, so an `@example` fence body keeps the
+ * shape it was written in.
  *
- * @param lines - Aligned physical source-line records
- * @returns The immediately following candidate lines, in source order
+ * @param comment - One complete genuine JSDoc span's raw text
+ * @returns The span's unwrapped body
  *
  * @example
  * ```ts
- * extractExampleLines(extractSourceLines('/** @example *' + '/\nexport function walk() {}'))
- * // the `export function walk() {}` SourceLine
+ * normalizeComment('/**' + ' Creates a widget. *' + '/') // 'Creates a widget.'
  * ```
  */
-export function extractExampleLines(lines: readonly SourceLine[]): readonly SourceLine[] {
-	const examples: SourceLine[] = []
+export function normalizeComment(comment: string): string {
+	const body = /^[ \t]*\/\*([\s\S]*?)\*\/[ \t]*$/.exec(comment)?.[1] ?? comment
+	return body
+		.split('\n')
+		.map((line) => line.replace(/^[ \t]*\*[ \t]?/, '').replace(/[ \t]+$/, ''))
+		.join('\n')
+		.replace(/^\n+/, '')
+		.replace(/\n+$/, '')
+}
+
+/**
+ * Returns the canonical compared form of a description paragraph — `{@link Target}` and
+ * `{@link Target | label}` become the code token of the label or the target text, and every
+ * run of whitespace, including a collapsed continuation marker and a line break, becomes one
+ * space, with the ends trimmed. A code span stays a code span. The guide's side and the
+ * source's side read through this one form.
+ *
+ * @param text - A doc block's description paragraph, or a guide cell's flattened text
+ * @returns The compared form of that text
+ *
+ * @example
+ * ```ts
+ * normalizeSummary('Creates a\n{@link Widget}.') // 'Creates a `Widget`.'
+ * ```
+ */
+export function normalizeSummary(text: string): string {
+	return text
+		.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
+		.replace(/\{@link\s+([^}|]*?)\s*\}/g, '`$1`')
+		.replace(/\s+/g, ' ')
+		.trim()
+}
+
+/**
+ * Returns one doc block's unwrapped text with every fenced body replaced by aligned spaces,
+ * so a tag search reads the block's structure and never its example code. A line opening with
+ * three or more backticks or tildes opens a body, the first line opening with a run of the same
+ * character at least as long closes it, an unclosed body runs to the end, and the marker lines
+ * themselves stay. The projection preserves every line and every column, so an index found in
+ * it addresses the same character of the text it was built from.
+ *
+ * @param text - One doc block's unwrapped text, as {@link normalizeComment} returns it
+ * @returns The same text with each fenced body's characters replaced by spaces
+ *
+ * @example
+ * ```ts
+ * maskFences('@example\n~~~\n@decorator()\n~~~').split('\n')[2] // '            '
+ * ```
+ */
+export function maskFences(text: string): string {
+	const masked: string[] = []
+	let marker: string | undefined
+
+	for (const line of text.split('\n')) {
+		const fence = /^[ \t]*(`{3,}|~{3,})/.exec(line)?.[1]
+		if (marker === undefined) {
+			masked.push(line)
+			marker = fence
+			continue
+		}
+		const closing = fence !== undefined && fence.startsWith(marker)
+		masked.push(closing ? line : ' '.repeat(line.length))
+		if (closing) marker = undefined
+	}
+
+	return masked.join('\n')
+}
+
+/**
+ * Extracts every eligible genuine JSDoc block paired with the physical record it documents.
+ * An opener is eligible only when it is the first non-whitespace source material of its
+ * record; a leading whitespace-separated span chain is last-span authoritative; intervening
+ * source material severs association, while a leading JSDoc on the next record replaces
+ * pending state. Any other next physical record is returned once and consumes it. This
+ * parser walks aligned records without rescanning source syntax or applying
+ * declaration/member grammar, and every reader of a doc block's text — the description
+ * paragraph, the `@example` blocks, the member summaries — reads it through this one walk.
+ *
+ * @param lines - Aligned physical source-line records
+ * @returns One record per documented physical line, in source order
+ *
+ * @example
+ * ```ts
+ * extractSourceComments(extractSourceLines('/**' + ' Walks. *' + '/\nexport function walk() {}'))
+ * // [{ text: 'Walks.', line: the `export function walk() {}` SourceLine }]
+ * ```
+ */
+export function extractSourceComments(lines: readonly SourceLine[]): readonly SourceComment[] {
+	const comments: SourceComment[] = []
 	let block = false
 	let eligible = false
-	let example = false
-	let pending = false
+	let span: string[] = []
+	let pending: string | undefined
 
 	for (const line of lines) {
 		const projection = line.jsdoc
 		const first = projection?.indexOf('/**') ?? -1
 
-		if (pending) {
-			if (!block && first >= 0 && line.source.slice(0, first).trim() === '') pending = false
+		if (pending !== undefined) {
+			if (!block && first >= 0 && line.source.slice(0, first).trim() === '') pending = undefined
 			else {
-				examples.push(line)
-				pending = false
+				comments.push({ text: pending, line })
+				pending = undefined
 			}
 		}
 
@@ -1420,9 +1607,7 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
 		if (block) {
 			const close = projection.indexOf('*/')
 			const end = close < 0 ? projection.length : close + 2
-			if (eligible && /^\s*\*?\s*@example(?=\s|\*\/|$)/.test(projection.slice(0, end))) {
-				example = true
-			}
+			span.push(projection.slice(0, end))
 			if (close < 0) continue
 
 			block = false
@@ -1430,26 +1615,24 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
 			const endOfGap = opener < 0 ? line.source.length : opener
 			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
 			if (opener < 0) {
-				pending = eligible && example && whitespace
+				pending = eligible && whitespace ? normalizeComment(span.join('\n')) : undefined
 				continue
 			}
 
 			eligible = eligible && whitespace
-			example = false
+			span = []
 			cursor = opener
 		} else {
 			if (first < 0) continue
 			eligible = line.source.slice(0, first).trim() === ''
-			example = false
+			span = []
 			cursor = first
 		}
 
 		while (cursor < projection.length) {
 			const close = projection.indexOf('*/', cursor + 2)
 			const end = close < 0 ? projection.length : close + 2
-			if (eligible && /^\s*\*?\s*@example(?=\s|\*\/|$)/.test(projection.slice(cursor + 3, end))) {
-				example = true
-			}
+			span.push(projection.slice(cursor, end))
 
 			if (close < 0) {
 				block = true
@@ -1460,13 +1643,143 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
 			const endOfGap = opener < 0 ? line.source.length : opener
 			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
 			if (opener < 0) {
-				pending = eligible && example && whitespace
+				pending = eligible && whitespace ? normalizeComment(span.join('\n')) : undefined
 				break
 			}
 
 			eligible = eligible && whitespace
-			example = false
+			span = []
 			cursor = opener
+		}
+	}
+
+	return comments
+}
+
+/**
+ * Selects the next physical record after an eligible genuine JSDoc whose final
+ * authoritative span carries an `@example` tag opening a line at its first non-blank column —
+ * the {@link extractSourceComments} walk filtered to the blocks that carry one. Title
+ * text is allowed, and {@link maskFences} keeps a fenced body's own lines out of the search.
+ *
+ * @param lines - Aligned physical source-line records
+ * @returns The immediately following candidate lines, in source order
+ *
+ * @example
+ * ```ts
+ * extractExampleLines(extractSourceLines('/**' + ' @example *' + '/\nexport function walk() {}'))
+ * // the `export function walk() {}` SourceLine
+ * ```
+ */
+export function extractExampleLines(lines: readonly SourceLine[]): readonly SourceLine[] {
+	return extractSourceComments(lines)
+		.filter((comment) => /^[ \t]*@example(?=[ \t]|$)/m.test(maskFences(comment.text)))
+		.map((comment) => comment.line)
+}
+
+/**
+ * Collects the description paragraph of every documented physical record — a doc block's
+ * text before its first block tag, in {@link normalizeSummary}'s compared form — keyed by the
+ * record it documents. A record whose block carries no description contributes no entry, so
+ * an absent summary stays absent rather than becoming an empty string.
+ *
+ * @param lines - Aligned physical source-line records
+ * @returns One entry per documented record carrying a description paragraph
+ *
+ * @example
+ * ```ts
+ * collectSummaries(extractSourceLines('/**' + ' Walks. *' + '/\nexport function walk() {}')).size // 1
+ * ```
+ */
+export function collectSummaries(lines: readonly SourceLine[]): ReadonlyMap<SourceLine, string> {
+	const summaries = new Map<SourceLine, string>()
+
+	for (const comment of extractSourceComments(lines)) {
+		const tag = maskFences(comment.text).search(/^[ \t]*@\w/m)
+		const summary = normalizeSummary(tag < 0 ? comment.text : comment.text.slice(0, tag))
+		if (summary.length > 0) summaries.set(comment.line, summary)
+	}
+
+	return summaries
+}
+
+/**
+ * Collects the `@example` blocks one doc block's unwrapped text carries, each named for the
+ * declaration or member the block documents. The text after the tag becomes the block's
+ * `title`; a body opening with a fence contributes that fence's language and its verbatim
+ * body, and a body with no fence contributes its own trimmed text as the code.
+ *
+ * @param comment - One doc block's unwrapped text, as {@link normalizeComment} returns it
+ * @param name - The declaration or member the block documents
+ * @returns The block's `@example` entries, in block order
+ *
+ * @example
+ * ```ts
+ * collectExamples('@example Walking\n```ts\nwalk()\n```', 'walk')
+ * // [{ name: 'walk', title: 'Walking', code: 'walk()', language: 'ts' }]
+ * ```
+ */
+export function collectExamples(comment: string, name: string): readonly SourceExample[] {
+	const examples: SourceExample[] = []
+	const masked = maskFences(comment)
+	const tags = /^[ \t]*@example(?=[ \t]|$)[ \t]*(.*)$/gm
+
+	let tag: RegExpExecArray | null
+	while ((tag = tags.exec(masked)) !== null) {
+		const title = (tag[1] ?? '').trim()
+		const start = tag.index + tag[0].length
+		const rest = comment.slice(start).replace(/^\n/, '')
+		const next = masked
+			.slice(start)
+			.replace(/^\n/, '')
+			.search(/^[ \t]*@\w+/m)
+		const body = (next < 0 ? rest : rest.slice(0, next)).replace(/^\n+/, '').replace(/\n+$/, '')
+		const fence = /^```(\S*)\n([\s\S]*?)\n?```/.exec(body)
+		const language = fence?.[1] ?? ''
+		const code = fence?.[2] ?? body
+
+		examples.push({
+			name,
+			...(title.length === 0 ? {} : { title }),
+			code,
+			...(language.length === 0 ? {} : { language }),
+		})
+	}
+
+	return examples
+}
+
+/**
+ * Extracts the `@example` blocks carried by the exported functions in one file's source text,
+ * each named for the function its block documents. Shared adjacency comes from
+ * {@link extractSourceComments} and each block is read by {@link collectExamples};
+ * exported-function membership is matched against the aligned code projection, so comment and
+ * template payload cannot qualify. A function carrying several blocks contributes each.
+ *
+ * @param source - The file's source text
+ * @returns The exported functions' `@example` blocks, in file order, deduplicated by name and title
+ *
+ * @example
+ * ```ts
+ * const block = ['/**', ' * @example', ' * walk()', ' *' + '/', 'export function walk() {}', ''].join('\n')
+ * extractExamples(block) // [{ name: 'walk', code: 'walk()' }]
+ * extractExamples('export function walk() {}\n') // []
+ * ```
+ */
+export function extractExamples(source: string): readonly SourceExample[] {
+	const examples: SourceExample[] = []
+	const seen = new Set<string>()
+
+	for (const comment of extractSourceComments(extractSourceLines(source))) {
+		const match = comment.line.code.match(/^export (?:async )?function\*? (\w+)/)
+		const name = match?.[1]
+		if (!isNonEmptyString(name)) continue
+
+		for (const example of collectExamples(comment.text, name)) {
+			const key = `${name}\n${example.title ?? ''}`
+			if (seen.has(key)) continue
+			seen.add(key)
+			examples.push(example)
 		}
 	}
 
@@ -1474,74 +1787,49 @@ export function extractExampleLines(lines: readonly SourceLine[]): readonly Sour
 }
 
 /**
- * Extracts the exported functions in one file's source text whose immediately preceding
- * eligible genuine JSDoc block carries `@example`. Shared adjacency comes from
- * {@link extractExampleLines}; exported-function membership is matched against
- * the aligned code projection, so comment and template payload cannot qualify.
- *
- * @param source - The file's source text
- * @returns The exported function names with an `@example`, in file order
- *
- * @example
- * ```ts
- * const block = ['/**', ' * @example', ' *' + '/', 'export function walk() {}', ''].join('\n')
- * extractExamples(block) // ['walk']
- * extractExamples('export function walk() {}\n') // []
- * ```
- */
-export function extractExamples(source: string): readonly string[] {
-	const names: string[] = []
-	const seen = new Set<string>()
-
-	for (const line of extractExampleLines(extractSourceLines(source))) {
-		const match = line.code.match(/^export (?:async )?function\*? (\w+)/)
-		const name = match?.[1]
-		if (isNonEmptyString(name) && !seen.has(name)) {
-			seen.add(name)
-			names.push(name)
-		}
-	}
-
-	return names
-}
-
-/**
- * Extracts the callable-member names in a declaration body (per {@link extractMemberMethods}'
- * grammar) whose immediately preceding eligible genuine JSDoc block, within
- * the same body, carries `@example`. Shared adjacency comes from
- * {@link extractExampleLines}; member membership is matched against aligned
- * projected code.
+ * Extracts the `@example` blocks carried by the callable members of a declaration body (per
+ * {@link extractMemberMethods}' grammar), each named for the member its block documents.
+ * Shared adjacency comes from {@link extractSourceComments} and each block is read by
+ * {@link collectExamples}; member membership is matched against aligned projected code.
  *
  * @param lines - A declaration's body lines
- * @returns The exemplified member names, deduped and sorted
+ * @returns The members' `@example` blocks, deduplicated by name and title and sorted by name
  *
  * @example
  * ```ts
- * extractExampleMethods(['\t/**', '\t * @example', '\t *' + '/', '\twalk(): void']) // ['walk']
+ * extractExampleMethods(['\t/**', '\t * @example', '\t * walk()', '\t *' + '/', '\twalk(): void'])
+ * // [{ name: 'walk', code: 'walk()' }]
  * ```
  */
-export function extractExampleMethods(lines: readonly string[]): readonly string[] {
-	const methods: string[] = []
+export function extractExampleMethods(lines: readonly string[]): readonly SourceExample[] {
+	const examples: SourceExample[] = []
 	const seen = new Set<string>()
 
-	for (const line of extractExampleLines(extractSourceLines(lines.join('\n')))) {
-		const method = line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
+	for (const comment of extractSourceComments(extractSourceLines(lines.join('\n')))) {
+		const method = comment.line.code.match(/^\t(?:async )?\*?(\w+)\??(<.*>)?\(/)
 		const name = method?.[1]
-		if (isNonEmptyString(name) && !seen.has(name)) {
-			seen.add(name)
-			methods.push(name)
+		if (!isNonEmptyString(name)) continue
+
+		for (const example of collectExamples(comment.text, name)) {
+			const key = `${name}\n${example.title ?? ''}`
+			if (seen.has(key)) continue
+			seen.add(key)
+			examples.push(example)
 		}
 	}
 
-	return Array.from(new Set(methods)).sort()
+	return examples.sort((a, b) => (a.name === b.name ? 0 : a.name < b.name ? -1 : 1))
 }
 
 /**
  * Extracts every fenced code block anywhere in the guide document. A full AST walk
- * includes fences nested inside blockquotes and lists.
+ * includes fences nested inside blockquotes and lists, and the same walk carries each
+ * fence's nearest preceding heading as its `title` — the key an `@example` block pairs on.
+ * A heading's text is flattened, so a title written with a code span pairs with a plain
+ * `@example` title.
  *
  * @param document - The parsed guide document
- * @returns Every fence's language and verbatim code, in document order
+ * @returns Every fence's language, verbatim code, and title, in document order
  *
  * @example
  * ```ts
@@ -1550,8 +1838,190 @@ export function extractExampleMethods(lines: readonly string[]): readonly string
  */
 export function extractFences(document: MarkdownDocument): readonly GuideFence[] {
 	const fences: GuideFence[] = []
+	let title = ''
+
 	for (const node of walkNodes(document)) {
-		if (isCodeBlockNode(node)) fences.push({ language: node.lang, code: node.code })
+		if (isHeadingNode(node)) {
+			title = flattenText(node).trim()
+			continue
+		}
+		if (isCodeBlockNode(node)) {
+			fences.push({
+				language: node.lang,
+				code: node.code,
+				...(title.length === 0 ? {} : { title }),
+			})
+		}
 	}
+
 	return fences
+}
+
+/**
+ * Extracts the guide's tagline — the text of the blockquote following the document's H1,
+ * with every code span kept as a code span and whitespace collapsed. A heading before the
+ * blockquote ends the window, so a blockquote elsewhere in the document is not the tagline.
+ *
+ * @param document - The parsed guide document
+ * @returns The tagline, or `undefined` when no blockquote follows an H1 before the next heading
+ *
+ * @example
+ * ```ts
+ * extractTagline(document) // 'A pure, I/O-free guides-parity toolkit'
+ * ```
+ */
+export function extractTagline(document: MarkdownDocument): string | undefined {
+	let opened = false
+
+	for (const block of document.children) {
+		if (isHeadingNode(block)) {
+			if (opened) return undefined
+			opened = block.level === 1
+			continue
+		}
+		if (!opened || !isBlockquoteNode(block)) continue
+
+		const text = normalizeSummary(
+			block.children
+				.filter(isParagraphNode)
+				.map((paragraph) => extractCellText(paragraph.children))
+				.join(' '),
+		)
+		return text.length === 0 ? undefined : text
+	}
+
+	return undefined
+}
+
+/**
+ * Computes the drift between one compared key's guide text and source text. A pair agrees
+ * only when both sides carry the same text, and every other state is a drift: guide text
+ * alone reports the guide's side, source text alone reports the source's, and neither side
+ * carrying text reports the key by itself. A side carrying no text is absent from the result,
+ * so a documented symbol with no doc block reports as a drift naming the guide's text alone,
+ * and a row a table has no `Summary` column for against a declaration with no doc block
+ * reports as `{ key }`.
+ *
+ * @param key - The compared pair's key
+ * @param guide - The guide's text there, or `undefined` when it carries none
+ * @param source - The source's text there, or `undefined` when it carries none
+ * @returns The drift, or `undefined` when both sides carry the same text
+ *
+ * @example
+ * ```ts
+ * computeDrift('function walk', 'Walks the tree.', 'Walks a tree.')
+ * // { key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }
+ * ```
+ */
+export function computeDrift(
+	key: string,
+	guide: string | undefined,
+	source: string | undefined,
+): Drift | undefined {
+	if (guide !== undefined && guide === source) return undefined
+	return {
+		key,
+		...(guide === undefined ? {} : { guide }),
+		...(source === undefined ? {} : { source }),
+	}
+}
+
+/**
+ * Finds every disagreement between a guide and the source it documents, naming both sites:
+ * each `## Surface` row against its declaration's description paragraph, each `## Methods`
+ * row against its member's, and the first titled guide fence of a heading against the
+ * `@example` block of the same title. An example's compared text is its language on the first
+ * line and its body beneath, so a fence that names another language drifts on its own.
+ *
+ * @remarks
+ * Only a pair present on both sides is compared, so a symbol, a member, or a title one side
+ * lacks entirely is left to the bijection checks that own it and is never reported twice.
+ * {@link computeDrift} rules each compared pair, so a pair whose sides carry different text, a
+ * pair where one side carries none, and a pair where neither side carries text are all drift.
+ * The pairing is per title across the whole document, not per heading: the first fence a title
+ * reaches is the compared one, and every later fence of that title is outside the comparison,
+ * whether it sits under the same heading or under a second heading of the same text.
+ *
+ * @param guide - The parsed guide
+ * @param source - The reflected source the guide documents
+ * @returns One entry per disagreement: Surface rows, then Methods rows, then examples
+ *
+ * @example
+ * ```ts
+ * findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks.', source: 'Walks a tree.' }]
+ * ```
+ */
+export function findDrift(guide: GuideInterface, source: SourceInterface): readonly Drift[] {
+	const drifts: Drift[] = []
+	const declared = new Map(source.surface().map((symbol) => [computeSymbolKey(symbol), symbol]))
+
+	for (const symbol of guide.surface()) {
+		const key = computeSymbolKey(symbol)
+		const match = declared.get(key)
+		if (match === undefined) continue
+		const drift = computeDrift(key, symbol.summary, match.summary)
+		if (drift !== undefined) drifts.push(drift)
+	}
+
+	for (const group of guide.methods()) {
+		const members = new Map(source.methods(group.interface).map((entry) => [entry.name, entry]))
+		for (const entry of group.methods) {
+			const member = members.get(entry.name)
+			if (member === undefined) continue
+			const drift = computeDrift(`${group.interface}.${entry.name}`, entry.summary, member.summary)
+			if (drift !== undefined) drifts.push(drift)
+		}
+	}
+
+	const examples = collectTitles(guide, source)
+	const compared = new Set<string>()
+	for (const fence of guide.fences()) {
+		if (fence.title === undefined || compared.has(fence.title)) continue
+		compared.add(fence.title)
+		const example = examples.get(fence.title)
+		if (example === undefined) continue
+		const drift = computeDrift(
+			fence.title,
+			`${fence.language ?? ''}\n${fence.code}`,
+			`${example.language ?? ''}\n${example.code}`,
+		)
+		if (drift !== undefined) drifts.push(drift)
+	}
+
+	return drifts
+}
+
+/**
+ * Collects the titled `@example` blocks a guide's documented surface reaches — the module's
+ * exported functions, plus the own members of every documented `class` and `interface` —
+ * keyed by title, the first block of a title answering for it.
+ *
+ * @param guide - The parsed guide naming the documented declarations
+ * @param source - The reflected source to read the blocks from
+ * @returns One entry per distinct `@example` title
+ *
+ * @example
+ * ```ts
+ * collectTitles(guide, source).get('Walk a tree') // { name: 'walk', title: 'Walk a tree', code: 'walk()' }
+ * ```
+ */
+export function collectTitles(
+	guide: GuideInterface,
+	source: SourceInterface,
+): ReadonlyMap<string, SourceExample> {
+	const titled = new Map<string, SourceExample>()
+	const owners = guide
+		.surface()
+		.filter((symbol) => symbol.keyword === 'class' || symbol.keyword === 'interface')
+	const examples = [
+		...source.examples(),
+		...owners.flatMap((symbol) => source.examples(symbol.name)),
+	]
+
+	for (const example of examples) {
+		if (example.title === undefined || titled.has(example.title)) continue
+		titled.set(example.title, example)
+	}
+
+	return titled
 }

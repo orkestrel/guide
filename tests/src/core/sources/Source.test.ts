@@ -138,10 +138,10 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect({ functions: source.examples(), members: source.examples('Widget') }).toEqual({
-			functions: ['genuine'],
-			members: ['genuine'],
-		})
+		expect({
+			functions: source.examples().map((example) => example.name),
+			members: source.examples('Widget').map((example) => example.name),
+		}).toEqual({ functions: ['genuine'], members: ['genuine'] })
 	})
 
 	it('uses exact titled example tags and last-span replacement in both overloads', () => {
@@ -178,8 +178,16 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.examples()).toEqual(['exact', 'titled', 'authoritative'])
-		expect(source.examples('Widget')).toEqual(['authoritative', 'exact', 'titled'])
+		expect(source.examples().map((example) => example.name)).toEqual([
+			'exact',
+			'titled',
+			'authoritative',
+		])
+		expect(source.examples('Widget').map((example) => example.name)).toEqual([
+			'authoritative',
+			'exact',
+			'titled',
+		])
 	})
 
 	it('carries minimal JSDoc span precedence through both examples overloads', () => {
@@ -201,10 +209,10 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect({ functions: source.examples(), members: source.examples('Widget') }).toEqual({
-			functions: ['positive'],
-			members: ['positive'],
-		})
+		expect({
+			functions: source.examples().map((example) => example.name),
+			members: source.examples('Widget').map((example) => example.name),
+		}).toEqual({ functions: ['positive'], members: ['positive'] })
 	})
 
 	it('excludes internal alias segments from every module-key population and retains dotfiles', () => {
@@ -354,13 +362,14 @@ describe('Source', () => {
 		const guide = createGuide(
 			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Widget` | interface |\n\n## Methods\n\n#### `Widget`\n\n| Method | Description |\n| --- | --- |\n| `ghost` | Phantom |\n| `visible` | Real |',
 		)
-		expect(source.methods('Widget')).toEqual(['visible'])
-		expect(source.examples('Widget')).toEqual(['visible'])
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['visible'])
+		expect(source.examples('Widget').map((example) => example.name)).toEqual(['visible'])
 		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
 		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
-		const documented = guide.methods()[0]?.methods ?? []
-		expect(findMissing(source.methods('Widget'), documented)).toEqual([])
-		expect(findMissing(documented, source.methods('Widget'))).toEqual(['ghost'])
+		const documented = (guide.methods()[0]?.methods ?? []).map((entry) => entry.name)
+		const members = source.methods('Widget').map((entry) => entry.name)
+		expect(findMissing(members, documented)).toEqual([])
+		expect(findMissing(documented, members)).toEqual(['ghost'])
 	})
 
 	it('stranded-export: surface() reveals a direct declaration omitted from the conventional barrel', () => {
@@ -728,8 +737,16 @@ describe('Source', () => {
 
 	it('methods(WidgetInterface) and methods(Widget) agree on the same methods', () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
-		expect(source.methods('WidgetInterface')).toEqual(['inspect', 'render', 'reset'])
-		expect(source.methods('Widget')).toEqual(['inspect', 'render', 'reset'])
+		expect(source.methods('WidgetInterface').map((entry) => entry.name)).toEqual([
+			'inspect',
+			'render',
+			'reset',
+		])
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual([
+			'inspect',
+			'render',
+			'reset',
+		])
 	})
 
 	it('methods(Widget) excludes the constructor, getter, static, and #private traps', () => {
@@ -743,7 +760,7 @@ describe('Source', () => {
 
 	it('methods() returns an empty array for a name with no declaration in scope', () => {
 		const source = new Source({ files: GOOD_FILES, module: 'module' })
-		expect(source.methods('Nonexistent')).toEqual([])
+		expect(source.methods('Nonexistent').map((entry) => entry.name)).toEqual([])
 	})
 
 	it('methods() unions an interface pair through its extends clause', () => {
@@ -764,8 +781,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect({
-			base: source.methods('StoreInterface'),
-			extending: source.methods('CursorStoreInterface'),
+			base: source.methods('StoreInterface').map((entry) => entry.name),
+			extending: source.methods('CursorStoreInterface').map((entry) => entry.name),
 		}).toEqual({ base: ['read', 'write'], extending: ['cursor', 'read', 'write'] })
 	})
 
@@ -783,7 +800,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('StoreInterface')).toEqual(['read'])
+		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual(['read'])
 	})
 
 	it('methods() walks a transitive chain and visits a diamond base once', () => {
@@ -807,7 +824,12 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('StoreInterface')).toEqual(['append', 'close', 'read', 'write'])
+		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual([
+			'append',
+			'close',
+			'read',
+			'write',
+		])
 	})
 
 	it('methods() terminates an extends cycle', () => {
@@ -825,7 +847,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('FirstInterface')).toEqual(['first', 'second'])
+		expect(source.methods('FirstInterface').map((entry) => entry.name)).toEqual(['first', 'second'])
 	})
 
 	it('methods() ignores a base the module scope does not declare', () => {
@@ -841,7 +863,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('CursorStoreInterface')).toEqual(['cursor'])
+		expect(source.methods('CursorStoreInterface').map((entry) => entry.name)).toEqual(['cursor'])
 	})
 
 	it('methods() skips an empty first-file head with no bases and reads a later declaring file', () => {
@@ -852,7 +874,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('Widget')).toEqual(['render'])
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
 	})
 
 	it('methods() skips an empty interface head with no bases and reads the same-named class', () => {
@@ -863,7 +885,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('Widget')).toEqual(['render'])
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
 	})
 
 	it('methods() reads the first declaring file and ignores a later file declaring the same name', () => {
@@ -887,7 +909,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('StoreInterface')).toEqual(['open', 'read'])
+		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual(['open', 'read'])
 	})
 
 	it('methods() keeps its keyword and reads no member from a same-named class base', () => {
@@ -910,7 +932,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('StoreInterface')).toEqual(['open'])
+		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual(['open'])
 	})
 
 	it('methods() reads no member from a qualified base', () => {
@@ -928,7 +950,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('StoreInterface')).toEqual(['open'])
+		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual(['open'])
 	})
 
 	it('methods() walks a class chain and still excludes the constructor', () => {
@@ -949,7 +971,7 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		expect(source.methods('CursorStore')).toEqual(['cursor', 'read'])
+		expect(source.methods('CursorStore').map((entry) => entry.name)).toEqual(['cursor', 'read'])
 	})
 
 	it('exists() is true for an exact key', () => {
@@ -981,8 +1003,8 @@ describe('Source', () => {
 			),
 			module: 'module',
 		})
-		expect(source.methods('Widget')).toContain('extra')
-		expect(source.methods('WidgetInterface')).not.toContain('extra')
+		expect(source.methods('Widget').map((entry) => entry.name)).toContain('extra')
+		expect(source.methods('WidgetInterface').map((entry) => entry.name)).not.toContain('extra')
 	})
 
 	it('unions exports() across a multi-dir GuideModule', () => {
@@ -1054,7 +1076,7 @@ describe('Source', () => {
 			]),
 			module: 'module',
 		})
-		expect(source.examples()).toEqual(['greet'])
+		expect(source.examples().map((example) => example.name)).toEqual(['greet'])
 	})
 
 	it("examples(name) reads only the interface body's @example members when no same-named class exists", () => {
@@ -1071,7 +1093,7 @@ describe('Source', () => {
 			].join('\n'),
 		}
 		const source = new Source({ files, module: 'src/core' })
-		expect(source.examples('WidgetInterface')).toEqual(['walk'])
+		expect(source.examples('WidgetInterface').map((example) => example.name)).toEqual(['walk'])
 	})
 
 	it('examples(name) reads only the named body and follows no extends clause', () => {
@@ -1092,8 +1114,8 @@ describe('Source', () => {
 			module: 'module',
 		})
 		expect({
-			own: source.examples('StoreInterface'),
-			inherited: source.methods('StoreInterface'),
+			own: source.examples('StoreInterface').map((example) => example.name),
+			inherited: source.methods('StoreInterface').map((entry) => entry.name),
 		}).toEqual({ own: ['open'], inherited: ['open', 'read'] })
 	})
 
@@ -1119,6 +1141,6 @@ describe('Source', () => {
 			].join('\n'),
 		}
 		const source = new Source({ files, module: 'src/core' })
-		expect(source.examples('Widget')).toEqual(['fold'])
+		expect(source.examples('Widget').map((example) => example.name)).toEqual(['fold'])
 	})
 })

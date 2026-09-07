@@ -114,16 +114,17 @@ declaration.
   instead of passing vacuously.
 - **Examples presence** — every documented function and method appears in a
   TypeScript fence or carries an immediately preceding eligible genuine JSDoc
-  chain whose final authoritative span has an exact block-position `@example`
-  tag. Title text is allowed; intervening material severs association.
+  chain whose final authoritative span has an `@example` tag opening a line at
+  its first non-blank column. Title text is allowed; intervening material severs
+  association.
 - **Fence-import reality** — every self-package name imported in a TypeScript
   fence exists on the conventional public/barrel surface.
 
 ## API
 
 - `createGuide(source)` — parses one guide's markdown into a structured,
-  cached view with the projections (`sections()`, `surface()`, `methods()`,
-  `links()`, `tests()`, `fences()`).
+  cached view with the projections (`sections()`, `tagline()`, `surface()`,
+  `methods()`, `unnamed()`, `links()`, `tests()`, `fences()`).
 - `createSource(options)` — reflects intentional direct declarations with
   `exports()`, conventional barrel reachability with `surface()`, members with
   `methods()`, path presence with `exists()`, hidden declarations with
@@ -135,14 +136,23 @@ declaration.
   from a manifest directory, including nested directories.
 - `findMissingSymbols(symbols, source)` — the `(name, keyword)` set difference
   driving surface bijection.
+- `findDrift(guide, source)` — every disagreement between a guide and the
+  source it documents, naming both sites: Surface and Methods `Summary` cells
+  against doc-block description paragraphs, and titled guide fences against
+  `@example` blocks of the same title.
+- `extractUnnamed(document)` — every `## Surface` or `## Methods` row whose
+  first cell carries no code span, the rows the surface and method readers skip
+  for want of a name, each returned as its cells' text on one line; `Guide`
+  caches it as `unnamed()`.
 - `extractSourceLines(source)` — returns one `SourceLine` per physical line,
   including the final line, with exact `source`, equal-length masked `code`, and
   equal-length genuine `jsdoc` retaining every span at its physical column, or
   `undefined`.
 - `extractExampleLines(lines)` — selects the single physical candidate line
   after an eligible leading JSDoc chain whose last whitespace-separated span
-  carries an exact block-position `@example`; title text is allowed, intervening
-  material severs association, and the next physical record is consumed once.
+  carries an `@example` tag opening a line at its first non-blank column; title
+  text is allowed, intervening material severs association, and the next
+  physical record is consumed once.
 - `hasCanonicalSegments(key)` — rejects empty, `.` and `..` opaque key
   segments without normalization while retaining dotfiles.
 - `normalizeDirectories(module)` — canonicalizes one or more module spellings

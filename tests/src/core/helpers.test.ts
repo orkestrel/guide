@@ -1,6 +1,13 @@
 import type { SourceLine, SurfaceSymbol } from '@src/core'
 import {
+	collectExamples,
+	collectSummaries,
+	collectTitles,
+	computeDrift,
+	createGuide,
+	createSource,
 	extractCellLinks,
+	extractCellText,
 	extractDeclaration,
 	extractExampleMethods,
 	extractExamples,
@@ -13,17 +20,24 @@ import {
 	extractSurface,
 	extractTests,
 	extractFenceImports,
+	extractSourceComments,
+	extractTagline,
+	extractUnnamed,
+	findDrift,
 	findMissing,
 	findUnexampled,
 	findUnlisted,
 	findFirstCode,
+	maskFences,
+	normalizeComment,
 	normalizeIdentifier,
+	normalizeSummary,
 	isExternalLink,
 	hasCanonicalSegments,
 	extractHidden,
 	joinHead,
 	escapeRegExp,
-	findKindIndex,
+	findColumnIndex,
 	extractMemberMethods,
 	findMissingSymbols,
 	normalizeDirectories,
@@ -34,6 +48,7 @@ import {
 	computeSymbolKey,
 } from '@src/core'
 import { createMarkdown } from '@orkestrel/markdown'
+import { parseSync } from 'vite'
 import { describe, expect, it } from 'vitest'
 import { requireTable, requireText } from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
@@ -590,20 +605,32 @@ describe('normalizeIdentifier', () => {
 	})
 })
 
-describe('findKindIndex', () => {
+describe('findColumnIndex', () => {
 	it('finds the Kind column when present', () => {
 		const table = requireTable('| Name | Kind |\n| --- | --- |\n| `X` | class |\n')
-		expect(findKindIndex(table)).toBe(1)
+		expect(findColumnIndex(table, 'Kind')).toBe(1)
 	})
 
 	it('returns undefined when no Kind header exists', () => {
 		const table = requireTable('| Name | Description |\n| --- | --- |\n| `X` | none |\n')
-		expect(findKindIndex(table)).toBeUndefined()
+		expect(findColumnIndex(table, 'Kind')).toBeUndefined()
 	})
 
 	it('finds the Kind column when the header is reordered', () => {
 		const table = requireTable('| Kind | Name |\n| --- | --- |\n| class | `X` |\n')
-		expect(findKindIndex(table)).toBe(0)
+		expect(findColumnIndex(table, 'Kind')).toBe(0)
+	})
+
+	it('finds the Summary column beside the Kind column', () => {
+		const table = requireTable(
+			'| Name | Summary | Kind |\n| --- | --- | --- |\n| `X` | Holds a widget. | class |\n',
+		)
+		expect(findColumnIndex(table, 'Summary')).toBe(1)
+	})
+
+	it('refuses a header that differs in case', () => {
+		const table = requireTable('| Name | summary |\n| --- | --- |\n| `X` | Holds a widget. |\n')
+		expect(findColumnIndex(table, 'Summary')).toBeUndefined()
 	})
 })
 
@@ -976,7 +1003,7 @@ describe('successor lexical and reflection boundaries', () => {
 
 	it('extractMemberMethods excludes commented candidates', () => {
 		expect(extractMemberMethods(['\t/*', '\tghost(): void', '\t*/', '\tvisible(): void'])).toEqual([
-			'visible',
+			{ name: 'visible' },
 		])
 	})
 
@@ -987,7 +1014,7 @@ describe('successor lexical and reflection boundaries', () => {
 			'\t/** @example */',
 			'\t/* ghost(): void */',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['visible'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual(['visible'])
 	})
 })
 
@@ -1030,7 +1057,10 @@ describe('extractMethods', () => {
 	it('extracts one group of inspect/render/reset from the good fixture', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		expect(extractMethods(document)).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset'] },
+			{
+				interface: 'WidgetInterface',
+				methods: [{ name: 'inspect' }, { name: 'render' }, { name: 'reset' }],
+			},
 		])
 	})
 
@@ -1039,7 +1069,7 @@ describe('extractMethods', () => {
 			requireText(FIXTURES, 'broken/missing-interface-method/widget.md'),
 		).document
 		expect(extractMethods(document)).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render'] },
+			{ interface: 'WidgetInterface', methods: [{ name: 'inspect' }, { name: 'render' }] },
 		])
 	})
 
@@ -1048,8 +1078,59 @@ describe('extractMethods', () => {
 			requireText(FIXTURES, 'broken/phantom-method/widget.md'),
 		).document
 		expect(extractMethods(document)).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset', 'destroy'] },
+			{
+				interface: 'WidgetInterface',
+				methods: [{ name: 'inspect' }, { name: 'render' }, { name: 'reset' }, { name: 'destroy' }],
+			},
 		])
+	})
+})
+
+// `extractSurface` and `extractMethods` skip a row whose first cell carries no
+// code span, because they have no name to key it on. `extractUnnamed` is the
+// projection that reports the skip instead of letting the row leave the guide's
+// surface in silence.
+describe('extractUnnamed', () => {
+	it('reports a row with no code-span name in each documented section', () => {
+		const nameless = [
+			'## Surface',
+			'',
+			'| Name | Kind | Summary |',
+			'| --- | --- | --- |',
+			'| `Widget` | class | Represents a widget. |',
+			'| Widget | class | Represents a widget. |',
+			'',
+			'## Methods',
+			'',
+			'#### `WidgetInterface`',
+			'',
+			'| Method | Summary |',
+			'| --- | --- |',
+			'| `render` | Renders the widget. |',
+			'| render | Renders the widget. |',
+			'',
+		].join('\n')
+		expect(extractUnnamed(createMarkdown(nameless).document)).toEqual([
+			'Widget | class | Represents a widget.',
+			'render | Renders the widget.',
+		])
+	})
+
+	// The negative control, drawn from outside the membership rule: a name written
+	// as a code span inside emphasis is a name `findFirstCode` reads, so the row is
+	// no finding and the symbol still reaches the documented surface.
+	it('reports no row whose name is a code span inside emphasis', () => {
+		const emphasized = [
+			'## Surface',
+			'',
+			'| Name | Kind |',
+			'| --- | --- |',
+			'| **`Widget`** | class |',
+			'',
+		].join('\n')
+		const document = createMarkdown(emphasized).document
+		expect(extractUnnamed(document)).toEqual([])
+		expect(extractSurface(document)).toEqual([{ name: 'Widget', keyword: 'class' }])
 	})
 })
 
@@ -1495,28 +1576,30 @@ describe('extractDeclaration', () => {
 
 describe('extractMemberMethods', () => {
 	it('counts a plain method', () => {
-		expect(extractMemberMethods(['\tmap(): void'])).toEqual(['map'])
+		expect(extractMemberMethods(['\tmap(): void'])).toEqual([{ name: 'map' }])
 	})
 
 	it('counts an async method', () => {
-		expect(extractMemberMethods(['\tasync load(): Promise<void>'])).toEqual(['load'])
+		expect(extractMemberMethods(['\tasync load(): Promise<void>'])).toEqual([{ name: 'load' }])
 	})
 
 	it('counts a generator method', () => {
-		expect(extractMemberMethods(['\t*walk(): Generator<void>'])).toEqual(['walk'])
+		expect(extractMemberMethods(['\t*walk(): Generator<void>'])).toEqual([{ name: 'walk' }])
 	})
 
 	it('counts an optional method', () => {
-		expect(extractMemberMethods(['\trecords?(): void'])).toEqual(['records'])
+		expect(extractMemberMethods(['\trecords?(): void'])).toEqual([{ name: 'records' }])
 	})
 
 	it('counts a method whose type params nest generics', () => {
-		expect(extractMemberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual(['fold'])
+		expect(extractMemberMethods(['\tfold<T extends X<Y>>(value: T): T'])).toEqual([
+			{ name: 'fold' },
+		])
 	})
 
 	it('counts an optional method whose type params precede the parameter list', () => {
 		expect(extractMemberMethods(['\ttransaction?<R>(scope: DriverScope<R>): Promise<R>'])).toEqual([
-			'transaction',
+			{ name: 'transaction' },
 		])
 	})
 
@@ -1537,7 +1620,9 @@ describe('extractMemberMethods', () => {
 	})
 
 	it('counts a constructor line as a member (Source excludes it downstream, not extractMemberMethods)', () => {
-		expect(extractMemberMethods(['\tconstructor(label: string)'])).toEqual(['constructor'])
+		expect(extractMemberMethods(['\tconstructor(label: string)'])).toEqual([
+			{ name: 'constructor' },
+		])
 	})
 
 	it('excludes a plain data member', () => {
@@ -1546,8 +1631,8 @@ describe('extractMemberMethods', () => {
 
 	it('dedupes and sorts the results', () => {
 		expect(extractMemberMethods(['\tzeta(): void', '\talpha(): void', '\tzeta(): void'])).toEqual([
-			'alpha',
-			'zeta',
+			{ name: 'alpha' },
+			{ name: 'zeta' },
 		])
 	})
 
@@ -1558,7 +1643,9 @@ describe('extractMemberMethods', () => {
 			'Widget',
 		)
 		expect(
-			extractMemberMethods(declaration?.body ?? []).filter((method) => method !== 'constructor'),
+			extractMemberMethods(declaration?.body ?? [])
+				.filter((entry) => entry.name !== 'constructor')
+				.map((entry) => entry.name),
 		).toEqual(['inspect', 'render', 'reset'])
 	})
 })
@@ -1581,12 +1668,12 @@ describe('extractExamples', () => {
 			'export function genuine(): void {}',
 			'',
 		].join('\n')
-		expect(extractExamples(source)).toEqual(['genuine'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['genuine'])
 	})
 
 	it('collects a function immediately preceded by an @example JSDoc block', () => {
 		const source = ['/**', ' * @example', ' */', 'export function walk() {}', ''].join('\n')
-		expect(extractExamples(source)).toEqual(['walk'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['walk'])
 	})
 
 	it('skips a function with no preceding JSDoc block', () => {
@@ -1607,17 +1694,17 @@ describe('extractExamples', () => {
 
 	it('collects an async function', () => {
 		const source = ['/**', ' * @example', ' */', 'export async function load() {}', ''].join('\n')
-		expect(extractExamples(source)).toEqual(['load'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['load'])
 	})
 
 	it('collects a generator function', () => {
 		const source = ['/**', ' * @example', ' */', 'export function* walk() {}', ''].join('\n')
-		expect(extractExamples(source)).toEqual(['walk'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['walk'])
 	})
 
 	it('handles a single-line JSDoc comment', () => {
 		const source = '/** @example */\nexport function walk() {}\n'
-		expect(extractExamples(source)).toEqual(['walk'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['walk'])
 	})
 
 	it('dedupes a repeated export', () => {
@@ -1632,7 +1719,7 @@ describe('extractExamples', () => {
 			'export function walk() {}',
 			'',
 		].join('\n')
-		expect(extractExamples(source)).toEqual(['walk'])
+		expect(extractExamples(source).map((example) => example.name)).toEqual(['walk'])
 	})
 })
 
@@ -1656,7 +1743,9 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 			[],
 			[],
 		])
-		expect(sources.map(extractExamples)).toEqual([['exact'], ['titled'], [], [], []])
+		expect(sources.map((source) => extractExamples(source).map((example) => example.name))).toEqual(
+			[['exact'], ['titled'], [], [], []],
+		)
 	})
 
 	it('makes the last whitespace-separated leading JSDoc span authoritative', () => {
@@ -1668,18 +1757,26 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 				extractExampleLines(extractSourceLines(source)).map((line) => line.source),
 			),
 		).toEqual([[], ['export function candidate(): void {}']])
-		expect([taggedThenPlain, plainThenTagged].map(extractExamples)).toEqual([[], ['candidate']])
+		expect(
+			[taggedThenPlain, plainThenTagged].map((source) =>
+				extractExamples(source).map((example) => example.name),
+			),
+		).toEqual([[], ['candidate']])
 	})
 
 	it('recognizes a later exact span after a minimal JSDoc span', () => {
 		expect(
-			extractExamples('/**/ /** @example title */\nexport function candidate(): void {}'),
+			extractExamples('/**/ /** @example title */\nexport function candidate(): void {}').map(
+				(example) => example.name,
+			),
 		).toEqual(['candidate'])
 	})
 
 	it('replaces a minimal JSDoc span with a next-line exact span', () => {
 		expect(
-			extractExamples('/**/\n/** @example title */\nexport function candidate(): void {}'),
+			extractExamples('/**/\n/** @example title */\nexport function candidate(): void {}').map(
+				(example) => example.name,
+			),
 		).toEqual(['candidate'])
 	})
 
@@ -1700,7 +1797,9 @@ describe('extractExampleLines exact tags and physical adjacency', () => {
 			'/** @example */\n/** plain */\nexport function candidate(): void {}',
 			'/** plain */\n/**\n * @example title\n */\nexport function candidate(): void {}',
 		]
-		expect(sources.map(extractExamples)).toEqual([[], [], [], [], [], [], [], ['candidate']])
+		expect(sources.map((source) => extractExamples(source).map((example) => example.name))).toEqual(
+			[[], [], [], [], [], [], [], ['candidate']],
+		)
 	})
 })
 
@@ -1715,12 +1814,12 @@ describe('extractExampleMethods', () => {
 			'\t */',
 			'\tgenuine(): void',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['genuine'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual(['genuine'])
 	})
 
 	it('collects a method immediately preceded by an @example JSDoc block', () => {
 		const lines = ['\t/**', '\t * @example', '\t */', '\twalk(): void']
-		expect(extractExampleMethods(lines)).toEqual(['walk'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual(['walk'])
 	})
 
 	it('skips a method with no preceding JSDoc block', () => {
@@ -1738,11 +1837,13 @@ describe('extractExampleMethods', () => {
 			'\t */',
 			'\talpha(): void',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['alpha', 'zeta'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual(['alpha', 'zeta'])
 	})
 
 	it('handles a single-line JSDoc comment on an interface member', () => {
-		expect(extractExampleMethods(['\t/** @example */', '\twalk(): void'])).toEqual(['walk'])
+		expect(
+			extractExampleMethods(['\t/** @example */', '\twalk(): void']).map((example) => example.name),
+		).toEqual(['walk'])
 	})
 
 	it('uses exact titled tags and last-span authority for members', () => {
@@ -1758,7 +1859,10 @@ describe('extractExampleMethods', () => {
 			'\t/** plain */ /** @example title */',
 			'\tauthoritative(): void',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['authoritative', 'exact'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual([
+			'authoritative',
+			'exact',
+		])
 	})
 
 	it('applies minimal JSDoc span replacement to members', () => {
@@ -1771,7 +1875,10 @@ describe('extractExampleMethods', () => {
 			'\t/** @example */ /**/',
 			'\treplaced(): void',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['nextLine', 'sameLine'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual([
+			'nextLine',
+			'sameLine',
+		])
 	})
 
 	it('collects an optional method whose type params precede the parameter list', () => {
@@ -1781,14 +1888,14 @@ describe('extractExampleMethods', () => {
 			'\t */',
 			'\ttransaction?<R>(scope: DriverScope<R>): Promise<R>',
 		]
-		expect(extractExampleMethods(lines)).toEqual(['transaction'])
+		expect(extractExampleMethods(lines).map((example) => example.name)).toEqual(['transaction'])
 	})
 })
 
 describe('extractFences', () => {
 	it("extracts a ```ts fence's language and code body", () => {
 		const document = createMarkdown('## Patterns\n\n```ts\nwalk()\n```\n').document
-		expect(extractFences(document)).toEqual([{ language: 'ts', code: 'walk()' }])
+		expect(extractFences(document)).toEqual([{ language: 'ts', code: 'walk()', title: 'Patterns' }])
 	})
 
 	it('returns an empty array when the document has no fence', () => {
@@ -1841,7 +1948,7 @@ describe('broken fixture: missing-example', () => {
 		const surfaceNames = ['greet', 'farewell']
 		const examples = extractExamples(
 			requireText(FIXTURES, 'broken/missing-example/module/helpers.ts'),
-		)
+		).map((example) => example.name)
 
 		const unexampled = surfaceNames.filter((name) => {
 			if (examples.includes(name)) return false
@@ -1868,5 +1975,865 @@ describe('broken fixture: phantom-import', () => {
 				.flatMap((entry) => findMissing(entry.names, exportNames)),
 		)
 		expect(phantom).toEqual(['ghost'])
+	})
+})
+
+// ── The compared form ────────────────────────────────────────────────────────
+// Both sides of the guide/TSDoc comparison are read into one normalized form.
+// Each clause of the stated transform gets its own case, on the side that owns
+// it: `{@link}` rendering and whitespace collapse on the source side, emphasis,
+// link, and escaped-pipe reduction on the guide side, and code spans on both.
+
+describe('normalizeSummary', () => {
+	it('renders a bare link target as a code token', () => {
+		expect(normalizeSummary('Creates a {@link Widget}.')).toBe('Creates a `Widget`.')
+	})
+
+	it('renders a qualified link target as a code token', () => {
+		expect(normalizeSummary('Reads {@link Widget.render}.')).toBe('Reads `Widget.render`.')
+	})
+
+	it('renders a labelled link as the code token of its label', () => {
+		expect(normalizeSummary('Creates {@link Widget | a widget}.')).toBe('Creates `a widget`.')
+	})
+
+	it('renders several links in one paragraph', () => {
+		expect(normalizeSummary('{@link A} and {@link B | b}.')).toBe('`A` and `b`.')
+	})
+
+	it('collapses a line break and its continuation whitespace into one space', () => {
+		expect(normalizeSummary('Creates a widget\nfrom a name.')).toBe('Creates a widget from a name.')
+	})
+
+	it('trims the ends and leaves a code span a code span', () => {
+		expect(normalizeSummary('  Returns a `Widget`.  ')).toBe('Returns a `Widget`.')
+	})
+
+	it('leaves text carrying none of the transform unchanged', () => {
+		expect(normalizeSummary('Represents one documented symbol.')).toBe(
+			'Represents one documented symbol.',
+		)
+	})
+})
+
+describe('extractCellText', () => {
+	it('keeps a code span backticked', () => {
+		expect(extractCellText([{ element: 'codeSpan', value: 'Widget' }])).toBe('`Widget`')
+	})
+
+	it('drops strong and light emphasis to their text', () => {
+		const cell = requireTable('| Summary |\n| --- |\n| **Creates** a _widget_. |\n').rows[0]?.[0]
+		expect(extractCellText(cell ?? [])).toBe('Creates a widget.')
+	})
+
+	it('drops a link to its text', () => {
+		const cell = requireTable(
+			'| Summary |\n| --- |\n| Creates a [widget](../src/core/Widget.ts). |\n',
+		).rows[0]?.[0]
+		expect(extractCellText(cell ?? [])).toBe('Creates a widget.')
+	})
+
+	it('unescapes an escaped pipe and keeps the cell text either side of it', () => {
+		const cell = requireTable(
+			'| Summary |\n| --- |\n| Returns `string \\| undefined` for a miss. |\n',
+		).rows[0]?.[0]
+		expect(extractCellText(cell ?? [])).toBe('Returns `string | undefined` for a miss.')
+	})
+
+	it('returns an empty string for an empty cell', () => {
+		expect(extractCellText([])).toBe('')
+	})
+})
+
+describe('normalizeComment', () => {
+	it('unwraps a single-line block', () => {
+		expect(normalizeComment('/** Creates a widget. */')).toBe('Creates a widget.')
+	})
+
+	it('unwraps a multi-line block and drops its blank opening and closing lines', () => {
+		const comment = ['/**', ' * Creates a widget.', ' *', ' * @remarks', ' * Twice.', ' */'].join(
+			'\n',
+		)
+		expect(normalizeComment(comment)).toBe('Creates a widget.\n\n@remarks\nTwice.')
+	})
+
+	it("keeps a body line's own indentation past the continuation marker", () => {
+		const comment = [
+			'\t/**',
+			'\t * @example',
+			'\t * ```ts',
+			'\t * \twidget.render()',
+			'\t * ```',
+			'\t */',
+		].join('\n')
+		expect(normalizeComment(comment)).toBe('@example\n```ts\n\twidget.render()\n```')
+	})
+
+	it('trims per-line trailing whitespace', () => {
+		expect(normalizeComment('/**\n * Creates a widget.   \n */')).toBe('Creates a widget.')
+	})
+
+	it('returns an empty body for a minimal block', () => {
+		expect(normalizeComment('/**/')).toBe('')
+	})
+})
+
+describe('collectSummaries', () => {
+	it('reads the description paragraph of the record a block documents', () => {
+		const source = [
+			'/**',
+			' * Creates a widget.',
+			' */',
+			'export function createWidget() {}',
+			'',
+		].join('\n')
+		const lines = extractSourceLines(source)
+		const summaries = collectSummaries(lines)
+		const documented = lines.filter((line) => line.code.startsWith('export function'))
+		expect(Array.from(summaries.values())).toEqual(['Creates a widget.'])
+		expect(documented.map((line) => summaries.get(line))).toEqual(['Creates a widget.'])
+	})
+
+	it('stops the description at the first block tag', () => {
+		const source = [
+			'/**',
+			' * Creates a widget.',
+			' *',
+			' * @param name - The name',
+			' * @returns The widget',
+			' */',
+			'export function createWidget() {}',
+			'',
+		].join('\n')
+		expect(Array.from(collectSummaries(extractSourceLines(source)).values())).toEqual([
+			'Creates a widget.',
+		])
+	})
+
+	it('contributes no entry for a block that opens with a tag', () => {
+		const source = ['/** @example */', 'export function createWidget() {}', ''].join('\n')
+		expect(collectSummaries(extractSourceLines(source)).size).toBe(0)
+	})
+
+	it('renders a link target in the description it collects', () => {
+		const source = [
+			'/**',
+			' * Creates a {@link Widget}.',
+			' */',
+			'export function make() {}',
+			'',
+		].join('\n')
+		expect(Array.from(collectSummaries(extractSourceLines(source)).values())).toEqual([
+			'Creates a `Widget`.',
+		])
+	})
+})
+
+describe('extractSourceComments', () => {
+	it('pairs a block with the record it documents', () => {
+		const source = ['/**', ' * Creates a widget.', ' */', 'export function make() {}', ''].join(
+			'\n',
+		)
+		const comments = extractSourceComments(extractSourceLines(source))
+		expect(comments.map((comment) => comment.text)).toEqual(['Creates a widget.'])
+		expect(comments.map((comment) => comment.line.source)).toEqual(['export function make() {}'])
+	})
+
+	it('returns a block carrying no example, which the example projection filters out', () => {
+		const source = ['/**', ' * Creates a widget.', ' */', 'export function make() {}', ''].join(
+			'\n',
+		)
+		const lines = extractSourceLines(source)
+		expect(extractSourceComments(lines)).toHaveLength(1)
+		expect(extractExampleLines(lines)).toEqual([])
+	})
+})
+
+describe('collectExamples', () => {
+	it('reads a titled fenced block into its title, language, and body', () => {
+		const comment = ['@example Render a widget', '```ts', 'widget.render()', '```'].join('\n')
+		expect(collectExamples(comment, 'render')).toEqual([
+			{ name: 'render', title: 'Render a widget', code: 'widget.render()', language: 'ts' },
+		])
+	})
+
+	it('reads an untitled block with no fence as its own text', () => {
+		expect(collectExamples('@example\nwidget.render()', 'render')).toEqual([
+			{ name: 'render', code: 'widget.render()' },
+		])
+	})
+
+	it('stops a block body at the next block tag', () => {
+		const comment = ['@example', '```ts', 'widget.render()', '```', '@remarks', 'Twice.'].join('\n')
+		expect(collectExamples(comment, 'render')).toEqual([
+			{ name: 'render', code: 'widget.render()', language: 'ts' },
+		])
+	})
+
+	it('reads two blocks from one comment, in block order', () => {
+		const comment = ['@example First', 'one()', '@example Second', 'two()'].join('\n')
+		expect(collectExamples(comment, 'walk')).toEqual([
+			{ name: 'walk', title: 'First', code: 'one()' },
+			{ name: 'walk', title: 'Second', code: 'two()' },
+		])
+	})
+
+	it('refuses a tag whose name only starts with example', () => {
+		expect(collectExamples('@examples\nwalk()', 'walk')).toEqual([])
+	})
+})
+
+// A block tag written past one space after the continuation marker survives
+// `normalizeComment`'s unwrapping with its own indentation, so every tag reader
+// matches the first non-blank column of a line rather than column zero.
+describe('an over-indented block tag', () => {
+	const BLOCK = [
+		'/**',
+		' * Renders the widget.',
+		' *',
+		' *   @param value - The value',
+		' *',
+		' *   @example Render a widget',
+		' *   widget.render()',
+		' */',
+	].join('\n')
+	const INDENTED = [BLOCK, 'export function render(): void {}', ''].join('\n')
+
+	it('ends the description paragraph at the indented tag', () => {
+		expect(Array.from(collectSummaries(extractSourceLines(INDENTED)).values())).toEqual([
+			'Renders the widget.',
+		])
+	})
+
+	it('reads the indented example, keeping the body indentation the block was written with', () => {
+		expect(collectExamples(normalizeComment(BLOCK), 'render')).toEqual([
+			{ name: 'render', title: 'Render a widget', code: '  widget.render()' },
+		])
+		expect(extractExamples(INDENTED)).toEqual([
+			{ name: 'render', title: 'Render a widget', code: '  widget.render()' },
+		])
+	})
+
+	it('projects the indented example onto the record its block documents', () => {
+		expect(extractExampleLines(extractSourceLines(INDENTED)).map((line) => line.source)).toEqual([
+			'export function render(): void {}',
+		])
+	})
+})
+
+// The fenced-body projection every tag search reads through. It replaces a body's
+// characters with spaces rather than removing them, so an index found in it
+// addresses the same character of the text it was built from.
+describe('maskFences', () => {
+	it('blanks a body while keeping its markers, its line count, and every column', () => {
+		const text = ['@example', '```ts', '@decorator()', '```', '@remarks'].join('\n')
+		expect(maskFences(text).split('\n')).toEqual([
+			'@example',
+			'```ts',
+			'            ',
+			'```',
+			'@remarks',
+		])
+		expect(maskFences(text).length).toBe(text.length)
+	})
+
+	it('blanks to the end of the text when a body is never closed', () => {
+		expect(maskFences(['```', '@example', ''].join('\n')).split('\n')).toEqual([
+			'```',
+			'        ',
+			'',
+		])
+	})
+
+	it('closes a body only on its own marker character and length', () => {
+		expect(
+			maskFences(['~~~~', '```', '@example', '~~~~', '@remarks'].join('\n')).split('\n'),
+		).toEqual(['~~~~', '   ', '        ', '~~~~', '@remarks'])
+	})
+
+	it('opens a body from an indented marker, as the unwrapped block writes it', () => {
+		expect(maskFences(['  ```ts', '  @decorator()', '  ```'].join('\n')).split('\n')).toEqual([
+			'  ```ts',
+			'              ',
+			'  ```',
+		])
+	})
+
+	it('leaves text carrying no marker untouched', () => {
+		const text = 'Renders the widget.\n\n@example\nwidget.render()'
+		expect(maskFences(text)).toBe(text)
+	})
+})
+
+// A fenced body inside a doc block is example code, not doc-block structure, so a
+// line inside it that looks like a block tag is outside every tag search: it ends
+// no description paragraph, opens no example, and closes no example body.
+describe('a tag-shaped line inside a fenced body', () => {
+	const DECORATED = [
+		'/**',
+		' * Renders the widget.',
+		' *',
+		' * @example Render a widget',
+		' * ```ts',
+		' * class Widget {',
+		' *   @decorator()',
+		' *   render() {}',
+		' * }',
+		' * ```',
+		' *',
+		' * @remarks Nothing else.',
+		' */',
+	].join('\n')
+	const RENDERED = [DECORATED, 'export function render(): void {}', ''].join('\n')
+	const EXAMPLE = {
+		name: 'render',
+		title: 'Render a widget',
+		code: 'class Widget {\n  @decorator()\n  render() {}\n}',
+		language: 'ts',
+	}
+	const QUOTED = [
+		'/**',
+		' * Documents the tag:',
+		' *',
+		' * ```ts',
+		' * @example Not a tag',
+		' * ```',
+		' */',
+	].join('\n')
+	const EXPLAINED = [QUOTED, 'export function explain(): void {}', ''].join('\n')
+
+	it('keeps the decorator line in the example code and still ends the body at the next tag', () => {
+		expect(collectExamples(normalizeComment(DECORATED), 'render')).toEqual([EXAMPLE])
+		expect(extractExamples(RENDERED)).toEqual([EXAMPLE])
+	})
+
+	it('ends the description paragraph at the example tag, not at the decorator line', () => {
+		expect(Array.from(collectSummaries(extractSourceLines(RENDERED)).values())).toEqual([
+			'Renders the widget.',
+		])
+	})
+
+	it('opens no example from a quoted tag, and keeps it in the description paragraph', () => {
+		expect(collectExamples(normalizeComment(QUOTED), 'explain')).toEqual([])
+		expect(extractExampleLines(extractSourceLines(EXPLAINED))).toEqual([])
+		expect(Array.from(collectSummaries(extractSourceLines(EXPLAINED)).values())).toEqual([
+			'Documents the tag: ```ts @example Not a tag ```',
+		])
+	})
+})
+
+describe('extractTagline', () => {
+	it('reads the H1 blockquote, keeping its code spans', () => {
+		const document = createMarkdown('# Widget\n\n> A `Widget` toolkit.\n\n## Surface\n').document
+		expect(extractTagline(document)).toBe('A `Widget` toolkit.')
+	})
+
+	it('joins a two-paragraph blockquote into one line', () => {
+		const document = createMarkdown('# Widget\n\n> One.\n>\n> Two.\n').document
+		expect(extractTagline(document)).toBe('One. Two.')
+	})
+
+	it('returns undefined when a heading intervenes before the blockquote', () => {
+		const document = createMarkdown('# Widget\n\n## Surface\n\n> A note.\n').document
+		expect(extractTagline(document)).toBeUndefined()
+	})
+
+	it('returns undefined for a document with no H1', () => {
+		const document = createMarkdown('> A note.\n\n## Surface\n').document
+		expect(extractTagline(document)).toBeUndefined()
+	})
+
+	it("reads this repository's own guide tagline from the good fixture", () => {
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
+		expect(extractTagline(document)).toBe(
+			'A tiny fixture module exercising every ExportKeyword for guides-parity tests.',
+		)
+	})
+})
+
+// ── The Summary column ───────────────────────────────────────────────────────
+// The compared column is located by header text, the way the Kind column is, so
+// a reordered table still reads and a table without the column reports the gap
+// rather than agreeing silently.
+
+describe('the Summary column', () => {
+	const REORDERED = [
+		'## Surface',
+		'',
+		'| Name | Summary | Kind |',
+		'| --- | --- | --- |',
+		'| `Widget` | Represents a widget. | class |',
+		'',
+	].join('\n')
+	const ABSENT = [
+		'## Surface',
+		'',
+		'| Name | Kind | Shape |',
+		'| --- | --- | --- |',
+		'| `Widget` | class | `{ render }` |',
+		'',
+	].join('\n')
+
+	it('reads the Summary cell wherever the column sits', () => {
+		expect(extractSurface(createMarkdown(REORDERED).document)).toEqual([
+			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+		])
+	})
+
+	it('leaves the summary absent when the table carries no Summary column', () => {
+		expect(extractSurface(createMarkdown(ABSENT).document)).toEqual([
+			{ name: 'Widget', keyword: 'class' },
+		])
+	})
+
+	it('reads a Methods table the same way', () => {
+		const markdown = [
+			'## Methods',
+			'',
+			'#### `WidgetInterface`',
+			'',
+			'| Method | Returns | Summary |',
+			'| --- | --- | --- |',
+			'| `render` | `void` | Renders the widget. |',
+			'',
+		].join('\n')
+		expect(extractMethods(createMarkdown(markdown).document)).toEqual([
+			{
+				interface: 'WidgetInterface',
+				methods: [{ name: 'render', summary: 'Renders the widget.' }],
+			},
+		])
+	})
+})
+
+// ── Fence titles ─────────────────────────────────────────────────────────────
+
+describe('fence titles', () => {
+	it('carries the nearest preceding heading, flattening its code spans', () => {
+		const markdown = [
+			'## Patterns',
+			'',
+			'### Construct a `Widget`',
+			'',
+			'```ts',
+			'new Widget()',
+			'```',
+			'',
+			'### Render it',
+			'',
+			'```ts',
+			'widget.render()',
+			'```',
+			'',
+		].join('\n')
+		expect(extractFences(createMarkdown(markdown).document)).toEqual([
+			{ language: 'ts', code: 'new Widget()', title: 'Construct a Widget' },
+			{ language: 'ts', code: 'widget.render()', title: 'Render it' },
+		])
+	})
+
+	it('leaves the title absent for a fence no heading precedes', () => {
+		expect(extractFences(createMarkdown('```ts\nwalk()\n```\n').document)).toEqual([
+			{ language: 'ts', code: 'walk()' },
+		])
+	})
+})
+
+// ── Drift ────────────────────────────────────────────────────────────────────
+// `findDrift` compares only the pairs both sides carry: a symbol, a member, or
+// a title one side lacks belongs to the bijection checks and is never reported
+// twice. The negative control is drawn from outside that membership rule — a
+// symbol the SB legs already report — and the positive control plants one
+// disagreement of each kind and reads both sites back.
+
+describe('findDrift', () => {
+	const AGREEING_GUIDE = [
+		'# Widget',
+		'',
+		'> A widget module.',
+		'',
+		'## Surface',
+		'',
+		'| Name | Kind | Summary |',
+		'| --- | --- | --- |',
+		'| `WidgetInterface` | interface | Represents a widget. |',
+		'| `createWidget` | function | Creates a widget. |',
+		'',
+		'## Methods',
+		'',
+		'#### `WidgetInterface`',
+		'',
+		'| Method | Summary |',
+		'| --- | --- |',
+		'| `render` | Renders the widget. |',
+		'',
+		'## Patterns',
+		'',
+		'### Render a widget',
+		'',
+		'```ts',
+		'widget.render()',
+		'```',
+		'',
+	].join('\n')
+	const FILES = {
+		'module/index.ts': "export * from './types.js'\nexport * from './factories.js'\n",
+		'module/types.ts': [
+			'/**',
+			' * Represents a widget.',
+			' */',
+			'export interface WidgetInterface {',
+			'\t/**',
+			'\t * Renders the widget.',
+			'\t *',
+			'\t * @example Render a widget',
+			'\t * ```ts',
+			'\t * widget.render()',
+			'\t * ```',
+			'\t */',
+			'\trender(): void',
+			'}',
+			'',
+		].join('\n'),
+		'module/factories.ts': [
+			'/**',
+			' * Creates a widget.',
+			' */',
+			'export function createWidget(): void {}',
+			'',
+		].join('\n'),
+	}
+	const source = createSource({ files: FILES, module: 'module' })
+
+	it('reports nothing when every compared pair agrees', () => {
+		expect(findDrift(createGuide(AGREEING_GUIDE), source)).toEqual([])
+	})
+
+	it('reports one drift per kind, naming both sites', () => {
+		const drifted = AGREEING_GUIDE.replace('Creates a widget.', 'Constructs a widget.')
+			.replace('Renders the widget.', 'Draws the widget.')
+			.replace('widget.render()', 'widget.render(true)')
+		expect(findDrift(createGuide(drifted), source)).toEqual([
+			{
+				key: 'function createWidget',
+				guide: 'Constructs a widget.',
+				source: 'Creates a widget.',
+			},
+			{
+				key: 'WidgetInterface.render',
+				guide: 'Draws the widget.',
+				source: 'Renders the widget.',
+			},
+			{
+				key: 'Render a widget',
+				guide: 'ts\nwidget.render(true)',
+				source: 'ts\nwidget.render()',
+			},
+		])
+	})
+
+	it('reports the guide side absent when the table carries no Summary column', () => {
+		const stripped = AGREEING_GUIDE.replace(
+			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `WidgetInterface` | interface | Represents a widget. |\n| `createWidget` | function | Creates a widget. |',
+			'| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n| `createWidget` | function |',
+		)
+		expect(findDrift(createGuide(stripped), source)).toEqual([
+			{ key: 'interface WidgetInterface', source: 'Represents a widget.' },
+			{ key: 'function createWidget', source: 'Creates a widget.' },
+		])
+	})
+
+	it('reports the source side absent when the declaration carries no doc block', () => {
+		const undocumented = createSource({
+			files: { ...FILES, 'module/factories.ts': 'export function createWidget(): void {}\n' },
+			module: 'module',
+		})
+		expect(findDrift(createGuide(AGREEING_GUIDE), undocumented)).toEqual([
+			{ key: 'function createWidget', guide: 'Creates a widget.' },
+		])
+	})
+
+	it('reports the key alone when neither the table nor the declaration carries text', () => {
+		const stripped = AGREEING_GUIDE.replace(
+			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `WidgetInterface` | interface | Represents a widget. |\n| `createWidget` | function | Creates a widget. |',
+			'| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n| `createWidget` | function |',
+		)
+		const undocumented = createSource({
+			files: { ...FILES, 'module/factories.ts': 'export function createWidget(): void {}\n' },
+			module: 'module',
+		})
+		expect(findDrift(createGuide(stripped), undocumented)).toEqual([
+			{ key: 'interface WidgetInterface', source: 'Represents a widget.' },
+			{ key: 'function createWidget' },
+		])
+	})
+
+	it('reports a fence whose language the block does not share', () => {
+		const relanguaged = AGREEING_GUIDE.replace('```ts\nwidget.render()', '```js\nwidget.render()')
+		expect(findDrift(createGuide(relanguaged), source)).toEqual([
+			{ key: 'Render a widget', guide: 'js\nwidget.render()', source: 'ts\nwidget.render()' },
+		])
+	})
+
+	it('compares the first fence under a heading and leaves a later one outside', () => {
+		const later = AGREEING_GUIDE.replace(
+			'```ts\nwidget.render()\n```\n',
+			'```ts\nwidget.render()\n```\n\n```ts\nwidget.render(true)\n```\n',
+		)
+		expect(findDrift(createGuide(later), source)).toEqual([])
+	})
+
+	it('reports the first fence under a heading when a later fence agrees with the block', () => {
+		const first = AGREEING_GUIDE.replace(
+			'```ts\nwidget.render()\n```\n',
+			'```ts\nwidget.render(true)\n```\n\n```ts\nwidget.render()\n```\n',
+		)
+		expect(findDrift(createGuide(first), source)).toEqual([
+			{ key: 'Render a widget', guide: 'ts\nwidget.render(true)', source: 'ts\nwidget.render()' },
+		])
+	})
+
+	// The negative control. Both unpaired symbols sit outside `findDrift`'s
+	// membership rule, and the SB legs beside it prove the run is not vacuous.
+	it('reports neither a symbol the guide alone documents nor one the barrel alone exports', () => {
+		const phantomGuide = AGREEING_GUIDE.replace(
+			'| `createWidget` | function | Creates a widget. |',
+			'| `createWidget` | function | Creates a widget. |\n| `phantom` | function | Names nothing. |',
+		)
+		const stranded = createSource({
+			files: {
+				...FILES,
+				'module/index.ts':
+					"export * from './types.js'\nexport * from './factories.js'\nexport * from './stranded.js'\n",
+				'module/stranded.ts': [
+					'/**',
+					' * Strands a widget.',
+					' */',
+					'export function strandWidget(): void {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		const guide = createGuide(phantomGuide)
+
+		expect(findMissingSymbols(guide.surface(), stranded.surface())).toEqual(['function phantom'])
+		expect(findMissingSymbols(stranded.surface(), guide.surface())).toEqual([
+			'function strandWidget',
+		])
+		expect(findDrift(guide, stranded)).toEqual([])
+	})
+
+	it('reports neither a member the guide alone documents nor a title one side alone carries', () => {
+		const extra = AGREEING_GUIDE.replace(
+			'| `render` | Renders the widget. |',
+			'| `render` | Renders the widget. |\n| `destroy` | Tears the widget down. |',
+		).replace('### Render a widget', '### Render a widget elsewhere')
+		expect(findDrift(createGuide(extra), source)).toEqual([])
+	})
+})
+
+describe('computeDrift', () => {
+	it('returns undefined when both sides carry the same text', () => {
+		expect(computeDrift('function walk', 'Walks.', 'Walks.')).toBeUndefined()
+	})
+
+	it('reports the key alone when neither side carries text', () => {
+		expect(computeDrift('function walk', undefined, undefined)).toEqual({ key: 'function walk' })
+	})
+
+	it('names both sides when they differ', () => {
+		expect(computeDrift('function walk', 'Walks.', 'Walks a tree.')).toEqual({
+			key: 'function walk',
+			guide: 'Walks.',
+			source: 'Walks a tree.',
+		})
+	})
+
+	it('omits the side carrying no text', () => {
+		expect(computeDrift('function walk', undefined, 'Walks a tree.')).toEqual({
+			key: 'function walk',
+			source: 'Walks a tree.',
+		})
+	})
+})
+
+describe('collectTitles', () => {
+	it('keys the titled blocks a documented interface carries and skips an untitled one', () => {
+		const guide = createGuide(
+			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n',
+		)
+		const source = createSource({
+			files: {
+				'module/index.ts': "export * from './types.js'\nexport * from './helpers.js'\n",
+				'module/types.ts': [
+					'export interface WidgetInterface {',
+					'\t/**',
+					'\t * @example Render a widget',
+					'\t * widget.render()',
+					'\t */',
+					'\trender(): void',
+					'}',
+					'',
+				].join('\n'),
+				'module/helpers.ts': [
+					'/**',
+					' * @example',
+					' * walk()',
+					' */',
+					'export function walk(): void {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(Array.from(collectTitles(guide, source).keys())).toEqual(['Render a widget'])
+	})
+})
+
+// ── The parser control ───────────────────────────────────────────────────────
+// The text reader claims to attach a doc block to the declaration it documents.
+// `parseSync` from `vite` answers the same question with a real parser — comments
+// by range against declaration positions — so the two readings can disagree, and
+// the cases below say exactly where the text reader is allowed to. `vite` is a
+// development dependency and this import never reaches `src/**`, which stays
+// free of a compiler and a parser.
+
+/** The parser's reading: each block comment's description against the export it precedes. */
+function readParsedSummaries(source: string): ReadonlyMap<string, string> {
+	const parsed = parseSync('control.ts', source)
+	const summaries = new Map<string, string>()
+
+	for (const statement of parsed.program.body) {
+		if (statement.type !== 'ExportNamedDeclaration') continue
+		const declaration = statement.declaration
+		if (declaration === null || declaration === undefined) continue
+
+		const names =
+			declaration.type === 'VariableDeclaration'
+				? declaration.declarations.map((entry) =>
+						entry.id.type === 'Identifier' ? entry.id.name : '',
+					)
+				: declaration.type === 'FunctionDeclaration' ||
+					  declaration.type === 'TSDeclareFunction' ||
+					  declaration.type === 'ClassDeclaration' ||
+					  declaration.type === 'TSInterfaceDeclaration' ||
+					  declaration.type === 'TSTypeAliasDeclaration'
+					? [declaration.id?.name ?? '']
+					: []
+
+		const preceding = parsed.comments.filter(
+			(comment) =>
+				comment.type === 'Block' &&
+				comment.value.startsWith('*') &&
+				comment.end <= statement.start &&
+				source.slice(comment.end, statement.start).trim() === '',
+		)
+		const attached = preceding[preceding.length - 1]
+		if (attached === undefined) continue
+
+		// The control's own unwrapping, deliberately independent of the reader's.
+		const body = attached.value
+			.replace(/^\*/, '')
+			.split('\n')
+			.map((line) => line.replace(/^\s*\*\s?/, ''))
+			.join('\n')
+		const tag = body.search(/(?:^|\n)@\w/)
+		const description = (tag < 0 ? body : body.slice(0, tag)).replace(/\s+/g, ' ').trim()
+
+		// An overload set declares one name several times; the first declaration
+		// answers for it, which is the reader's rule too.
+		for (const name of names) {
+			if (name.length === 0 || summaries.has(name)) continue
+			if (description.length > 0) summaries.set(name, description)
+		}
+	}
+
+	return summaries
+}
+
+/** The text reader's reading, over the same source. */
+function readTextSummaries(source: string): ReadonlyMap<string, string> {
+	const summaries = new Map<string, string>()
+	for (const symbol of extractExports(source)) {
+		if (symbol.summary !== undefined && !summaries.has(symbol.name)) {
+			summaries.set(symbol.name, symbol.summary)
+		}
+	}
+	return summaries
+}
+
+describe('the doc-block reader against the parser', () => {
+	const OVERLOADS = [
+		'/**',
+		' * Reads one value.',
+		' */',
+		'export function read(): string',
+		'export function read(name: string): string',
+		'export function read(name?: string): string {',
+		"\treturn name ?? ''",
+		'}',
+		'',
+	].join('\n')
+	const SEPARATED = [
+		'/**',
+		' * Walks the tree.',
+		' */',
+		'',
+		'export function walk(): void {}',
+		'',
+	].join('\n')
+	const TEMPLATE = [
+		'/**',
+		' * Holds a sample module.',
+		' */',
+		'export const sample = `',
+		'/**',
+		' * Ghosts a widget.',
+		' */',
+		'export function ghost() {}',
+		'`',
+		'',
+	].join('\n')
+	const BARREL = [
+		'/**',
+		' * Re-exports the widget module.',
+		' */',
+		"export * from './types.js'",
+		"export * from './helpers.js'",
+		'',
+	].join('\n')
+
+	it('agrees with the parser on an overload set', () => {
+		expect(readTextSummaries(OVERLOADS)).toEqual(readParsedSummaries(OVERLOADS))
+		expect(readParsedSummaries(OVERLOADS)).toEqual(new Map([['read', 'Reads one value.']]))
+	})
+
+	it('agrees with the parser on a doc block inside a template literal', () => {
+		expect(readTextSummaries(TEMPLATE)).toEqual(readParsedSummaries(TEMPLATE))
+		expect(readParsedSummaries(TEMPLATE)).toEqual(new Map([['sample', 'Holds a sample module.']]))
+	})
+
+	it('agrees with the parser on a re-export-only barrel: neither reads a declaration', () => {
+		expect(readTextSummaries(BARREL)).toEqual(readParsedSummaries(BARREL))
+		expect(readParsedSummaries(BARREL)).toEqual(new Map())
+	})
+
+	// The one allowed miss. The reader pairs a block with the next physical
+	// record, so a blank line takes the block; the parser skips whitespace and
+	// attaches it. A package whose gate reads a summary writes the block against
+	// its declaration, which every other case here already requires.
+	it('misses a doc block a blank line separates from its declaration, which the parser attaches', () => {
+		expect(readParsedSummaries(SEPARATED)).toEqual(new Map([['walk', 'Walks the tree.']]))
+		expect(readTextSummaries(SEPARATED)).toEqual(new Map())
+	})
+
+	it('has no miss beyond the blank-line shape across the cases it covers', () => {
+		const missed = [OVERLOADS, TEMPLATE, BARREL, SEPARATED].filter((source) => {
+			const parsed = readParsedSummaries(source)
+			const read = readTextSummaries(source)
+			return Array.from(parsed.keys()).some((name) => read.get(name) !== parsed.get(name))
+		})
+		expect(missed).toEqual([SEPARATED])
 	})
 })

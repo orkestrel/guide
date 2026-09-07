@@ -32,14 +32,18 @@ The manifest/extraction shapes every check is built from, from [`types.ts`](../s
 | Name                     | Kind      | Shape                                                                                                                                                                                                                                         |
 | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ExportKeyword`          | type      | `'type' \| 'interface' \| 'const' \| 'function' \| 'class'` — the declaration-keyword reflection population, derived from `EXPORT_KEYWORDS`. Comment/template payload and enums are outside it; general package policy does not forbid enums. |
-| `SurfaceSymbol`          | interface | `{ name, keyword }` — one documented / exported symbol.                                                                                                                                                                                       |
+| `SurfaceSymbol`          | interface | `{ name, keyword, summary? }` — one documented / exported symbol; `summary` holds the compared description paragraph its side carries.                                                                                                        |
 | `GuideModule`            | type      | `string \| readonly string[]` — one source directory, or several; `'.'` is the canonical workspace root.                                                                                                                                      |
 | `SourceLine`             | interface | `{ source, code, jsdoc }` — one terminator-free physical source line with exact raw text, equal-length projections, and every genuine JSDoc span at its physical column or `undefined`.                                                       |
+| `SourceComment`          | interface | `{ text, line }` — one eligible genuine JSDoc block's unwrapped body paired with the physical record it documents.                                                                                                                            |
+| `MethodEntry`            | interface | `{ name, summary? }` — one documented method's identifier and the compared description paragraph its side carries.                                                                                                                            |
+| `SourceExample`          | interface | `{ name, title?, code, language? }` — one `@example` block: the declaration it documents, its pairing title, its code, and its fence language.                                                                                                |
+| `Drift`                  | interface | `{ key, guide?, source? }` — one disagreement between a guide and its source, the side carrying no text omitted.                                                                                                                              |
 | `ManifestEntry`          | interface | `{ concept, spec, source, tests }` — one `## By concept` manifest row, paths normalized to workspace root.                                                                                                                                    |
-| `MethodGroup`            | interface | `{ interface, methods }` — one `#### \`Interface\`` block's documented method names, in table order.                                                                                                                                          |
+| `MethodGroup`            | interface | `{ interface, methods }` — one `#### Interface` block's documented `MethodEntry` rows, in table order.                                                                                                                                        |
 | `FenceImport`            | interface | `{ specifier, names }` — one brace `import` statement projected from a guide fence, each alias resolved to the original exported name.                                                                                                        |
-| `GuideFence`             | interface | `{ language, code }` — one fenced code block; `language` is its info-string tag, or `undefined` when the fence is untagged.                                                                                                                   |
-| `GuideInterface`         | interface | `{ sections, surface, methods, links, tests, fences }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                                                                       |
+| `GuideFence`             | interface | `{ language, code, title? }` — one fenced code block; `language` is its info-string tag, or `undefined` when the fence is untagged, and `title` is the flattened text of its nearest preceding heading.                                       |
+| `GuideInterface`         | interface | `{ sections, tagline, surface, methods, unnamed, links, tests, fences }` — the structured, pure view over one parsed guide. See [`## Methods`](#methods).                                                                                     |
 | `SourceInterface`        | interface | `{ exports, surface, methods, exists, hidden, examples }` — direct declarations, conventional barrel reachability, members, paths, discipline, and examples. See [`## Methods`](#methods).                                                    |
 | `SourceManagerInterface` | interface | `{ source, sources }` — resolves one import specifier to the shared source view of the module it names, and enumerates those views. See [`## Methods`](#methods).                                                                             |
 | `SourceOptions`          | interface | `{ files, module }` — exact canonical-segment opaque workspace-relative inventory keys plus the canonicalized module scope to reflect.                                                                                                        |
@@ -60,6 +64,8 @@ extractor and link check is keyed on, from [`constants.ts`](../src/core/constant
 | `METHODS`          | const | `'Methods'` — the `## Methods` heading text.                                                                                                                |
 | `TESTS`            | const | `'Tests'` — the `## Tests` heading text.                                                                                                                    |
 | `MANIFEST`         | const | `'By concept'` — the `## By concept` manifest heading text.                                                                                                 |
+| `KIND`             | const | `'Kind'` — the header text of the column a `## Surface` table's declaration keyword is read from.                                                           |
+| `SUMMARY`          | const | `'Summary'` — the header text of the column a `## Surface` or `## Methods` table's compared description paragraph is read from.                             |
 | `EXTERNAL_SCHEMES` | const | `readonly string[]` — `['http:', 'https:', 'mailto:', 'tel:']`; a link with one of these prefixes is never filesystem-resolved.                             |
 
 ### Helpers
@@ -84,26 +90,38 @@ directly.
 | `joinHead`              | function | `(lines: readonly string[], start: number) => DeclarationHead \| undefined`                               | Joins a declaration head starting at `start` into one space-separated line, consuming lines until the first ending in `{`.                                                                                                                        |
 | `escapeRegExp`          | function | `(value: string) => string`                                                                               | Escapes every regex metacharacter in a literal string so it reads as text inside a larger `RegExp` source — `extractDeclaration`'s head grammar and `findUnexampled`'s word-boundary search both splice a caller-supplied name through it.        |
 | `extractDeclaration`    | function | `(source: string, keyword: DeclarationKeyword, name: string) => Declaration \| undefined`                 | Locates one real `export class` / `export interface` head in projected lines and returns its raw body and its `extends` bases together, or `undefined` when the file declares no such head.                                                       |
-| `extractMemberMethods`  | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members on one projection of the body; commented candidates, getters, setters, `static`, and `#` privates never count.                                                                                                           |
-| `extractExampleLines`   | function | `(lines: readonly SourceLine[]) => readonly SourceLine[]`                                                 | The next physical candidate after the authoritative exact `@example` span in a leading chain.                                                                                                                                                     |
-| `extractExamples`       | function | `(source: string) => readonly string[]`                                                                   | Matches exported functions against shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                                      |
-| `extractExampleMethods` | function | `(lines: readonly string[]) => readonly string[]`                                                         | Matches callable members against the same shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                                               |
+| `extractMemberMethods`  | function | `(lines: readonly string[]) => readonly MethodEntry[]`                                                    | Matches callable members on one projection of the body, each with its own doc block's description paragraph; commented candidates, getters, setters, `static`, and `#` privates never count.                                                      |
+| `extractSourceComments` | function | `(lines: readonly SourceLine[]) => readonly SourceComment[]`                                              | Every eligible genuine JSDoc block paired with the physical record it documents — the one walk every doc-block reader shares.                                                                                                                     |
+| `normalizeComment`      | function | `(comment: string) => string`                                                                             | One genuine JSDoc span's unwrapped body: opener, closing marker, continuation markers, and the block's leading indentation removed, per-line trailing whitespace trimmed.                                                                         |
+| `normalizeSummary`      | function | `(text: string) => string`                                                                                | The compared form of a description paragraph — `{@link}` targets rendered as code tokens, whitespace collapsed, the ends trimmed.                                                                                                                 |
+| `maskFences`            | function | `(text: string) => string`                                                                                | One doc block's unwrapped text with every fenced body replaced by aligned spaces, so a tag search reads the block's structure and never its example code.                                                                                         |
+| `collectSummaries`      | function | `(lines: readonly SourceLine[]) => ReadonlyMap<SourceLine, string>`                                       | The description paragraph of every documented record, keyed by the record; a block carrying no description contributes no entry.                                                                                                                  |
+| `collectExamples`       | function | `(comment: string, name: string) => readonly SourceExample[]`                                             | The `@example` blocks one doc block's unwrapped text carries, each with its title, its fence language, and its body.                                                                                                                              |
+| `extractExampleLines`   | function | `(lines: readonly SourceLine[]) => readonly SourceLine[]`                                                 | The `extractSourceComments` walk filtered to the blocks carrying an `@example` tag opening a line at its first non-blank column, projected to the records they document.                                                                          |
+| `extractExamples`       | function | `(source: string) => readonly SourceExample[]`                                                            | The exported functions' `@example` blocks, matched against shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                              |
+| `extractExampleMethods` | function | `(lines: readonly string[]) => readonly SourceExample[]`                                                  | The callable members' `@example` blocks, matched against the same shared eligible genuine JSDoc adjacency and aligned code.                                                                                                                       |
 | `selectSectionBlocks`   | function | `(document: MarkdownDocument, heading: string) => readonly BlockNode[]`                                   | The block nodes under a named `##` heading, up to the next `##`-or-higher heading (or the document's end).                                                                                                                                        |
-| `extractSurface`        | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                                                | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `computeSymbolKey`.                                                                                                                         |
-| `extractMethods`        | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                                                  | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its methods.                                                                                                |
+| `extractTagline`        | function | `(document: MarkdownDocument) => string \| undefined`                                                     | The text of the blockquote following the document's H1, or `undefined` when a heading intervenes first.                                                                                                                                           |
+| `extractSurface`        | function | `(document: MarkdownDocument) => readonly SurfaceSymbol[]`                                                | Every `## Surface` identifier: each table's rows union every backticked H3 entity heading, deduped by `computeSymbolKey`, each row carrying its `Summary` cell when the table has that column.                                                    |
+| `extractMethods`        | function | `(document: MarkdownDocument) => readonly MethodGroup[]`                                                  | One `MethodGroup` per documented behavioral interface in `## Methods` — an H4 code span sets the interface, the following table lists its entries.                                                                                                |
+| `extractUnnamed`        | function | `(document: MarkdownDocument) => readonly string[]`                                                       | Every `## Surface` or `## Methods` row whose first cell carries no code span — the rows `extractSurface` and `extractMethods` skip for want of a name, each returned as its cells' text on one line.                                              |
 | `extractLinks`          | function | `(document: MarkdownDocument) => readonly string[]`                                                       | Every link href in the guide document, including table cells — a full, depth-first AST walk.                                                                                                                                                      |
 | `extractTests`          | function | `(document: MarkdownDocument) => readonly string[]`                                                       | The relative test links declared under `## Tests`.                                                                                                                                                                                                |
-| `extractFences`         | function | `(document: MarkdownDocument) => readonly GuideFence[]`                                                   | Every fenced code block anywhere in the guide document, tagged or not — a full AST walk with no language filter.                                                                                                                                  |
+| `extractFences`         | function | `(document: MarkdownDocument) => readonly GuideFence[]`                                                   | Every fenced code block anywhere in the guide document, tagged or not, each carrying its nearest preceding heading as `title` — a full AST walk with no language filter.                                                                          |
 | `isExternalLink`        | function | `(href: string) => boolean`                                                                               | Whether a guides-parity link check skips a link `href` — an external scheme (`EXTERNAL_SCHEMES`) or a bare `#` anchor.                                                                                                                            |
 | `resolveLink`           | function | `(file: string, target: string) => string`                                                                | Derives a declaring file's directory, including workspace-root files, then delegates to `resolvePath`.                                                                                                                                            |
 | `resolvePath`           | function | `(directory: string, target: string) => string`                                                           | Sole dot-segment reducer; returns `'.'` when no segment remains and preserves every excess leading parent.                                                                                                                                        |
 | `findFirstCode`         | function | `(nodes: readonly InlineNode[]) => string \| undefined`                                                   | The first code-span value found by descending an inline node list, following into `emphasis`, `link`, and `image` children.                                                                                                                       |
 | `normalizeIdentifier`   | function | `(code: string) => string`                                                                                | The identifier prefix of a code-span text — everything before its first `<`, trimmed (strips generic-parameter annotation).                                                                                                                       |
-| `findKindIndex`         | function | `(table: TableNode) => number \| undefined`                                                               | The index of a table's `Kind` column, found by its header text so it survives column reordering.                                                                                                                                                  |
+| `findColumnIndex`       | function | `(table: TableNode, header: string) => number \| undefined`                                               | The index of the column whose header text is `header`, found by that text so a table's columns survive reordering.                                                                                                                                |
+| `extractCellText`       | function | `(cell: readonly InlineNode[]) => string`                                                                 | One table cell's compared text, code spans kept as code spans while emphasis and a link drop to their text and an image drops to its alternative text.                                                                                            |
 | `extractCellLinks`      | function | `(cell: readonly InlineNode[]) => readonly string[]`                                                      | The link hrefs found within one table cell's inline content, in walk order.                                                                                                                                                                       |
 | `findUnexampled`        | function | `(names: readonly string[], fences: readonly string[], examples: readonly string[]) => readonly string[]` | The names with no fence mention (word boundary) and no `@example` membership — the EX check's core comparison.                                                                                                                                    |
 | `findUnlisted`          | function | `(fences: readonly GuideFence[], languages: readonly string[]) => readonly GuideFence[]`                  | The fences whose language the caller did not list, plus every untagged fence — an untagged fence has no language to list.                                                                                                                         |
 | `extractFenceImports`   | function | `(fence: string) => readonly FenceImport[]`                                                               | Parses a fence's brace `import` statements into per-specifier imported identifier names — the FI check's core comparison. Brace bindings only: a default, namespace, side-effect, or mixed `import Default, { named }` statement is not surfaced. |
+| `collectTitles`         | function | `(guide: GuideInterface, source: SourceInterface) => ReadonlyMap<string, SourceExample>`                  | The titled `@example` blocks a guide's documented surface reaches, keyed by title, the first block of a title answering for it.                                                                                                                   |
+| `computeDrift`          | function | `(key: string, guide: string \| undefined, source: string \| undefined) => Drift \| undefined`            | One compared key's guide text and source text as a `Drift`, or `undefined` only when both sides carry the same text; the side carrying no text is omitted, and neither side carrying text reports the key alone.                                  |
+| `findDrift`             | function | `(guide: GuideInterface, source: SourceInterface) => readonly Drift[]`                                    | Every disagreement between a guide and its source — Surface rows, Methods rows, then the first titled fence of each heading — naming both sites.                                                                                                  |
 
 ### Parsers
 
@@ -120,11 +138,14 @@ Declarative `ContractShape` values (from `@orkestrel/contract`) from
 [`shapers.ts`](../src/core/shapers.ts) — every documented data type here is
 non-recursive, so each shapes directly.
 
-| Name                 | Kind  | Builds                                                                              |
-| -------------------- | ----- | ----------------------------------------------------------------------------------- |
-| `surfaceSymbolShape` | const | The shape of a `SurfaceSymbol` — `{ name: string, keyword: ExportKeyword }`.        |
-| `methodGroupShape`   | const | The shape of a `MethodGroup` — `{ interface: string, methods: readonly string[] }`. |
-| `manifestEntryShape` | const | The shape of a `ManifestEntry` — `source` accepting a single directory or several.  |
+| Name                 | Kind  | Builds                                                                                                |
+| -------------------- | ----- | ----------------------------------------------------------------------------------------------------- |
+| `surfaceSymbolShape` | const | The shape of a `SurfaceSymbol` — `{ name: string, keyword: ExportKeyword, summary?: string }`.        |
+| `methodGroupShape`   | const | The shape of a `MethodGroup` — `{ interface: string, methods: readonly MethodEntry[] }`.              |
+| `methodEntryShape`   | const | The shape of a `MethodEntry` — `{ name: string, summary?: string }`.                                  |
+| `sourceExampleShape` | const | The shape of a `SourceExample` — `{ name: string, title?: string, code: string, language?: string }`. |
+| `driftShape`         | const | The shape of a `Drift` — `{ key: string, guide?: string, source?: string }`.                          |
+| `manifestEntryShape` | const | The shape of a `ManifestEntry` — `source` accepting a single directory or several.                    |
 
 ### Validators
 
@@ -136,6 +157,9 @@ Total from-unknown guards composed from `@orkestrel/contract` combinators, from
 | `isExportKeyword` | const | `value: unknown`   | `true` when `value` is one of the documented `ExportKeyword` literals. |
 | `isSurfaceSymbol` | const | `value: unknown`   | `true` when `value` is a well-formed `SurfaceSymbol`.                  |
 | `isMethodGroup`   | const | `value: unknown`   | `true` when `value` is a well-formed `MethodGroup`.                    |
+| `isMethodEntry`   | const | `value: unknown`   | `true` when `value` is a well-formed `MethodEntry`.                    |
+| `isSourceExample` | const | `value: unknown`   | `true` when `value` is a well-formed `SourceExample`.                  |
+| `isDrift`         | const | `value: unknown`   | `true` when `value` is a well-formed `Drift`.                          |
 | `isManifestEntry` | const | `value: unknown`   | `true` when `value` is a well-formed `ManifestEntry`.                  |
 
 ### Factories
@@ -149,6 +173,9 @@ From [`factories.ts`](../src/core/factories.ts).
 | `createSourceManager`         | function | `(options: SourceManagerOptions) => SourceManagerInterface` | Creates a `SourceManagerInterface` over a specifier-to-module policy, sharing one `Source` per module. |
 | `createSurfaceSymbolContract` | function | `() => ContractInterface<SurfaceSymbol>`                    | Compiles `surfaceSymbolShape` into a guard / parser / schema / generator bundle.                       |
 | `createMethodGroupContract`   | function | `() => ContractInterface<MethodGroup>`                      | Compiles `methodGroupShape` into a guard / parser / schema / generator bundle.                         |
+| `createMethodEntryContract`   | function | `() => ContractInterface<MethodEntry>`                      | Compiles `methodEntryShape` into a guard / parser / schema / generator bundle.                         |
+| `createSourceExampleContract` | function | `() => ContractInterface<SourceExample>`                    | Compiles `sourceExampleShape` into a guard / parser / schema / generator bundle.                       |
+| `createDriftContract`         | function | `() => ContractInterface<Drift>`                            | Compiles `driftShape` into a guard / parser / schema / generator bundle.                               |
 | `createManifestEntryContract` | function | `() => ContractInterface<ManifestEntry>`                    | Compiles `manifestEntryShape` into a guard / parser / schema / generator bundle.                       |
 
 ### `Guide`
@@ -197,25 +224,27 @@ backticked name (`.claude/rules/documentation.md` § Parity).
 
 #### `GuideInterface`
 
-| Method     | Returns                    | Behavior                                                                                    |
-| ---------- | -------------------------- | ------------------------------------------------------------------------------------------- |
-| `sections` | `readonly string[]`        | The `##` heading names, in document order — the non-vacuousness guard for section presence. |
-| `surface`  | `readonly SurfaceSymbol[]` | Every `## Surface` identifier + keyword — table rows union backticked entity headings.      |
-| `methods`  | `readonly MethodGroup[]`   | One `MethodGroup` per documented behavioral interface in `## Methods`.                      |
-| `links`    | `readonly string[]`        | Every link href in the guide, including table cells.                                        |
-| `tests`    | `readonly string[]`        | The relative test links declared under `## Tests`.                                          |
-| `fences`   | `readonly GuideFence[]`    | Every fenced code block in the whole document, tagged or not — no language filter.          |
+| Method     | Returns                    | Behavior                                                                                                                                                                        |
+| ---------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sections` | `readonly string[]`        | The `##` heading names, in document order — the non-vacuousness guard for section presence.                                                                                     |
+| `tagline`  | `string \| undefined`      | The text of the blockquote following the H1 — the guide's tagline, or `undefined` when a heading intervenes first.                                                              |
+| `surface`  | `readonly SurfaceSymbol[]` | Every `## Surface` identifier + keyword — table rows union backticked entity headings, each row carrying its `Summary` cell when the table has that column.                     |
+| `methods`  | `readonly MethodGroup[]`   | One `MethodGroup` per documented behavioral interface in `## Methods`, each row carrying its `Summary` cell.                                                                    |
+| `unnamed`  | `readonly string[]`        | Every `## Surface` or `## Methods` row whose first cell carries no code span — the rows `surface` and `methods` skip for want of a name, so no bijection check can report them. |
+| `links`    | `readonly string[]`        | Every link href in the guide, including table cells.                                                                                                                            |
+| `tests`    | `readonly string[]`        | The relative test links declared under `## Tests`.                                                                                                                              |
+| `fences`   | `readonly GuideFence[]`    | Every fenced code block in the whole document, tagged or not, each carrying its nearest preceding heading as `title` — no language filter.                                      |
 
 #### `SourceInterface`
 
-| Method     | Returns                    | Behavior                                                                                                                                                                                                    |
-| ---------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exports`  | `readonly SurfaceSymbol[]` | What the package **declares** — direct `type`, `interface`, `const`, `function`, and `class` declarations in the selected module keys.                                                                      |
-| `surface`  | `readonly SurfaceSymbol[]` | What a consumer can **import** — every declaration reachable through the selected directories' conventional root `index.ts` barrels.                                                                        |
-| `methods`  | `readonly string[]`        | The call-signature members of the `class` / `interface` named `name`, unioned with those of every declaration it extends within the module scope. The first file declaring the name answers for it.         |
-| `exists`   | `boolean`                  | Whether a workspace-root-relative path names an inventory key exactly, or a directory any inventory key sits beneath — which is what lets a guide link to a directory resolve.                              |
-| `hidden`   | `readonly SurfaceSymbol[]` | Every module-scope declaration **lacking** `export` (`.claude/rules/architecture.md` § Barrel exports).                                                                                                     |
-| `examples` | `readonly string[]`        | The exported functions (or, given `name`, that declaration's own members) whose eligible leading JSDoc chain ends in an exact block-position `@example` span. Given `name`, it follows no `extends` clause. |
+| Method     | Returns                    | Behavior                                                                                                                                                                                                                                                                            |
+| ---------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exports`  | `readonly SurfaceSymbol[]` | What the package **declares** — direct `type`, `interface`, `const`, `function`, and `class` declarations in the selected module keys.                                                                                                                                              |
+| `surface`  | `readonly SurfaceSymbol[]` | What a consumer can **import** — every declaration reachable through the selected directories' conventional root `index.ts` barrels.                                                                                                                                                |
+| `methods`  | `readonly MethodEntry[]`   | The call-signature members of the `class` / `interface` named `name`, unioned with those of every declaration it extends within the module scope, each with its own doc block's description paragraph. The first file declaring the name answers for it.                            |
+| `exists`   | `boolean`                  | Whether a workspace-root-relative path names an inventory key exactly, or a directory any inventory key sits beneath — which is what lets a guide link to a directory resolve.                                                                                                      |
+| `hidden`   | `readonly SurfaceSymbol[]` | Every module-scope declaration **lacking** `export` (`.claude/rules/architecture.md` § Barrel exports).                                                                                                                                                                             |
+| `examples` | `readonly SourceExample[]` | The `@example` blocks carried by the exported functions (or, given `name`, that declaration's own members) whose eligible leading JSDoc chain ends in a span carrying an `@example` tag opening a line at its first non-blank column. Given `name`, it follows no `extends` clause. |
 
 #### Which projector a check uses
 
@@ -248,12 +277,12 @@ internal implementation classes a denylist would enumerate by hand, so a fence-i
 ## The extraction model
 
 `Guide` parses a guide's markdown once (through `@orkestrel/markdown`'s `createMarkdown`) and
-caches its projections at construction — `sections`, `surface`, `methods`, `links`, `tests`,
-`fences` — so every accessor is a cheap array return, not a re-parse. `extractSurface` scopes to the
-`## Surface` section (`selectSectionBlocks`) and unions its sources of identifiers: every table's
-column-0 code span (keyword read from the column whose header text is `Kind`, located
-positionally so it survives reordering) and every backticked H3 entity heading (a class
-documented outside a table, keyword fixed to `'class'`). `extractMethods` scopes to
+caches its projections at construction — `sections`, `tagline`, `surface`, `methods`, `unnamed`,
+`links`, `tests`, `fences` — so every accessor is a cheap array return, not a re-parse.
+`extractSurface` scopes to the `## Surface` section (`selectSectionBlocks`) and unions its sources
+of identifiers: every table's column-0 code span (keyword read from the column whose header text
+is `Kind`, located positionally so it survives reordering) and every backticked H3 entity heading
+(a class documented outside a table, keyword fixed to `'class'`). `extractMethods` scopes to
 `## Methods`: an H4 whose first code span sets the current interface name, and the very next
 table becomes that interface's `MethodGroup`. Both extractors normalize every identifier
 through `normalizeIdentifier`, stripping a generic-parameter annotation (`` `WidgetInterface<T>` ``
@@ -278,6 +307,60 @@ the directory before the final slash, treats a slashless file as workspace-root,
 Neither helper consults the filesystem, infers extensions, or guesses whether a dotted component
 is a file.
 
+The guide's side and the source's side read into one form. `extractSurface` and `extractMethods` locate
+the compared column by its header text, `Summary`, exactly as they locate `Kind`, and read that cell
+through `extractCellText` and `normalizeSummary`. `extractSourceComments` walks the aligned
+`SourceLine` records once, pairs each eligible genuine JSDoc block with the physical record it
+documents, and every doc-block reader is a projection of that one walk: `collectSummaries` for the
+description paragraph, `collectExamples` for the `@example` blocks, and `extractExampleLines` for the
+records an `@example` documents. `extractTagline` reads the blockquote following the H1, and
+`extractUnnamed` returns the `## Surface` and `## Methods` rows `extractSurface` and
+`extractMethods` skip for want of a code-span name.
+
+One transform reads both sides, so its clauses are stated once and each fires wherever its input
+occurs rather than on a side reserved for it:
+
+- `{@link X}` and `{@link A.b}` become the code token of the target text.
+- `{@link X | text}` becomes the code token of `text`.
+- Emphasis — `**text**` and `_text_` — drops to its text.
+- A link, `[text](target)`, drops to `text`.
+- An image, `![text](target)`, drops to its alternative text.
+- `\|` unescapes.
+- Every run of whitespace, a continuation marker and a line break included, collapses to one space.
+- The leading and trailing whitespace trims.
+- A code span stays a code span.
+
+Nothing else is transformed. Emphasis, a link, an image, and `\|` are markdown syntax the parser
+resolves, so those clauses reach only a guide cell; `{@link Widget}` is ordinary text, so a guide cell carrying that token
+rewrites to `` `Widget` `` exactly as a doc block's paragraph does. The `extractCellText` function
+reads the markdown nodes and `normalizeSummary` reads the text tokens, and both sides end in
+`normalizeSummary`.
+
+The compared unit is the description paragraph, not its first sentence: on the source side the doc
+block's text from its opening to its first block tag, and on the guide side the `Summary` cell. A
+block tag opens a line whose first non-blank character is `@`, so a tag written past one space after
+the continuation marker still ends the paragraph and still reads as a tag. A line inside a fenced
+body is example code rather than block structure, so it opens no tag: a body runs from a line
+opening with three or more backticks or tildes to the first line opening with a run of the same
+character at least as long, and `maskFences` replaces its characters with aligned spaces before
+every tag search reads the block.
+`@param`, `@returns` and the `Returns` column, `@remarks` and narrative, and the H1 tagline are
+outside the comparison — `tagline()` reads the tagline for a package that compares it against its own
+README, and it gains a partner to compare against when a source declares `@packageDocumentation`.
+`Shape`, `Signature`, `Value`, and `Returns` are guide-only data columns and stay unread.
+
+Examples pair by title. A `GuideFence` carries the flattened text of its nearest preceding heading as
+`title`, a `SourceExample` carries the text after its `@example` tag, and a block claims the fence of
+the same title. A heading's text is flattened, so a title written with a code span pairs with a plain
+`@example` title. The pairing is per title across the whole document, not per heading: the first
+fence a title reaches is the compared one, and every later fence of that title is outside the
+comparison, whether it sits under the same heading or under a second heading of the same text. A
+heading can therefore carry a setup fence and a result fence, and only the first answers for the
+title. The bodies compare after `normalizeComment` removes the continuation marker and the
+block's leading indentation and trims per-line trailing whitespace, and the fence language compares
+with them: an example's compared text is its language on the first line and its body beneath. An
+untitled `@example` keeps its presence role for `findUnexampled`.
+
 `Source` never parses markdown or touches disk — it scans a consumer-supplied file
 inventory's text with deliberately narrow physical-line grammars. `extractSourceLines` is the
 sole character engine and emits one `SourceLine` per LF/CRLF physical line plus the final line:
@@ -298,8 +381,8 @@ column-zero, while barrel rows retain their separate whitespace-tolerant whole-l
 
 `extractExampleLines` walks only `SourceLine` records. A genuine JSDoc opener is eligible only
 when it is the first non-whitespace source material. Within a leading whitespace-separated chain,
-each later span replaces the earlier one and is authoritative. Only an exact block-position
-`@example` tag qualifies; same-line title text is allowed. Source material between or after spans
+each later span replaces the earlier one and is authoritative. Only an `@example` tag opening a line
+at its first non-blank column qualifies; same-line title text is allowed. Source material between or after spans
 severs association, a leading JSDoc on the next line replaces pending state, and any other next
 physical record is returned once as the candidate. `extractExamples` and `extractExampleMethods` share this
 adjacency parser and apply their distinct exported-function and callable-member grammars only to
@@ -387,6 +470,13 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
   `XInterface → X` naming convention, `findMissing(source.methods('X'), group.methods)` must
   also be empty — the implementing class exposes no undocumented public method. Guard:
   `group.methods.length > 0`.
+- **RN — Row naming.** `guide.unnamed()` keeps every `## Surface` or `## Methods` row whose first
+  cell carries no code span. `extractSurface` and `extractMethods` key a row on that code span, so a
+  row without one enters neither `guide.surface()` nor a `MethodGroup`, no bijection leg can report
+  it, and this check names the row instead of letting it go in silence. A finding is the row's cells
+  read through `extractCellText` and joined by ` | `. Guard: RN reads table rows, so a guide
+  documenting its surface with backticked H3 entity headings and no `## Surface` table gives RN
+  nothing to read, and SB's `guide.surface().length > 0` covers that surface instead.
 - **LI — Link integrity.** `guide.links()`, dropping `isExternalLink` hrefs, `resolveLink`
   the rest against the guide's own path, keep those failing `source.exists` — which holds for a
   directory link too, because `exists` answers for an inventory key and for any directory a key
@@ -403,16 +493,36 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
 - **EX — Examples presence.** A documented symbol "has an example" when its bare name
   appears (word boundary) in any fence body from `guide.fences()` filtered to the example
   language, **or** its source has an immediately preceding eligible leading JSDoc chain whose final
-  authoritative span carries an exact block-position `@example` tag, with optional title text,
+  authoritative span carries an `@example` tag opening a line at its first non-blank column, with
+  optional title text,
   (`source.examples()` / `source.examples(name)`).
   Applies to every `function`-keyword `Surface` symbol and every `MethodGroup` member.
   Presence-only — fence and JSDoc **content** are never checked. `findUnexampled` is the
   comparison. Guard: the SB/MB extractions this check reuses already prove non-vacuous.
+- **SQ — Surface summary equality.** For every symbol both `guide.surface()` and `source.surface()`
+  carry, the guide row's `Summary` cell equals the declaration's description paragraph. A pair agrees
+  only when both sides carry the same text: guide text alone reports the guide's side, source text
+  alone reports the source's, and neither side carrying text reports the key by itself — never as
+  agreement. A table with no `Summary` column therefore reports every row it documents, and a package
+  adopting SQ cannot pass it vacuously. `findDrift` is the comparison. Guard: the SB extractions
+  this check reuses already prove non-vacuous.
+- **MQ — Methods summary equality.** The same comparison per `MethodGroup`, over the members
+  `group.methods` and `source.methods(group.interface)` both carry, keyed `Owner.member`.
+- **EQ — Example equality.** Every titled guide fence against the `@example` block of the same title,
+  body and fence language together. The pairing is per title across the document, not per heading: the
+  first fence a title reaches is the compared one, and every later fence of that title is outside the
+  comparison, whether it sits under the same heading or under a second heading of the same text. A title one side alone carries is outside
+  the comparison too, and an untitled `@example` stays EX's presence evidence.
 - **FI — Fence-import reality.** Every `import { ... } from 'specifier'` in a `guide.fences()`
   fence of the checked language, for a **self** specifier (this repo's own package name / path
   alias), imports only names that exist in `source.surface()`. `extractFenceImports` parses the
   statement; `findMissing` diffs the imported names against the public/barrel surface's names.
   Guard: the comparison runs against at least one resolved import.
+
+SQ, MQ, and EQ share one function: `findDrift(guide, source)` returns every disagreement with both
+sites, so a package's whole equality gate is `expect(findDrift(guide, source)).toEqual([])`. It
+compares only the pairs both sides carry, so a symbol, a member, or a title one side lacks is left to
+the bijection check that owns it and is never reported twice.
 
 Permanent controls bind the SB population boundaries through production `Source`, `Guide`,
 `findMissingSymbols`, and `computeSymbolKey`: a stranded direct declaration must be missing from the barrel;
@@ -470,7 +580,7 @@ const source = createSource({
 })
 source.exports() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
 source.surface() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]
-source.methods('GuideInterface') // ['sections']
+source.methods('GuideInterface') // [{ name: 'sections' }]
 source.exists('src/core/Guide.ts') // true
 source.exists('src/core') // true — a directory any inventory key sits beneath
 ```
@@ -515,6 +625,35 @@ findMissingSymbols(source.surface(), guide.surface()) // []
 findMissingSymbols(guide.surface(), source.surface()) // []
 ```
 
+### Compare a guide against the source it documents
+
+```ts
+import { createGuide, createSource, findDrift } from '@orkestrel/guide'
+
+const guide = createGuide(
+	'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |',
+)
+const source = createSource({
+	files: {
+		'src/core/index.ts': "export * from './helpers.js'\n",
+		'src/core/helpers.ts': '/**\n * Walks a tree.\n */\nexport function walk(): void {}\n',
+	},
+	module: 'src/core',
+})
+
+// One entry per disagreement, naming both sites; a symbol one side lacks belongs to SB.
+findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }]
+```
+
+### Read a guide's tagline
+
+```ts
+import { createGuide } from '@orkestrel/guide'
+
+const guide = createGuide('# Widget\n\n> A widget toolkit.\n\n## Surface\n')
+guide.tagline() // 'A widget toolkit.'
+```
+
 ### Project source into physical code lines
 
 ```ts
@@ -536,12 +675,19 @@ resolveLink('index.ts', './root.ts') // 'root.ts'
 
 ## Tests
 
-- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — direct `SourceLine`, lexical, and JSDoc-alignment invariants; projected declaration-keyword direct/hidden reflection; genuine JSDoc example adjacency and faux JSDoc exclusion; every guide-document extractor; canonical-key, runtime-name, `resolvePath`, and `resolveLink` invariants; all remaining helper leaves.
+This repository runs the catalog against itself. Its `tests/guides.test.ts` wires RN, SB, MB, LI,
+TE, NV, FL, EX, and FI. It does not wire SQ, MQ, or EQ: this guide's Surface and Methods tables head
+their compared column `Shape`, `Signature`, `Behavior`, `Builds`, and `Returns` rather than
+`Summary`, so `findDrift` would report every row this guide documents. This guide adopts the
+`Summary` column in a later change, and until then the catalog's SQ, MQ, and EQ rows describe checks
+this repository does not run against its own guide.
+
+- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — direct `SourceLine`, lexical, and JSDoc-alignment invariants; projected declaration-keyword direct/hidden reflection; genuine JSDoc example adjacency and faux JSDoc exclusion; every guide-document extractor; the compared form clause by clause on both sides; the `Summary` locator over a reordered header and a table without the column; the nameless-row finding against a name the reader reads through emphasis; a block tag written past one space after the continuation marker, and a tag-shaped line inside a fenced body left to the example code; the fenced-body projection `maskFences` returns; fence titles and the tagline; `findDrift` with a negative control drawn from the symbols the bijection legs already report, a planted disagreement of each kind, and a later fence under one heading left outside the comparison; the doc-block reader against `parseSync`'s own reading, which names the shape the reader misses; canonical-key, runtime-name, `resolvePath`, and `resolveLink` invariants; all remaining helper leaves.
 - [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — `parseManifest` row parsing, malformed-row skipping, one-versus-many Source canonicalization, and nested manifest directories.
-- [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — `isExportKeyword` / `isSurfaceSymbol` / `isMethodGroup` / `isManifestEntry`.
+- [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — `isExportKeyword` / `isSurfaceSymbol` / `isMethodEntry` / `isSourceExample` / `isDrift` / `isMethodGroup` / `isManifestEntry`.
 - [`tests/src/core/shapers.test.ts`](../tests/src/core/shapers.test.ts) — per-shape guard exactness, JSON Schema essentials, seeded generate round-trips, parse rebuilds.
-- [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — `createGuide` / `createSource` + the compiled symbol/group/manifest contracts.
-- [`tests/src/core/Guide.test.ts`](../tests/src/core/Guide.test.ts) — `Guide`'s cached projections and production barrel/Guide phantom and keyword-drift controls.
+- [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — `createGuide` / `createSource` + the compiled symbol, entry, example, drift, group, and manifest contracts.
+- [`tests/src/core/Guide.test.ts`](../tests/src/core/Guide.test.ts) — `Guide`'s cached projections, its tagline, its nameless rows, and its fence titles, and production barrel/Guide phantom and keyword-drift controls.
 - [`tests/src/core/sources/Source.test.ts`](../tests/src/core/sources/Source.test.ts) — direct/barrel projections, lexical and JSDoc regressions, canonical-key populations, root and nested indexes, exact row grammar, graph invariants, and correlated population controls.
 - [`tests/src/core/sources/SourceManager.test.ts`](../tests/src/core/sources/SourceManager.test.ts) — `computeModuleKey` boundary collision, specifier resolution, the `undefined` skip for an unmapped specifier, array-valued module scopes, `sources()` enumeration, and per-module entity sharing with a differently-scoped identity control.
 - [`tests/fixtures/broken/stranded-export`](../tests/fixtures/broken/stranded-export) — permanent negative control: its guide and direct declarations agree while its conventional barrel omits `strandedExport`.

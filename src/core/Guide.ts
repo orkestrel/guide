@@ -5,13 +5,15 @@ import {
 	extractLinks,
 	extractMethods,
 	extractSurface,
+	extractTagline,
 	extractTests,
+	extractUnnamed,
 } from './helpers.js'
 
 /**
  * Presents a pure, structured view over one parsed guide — the documented
- * projections (`sections` / `surface` / `methods` / `links` / `tests` /
- * `fences`) are extracted once at construction and cached.
+ * projections (`sections` / `tagline` / `surface` / `methods` / `unnamed` / `links` /
+ * `tests` / `fences`) are extracted once at construction and cached.
  *
  * @remarks
  * Parses `source` once through `@orkestrel/markdown` and never touches the
@@ -29,8 +31,10 @@ import {
  */
 export class Guide implements GuideInterface {
 	readonly #sections: readonly string[]
+	readonly #tagline: string | undefined
 	readonly #surface: readonly SurfaceSymbol[]
 	readonly #methods: readonly MethodGroup[]
+	readonly #unnamed: readonly string[]
 	readonly #links: readonly string[]
 	readonly #tests: readonly string[]
 	readonly #fences: readonly GuideFence[]
@@ -42,8 +46,10 @@ export class Guide implements GuideInterface {
 			.filter(isHeadingNode)
 			.filter((heading) => heading.level === 2)
 			.map((heading) => flattenText(heading).trim())
+		this.#tagline = extractTagline(document)
 		this.#surface = extractSurface(document)
 		this.#methods = extractMethods(document)
+		this.#unnamed = extractUnnamed(document)
 		this.#links = extractLinks(document)
 		this.#tests = extractTests(document)
 		this.#fences = extractFences(document)
@@ -53,12 +59,20 @@ export class Guide implements GuideInterface {
 		return this.#sections
 	}
 
+	tagline(): string | undefined {
+		return this.#tagline
+	}
+
 	surface(): readonly SurfaceSymbol[] {
 		return this.#surface
 	}
 
 	methods(): readonly MethodGroup[] {
 		return this.#methods
+	}
+
+	unnamed(): readonly string[] {
+		return this.#unnamed
 	}
 
 	links(): readonly string[] {

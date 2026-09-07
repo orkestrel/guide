@@ -1,8 +1,11 @@
 import {
 	extractMethods,
 	extractSurface,
+	isDrift,
 	isManifestEntry,
+	isMethodEntry,
 	isMethodGroup,
+	isSourceExample,
 	isSurfaceSymbol,
 	parseManifest,
 } from '@src/core'
@@ -79,7 +82,9 @@ describe('isMethodGroup', () => {
 	})
 
 	it('accepts a well-formed group', () => {
-		expect(isMethodGroup({ interface: 'WidgetInterface', methods: ['inspect'] })).toBe(true)
+		expect(isMethodGroup({ interface: 'WidgetInterface', methods: [{ name: 'inspect' }] })).toBe(
+			true,
+		)
 	})
 
 	it('rejects a missing field', () => {
@@ -164,5 +169,75 @@ describe('isManifestEntry', () => {
 			tests: 't',
 		}
 		expect(() => isManifestEntry(hostile)).not.toThrow()
+	})
+})
+
+describe('isMethodEntry', () => {
+	it('accepts an entry with and without its summary', () => {
+		expect(isMethodEntry({ name: 'render' })).toBe(true)
+		expect(isMethodEntry({ name: 'render', summary: 'Renders the widget.' })).toBe(true)
+	})
+
+	it('accepts every real extracted entry', () => {
+		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
+		for (const group of extractMethods(document)) {
+			for (const entry of group.methods) expect(isMethodEntry(entry)).toBe(true)
+		}
+	})
+
+	it('rejects a missing name', () => {
+		expect(isMethodEntry({ summary: 'Renders the widget.' })).toBe(false)
+	})
+
+	it('rejects an extra key', () => {
+		expect(isMethodEntry({ name: 'render', extra: true })).toBe(false)
+	})
+
+	it('never throws on adversarial input', () => {
+		expect(isMethodEntry(null)).toBe(false)
+		expect(isMethodEntry([])).toBe(false)
+	})
+})
+
+describe('isSourceExample', () => {
+	it('accepts a block with and without its title and language', () => {
+		expect(isSourceExample({ name: 'render', code: 'widget.render()' })).toBe(true)
+		expect(
+			isSourceExample({
+				name: 'render',
+				title: 'Render a widget',
+				code: 'widget.render()',
+				language: 'ts',
+			}),
+		).toBe(true)
+	})
+
+	it('rejects a block with no code', () => {
+		expect(isSourceExample({ name: 'render' })).toBe(false)
+	})
+
+	it('never throws on adversarial input', () => {
+		expect(isSourceExample(undefined)).toBe(false)
+		expect(isSourceExample('render')).toBe(false)
+	})
+})
+
+describe('isDrift', () => {
+	it('accepts a drift naming one side and a drift naming both', () => {
+		expect(isDrift({ key: 'class Widget', source: 'Represents a widget.' })).toBe(true)
+		expect(isDrift({ key: 'class Widget', guide: 'A widget.', source: 'A widget!' })).toBe(true)
+	})
+
+	it('accepts a drift naming neither side', () => {
+		expect(isDrift({ key: 'class Widget' })).toBe(true)
+	})
+
+	it('rejects a drift with no key', () => {
+		expect(isDrift({ guide: 'A widget.' })).toBe(false)
+	})
+
+	it('never throws on adversarial input', () => {
+		expect(isDrift(null)).toBe(false)
+		expect(isDrift(0)).toBe(false)
 	})
 })

@@ -1,17 +1,21 @@
 import {
 	EXPORT_KEYWORDS,
+	driftShape,
 	isExportKeyword,
 	manifestEntryShape,
+	methodEntryShape,
 	methodGroupShape,
+	sourceExampleShape,
 	surfaceSymbolShape,
 } from '@src/core'
 import { createContract, seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
 
-// The ContractShape blueprints — surfaceSymbolShape, methodGroupShape,
-// manifestEntryShape — each compiled (through createContract) into a guard /
-// parser / schema / generator that must agree in lockstep
+// The ContractShape blueprints — surfaceSymbolShape, methodEntryShape,
+// sourceExampleShape, driftShape, methodGroupShape, manifestEntryShape — each
+// compiled (through createContract) into a guard / parser / schema / generator
+// that must agree in lockstep
 // (.claude/rules/patterns.md § Validation and contracts).
 
 describe('surfaceSymbolShape', () => {
@@ -65,14 +69,14 @@ describe('methodGroupShape', () => {
 	const contract = createContract(methodGroupShape)
 
 	it('is: accepts a well-formed value', () => {
-		expect(contract.is({ interface: 'WidgetInterface', methods: ['inspect'] })).toBe(true)
+		expect(contract.is({ interface: 'WidgetInterface', methods: [{ name: 'inspect' }] })).toBe(true)
 	})
 
 	it('is: rejects a non-array methods field', () => {
 		expect(contract.is({ interface: 'WidgetInterface', methods: 'inspect' })).toBe(false)
 	})
 
-	it('schema: closed object with an interface string and a methods string array', () => {
+	it('schema: closed object with an interface string and a methods entry array', () => {
 		expect(contract.schema.type).toBe('object')
 		expect(contract.schema.required).toEqual(['interface', 'methods'])
 		expect(contract.schema.additionalProperties).toBe(false)
@@ -153,5 +157,94 @@ describe('manifestEntryShape', () => {
 
 	it('parse: rejects an invalid value', () => {
 		expect(contract.parse({ concept: 1 })).toBeUndefined()
+	})
+})
+
+describe('methodEntryShape', () => {
+	const contract = createContract(methodEntryShape)
+
+	it('is: accepts a well-formed value with and without its summary', () => {
+		expect(contract.is({ name: 'render' })).toBe(true)
+		expect(contract.is({ name: 'render', summary: 'Renders the widget.' })).toBe(true)
+	})
+
+	it('is: rejects a summary of the wrong type', () => {
+		expect(contract.is({ name: 'render', summary: 1 })).toBe(false)
+	})
+
+	it('schema: requires the name alone', () => {
+		expect(contract.schema.required).toEqual(['name'])
+		expect(contract.schema.additionalProperties).toBe(false)
+	})
+
+	it('generate: round-trips through is and parse, deterministically', () => {
+		const a = contract.generate(seededRandom(TEST_SEED))
+		const b = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(a)).toBe(true)
+		expect(contract.parse(a)).toEqual(a)
+		expect(a).toEqual(b)
+	})
+
+	it('parse: rejects a missing required field', () => {
+		expect(contract.parse({ summary: 'Renders the widget.' })).toBeUndefined()
+	})
+})
+
+describe('sourceExampleShape', () => {
+	const contract = createContract(sourceExampleShape)
+
+	it('is: accepts a block with and without its title and language', () => {
+		expect(contract.is({ name: 'render', code: 'widget.render()' })).toBe(true)
+		expect(
+			contract.is({
+				name: 'render',
+				title: 'Render a widget',
+				code: 'widget.render()',
+				language: 'ts',
+			}),
+		).toBe(true)
+	})
+
+	it('is: rejects a block with no code', () => {
+		expect(contract.is({ name: 'render' })).toBe(false)
+	})
+
+	it('schema: requires the name and the code', () => {
+		expect(contract.schema.required).toEqual(['name', 'code'])
+		expect(contract.schema.additionalProperties).toBe(false)
+	})
+
+	it('generate: round-trips through is and parse, deterministically', () => {
+		const a = contract.generate(seededRandom(TEST_SEED))
+		const b = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(a)).toBe(true)
+		expect(contract.parse(a)).toEqual(a)
+		expect(a).toEqual(b)
+	})
+})
+
+describe('driftShape', () => {
+	const contract = createContract(driftShape)
+
+	it('is: accepts a drift naming one side and a drift naming both', () => {
+		expect(contract.is({ key: 'class Widget', source: 'Represents a widget.' })).toBe(true)
+		expect(contract.is({ key: 'class Widget', guide: 'A widget.', source: 'A widget!' })).toBe(true)
+	})
+
+	it('is: rejects a drift with no key', () => {
+		expect(contract.is({ guide: 'A widget.' })).toBe(false)
+	})
+
+	it('schema: requires the key alone', () => {
+		expect(contract.schema.required).toEqual(['key'])
+		expect(contract.schema.additionalProperties).toBe(false)
+	})
+
+	it('generate: round-trips through is and parse, deterministically', () => {
+		const a = contract.generate(seededRandom(TEST_SEED))
+		const b = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(a)).toBe(true)
+		expect(contract.parse(a)).toEqual(a)
+		expect(a).toEqual(b)
 	})
 })

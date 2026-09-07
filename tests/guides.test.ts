@@ -12,6 +12,7 @@ import {
 	findUnexampled,
 	findUnlisted,
 	isExternalLink,
+	findDrift,
 	findMissingSymbols,
 	parseManifest,
 	resolveLink,
@@ -69,7 +70,7 @@ it('documents only real exports in the README API list', () => {
 		...manifest.flatMap((entry) =>
 			createGuide(requireText(files, entry.spec))
 				.methods()
-				.flatMap((group) => group.methods),
+				.flatMap((group) => group.methods.map((method) => method.name)),
 		),
 	]
 	expect(findMissing(tokens, documented)).toEqual([])
@@ -86,6 +87,9 @@ for (const entry of manifest) {
 
 		it('extracts a non-empty documented surface', () => {
 			expect(guide.surface().length).toBeGreaterThan(0)
+		})
+		it('names every Surface and Methods row', () => {
+			expect(guide.unnamed()).toEqual([])
 		})
 		it('re-exports every direct declaration', () => {
 			expect(findMissingSymbols(source.exports(), source.surface())).toEqual([])
@@ -105,21 +109,27 @@ for (const entry of manifest) {
 		})
 
 		for (const group of guide.methods()) {
-			const members = source.methods(group.interface)
+			const members = source.methods(group.interface).map((method) => method.name)
+			const documented = group.methods.map((method) => method.name)
 			const entity = group.interface.replace(/Interface$/, '')
 			describe(`${group.interface}`, () => {
 				it('documents at least one method', () => {
-					expect(group.methods.length).toBeGreaterThan(0)
+					expect(documented.length).toBeGreaterThan(0)
 				})
 				it('documents every interface method', () => {
-					expect(findMissing(members, group.methods)).toEqual([])
+					expect(findMissing(members, documented)).toEqual([])
 				})
 				it('documents no phantom method', () => {
-					expect(findMissing(group.methods, members)).toEqual([])
+					expect(findMissing(documented, members)).toEqual([])
 				})
 				it(`${entity} exposes no undocumented method`, () => {
 					const extra =
-						entity === group.interface ? [] : findMissing(source.methods(entity), group.methods)
+						entity === group.interface
+							? []
+							: findMissing(
+									source.methods(entity).map((method) => method.name),
+									documented,
+								)
 					expect(extra).toEqual([])
 				})
 			})
@@ -134,7 +144,13 @@ for (const entry of manifest) {
 				.surface()
 				.filter((symbol) => symbol.keyword === 'function')
 				.map((symbol) => symbol.name)
-			expect(findUnexampled(names, fences, source.examples())).toEqual([])
+			expect(
+				findUnexampled(
+					names,
+					fences,
+					source.examples().map((example) => example.name),
+				),
+			).toEqual([])
 		})
 
 		for (const group of guide.methods()) {
@@ -145,11 +161,13 @@ for (const entry of manifest) {
 						.fences()
 						.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
 						.map((fence) => fence.code)
-					const examples =
+					const examples = (
 						entity === group.interface
 							? source.examples(group.interface)
 							: source.examples(group.interface).concat(source.examples(entity))
-					expect(findUnexampled(group.methods, fences, examples)).toEqual([])
+					).map((example) => example.name)
+					const documented = group.methods.map((method) => method.name)
+					expect(findUnexampled(documented, fences, examples)).toEqual([])
 				})
 			})
 		}
@@ -258,7 +276,7 @@ describe('flagship fences', () => {
 			{ name: 'Guide', keyword: 'class' },
 			{ name: 'GuideInterface', keyword: 'interface' },
 		])
-		expect(source.methods('GuideInterface')).toEqual(['sections'])
+		expect(source.methods('GuideInterface')).toEqual([{ name: 'sections' }])
 		expect(source.exists('src/core/Guide.ts')).toBe(true)
 		expect(source.exists('src/core')).toBe(true)
 	})
@@ -270,7 +288,7 @@ describe('flagship fences', () => {
 		expect(guideText).toContain(
 			"source.surface() // [{ name: 'Guide', keyword: 'class' }, { name: 'GuideInterface', keyword: 'interface' }]",
 		)
-		expect(guideText).toContain("source.methods('GuideInterface') // ['sections']")
+		expect(guideText).toContain("source.methods('GuideInterface') // [{ name: 'sections' }]")
 		expect(guideText).toContain("source.exists('src/core/Guide.ts') // true")
 		expect(guideText).toContain(
 			"source.exists('src/core') // true — a directory any inventory key sits beneath",
@@ -321,6 +339,45 @@ describe('flagship fences', () => {
 		expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
 		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
 		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
+	})
+
+	it('names both sites of a disagreement between a guide and its source', () => {
+		const guide = createGuide(
+			'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |',
+		)
+		const source = createSource({
+			files: {
+				'src/core/index.ts': "export * from './helpers.js'\n",
+				'src/core/helpers.ts': '/**\n * Walks a tree.\n */\nexport function walk(): void {}\n',
+			},
+			module: 'src/core',
+		})
+
+		expect(findDrift(guide, source)).toEqual([
+			{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' },
+		])
+	})
+
+	it('carries the drift fence lines the transcription copies', () => {
+		expect(guideText).toContain(
+			'// One entry per disagreement, naming both sites; a symbol one side lacks belongs to SB.',
+		)
+		expect(guideText).toContain(
+			"findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }]",
+		)
+	})
+
+	it('reads the tagline from the blockquote following the H1', () => {
+		const guide = createGuide('# Widget\n\n> A widget toolkit.\n\n## Surface\n')
+
+		expect(guide.tagline()).toBe('A widget toolkit.')
+	})
+
+	it('carries the tagline fence lines the transcription copies', () => {
+		expect(guideText).toContain(
+			"const guide = createGuide('# Widget\\n\\n> A widget toolkit.\\n\\n## Surface\\n')",
+		)
+		expect(guideText).toContain("guide.tagline() // 'A widget toolkit.'")
 	})
 
 	it('carries the bijection fence lines the transcription copies', () => {

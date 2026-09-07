@@ -33,6 +33,17 @@ export const METHODS: string = 'Methods'
 export const TESTS: string = 'Tests'
 
 /**
+ * Names the header text of the column a `## Surface` table's declaration keyword is read from.
+ */
+export const KIND: string = 'Kind'
+
+/**
+ * Names the header text of the column a `## Surface` or `## Methods` table's compared
+ * description paragraph is read from.
+ */
+export const SUMMARY: string = 'Summary'
+
+/**
  * Names the `## By concept` heading text the manifest's run-map table is keyed on.
  */
 export const MANIFEST: string = 'By concept'

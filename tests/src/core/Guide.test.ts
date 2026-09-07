@@ -30,7 +30,10 @@ describe('Guide', () => {
 	it('extracts the WidgetInterface method group from the good fixture guide', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.methods()).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset'] },
+			{
+				interface: 'WidgetInterface',
+				methods: [{ name: 'inspect' }, { name: 'render' }, { name: 'reset' }],
+			},
 		])
 	})
 
@@ -46,12 +49,37 @@ describe('Guide', () => {
 
 	it('caches its projections — repeated calls return the same array instance', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
+		expect(guide.tagline()).toBe(guide.tagline())
 		expect(guide.surface()).toBe(guide.surface())
 		expect(guide.methods()).toBe(guide.methods())
+		expect(guide.unnamed()).toBe(guide.unnamed())
 		expect(guide.sections()).toBe(guide.sections())
 		expect(guide.links()).toBe(guide.links())
 		expect(guide.tests()).toBe(guide.tests())
 		expect(guide.fences()).toBe(guide.fences())
+	})
+
+	it('extracts an empty unnamed() array from the good fixture guide', () => {
+		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
+		expect(guide.unnamed()).toEqual([])
+	})
+
+	// A row with no code-span name reaches neither surface() nor a MethodGroup, so
+	// unnamed() is the only projection that can report it.
+	it('projects a nameless row that reaches neither surface() nor a method group', () => {
+		const guide = new Guide(
+			[
+				'## Surface',
+				'',
+				'| Name | Kind |',
+				'| --- | --- |',
+				'| `Widget` | class |',
+				'| Widget | class |',
+				'',
+			].join('\n'),
+		)
+		expect(guide.unnamed()).toEqual(['Widget | class'])
+		expect(guide.surface()).toEqual([{ name: 'Widget', keyword: 'class' }])
 	})
 
 	it('extracts an empty fences() array from the good fixture guide', () => {
@@ -59,12 +87,13 @@ describe('Guide', () => {
 		expect(guide.fences()).toEqual([])
 	})
 
-	it("extracts the missing-example fixture guide's one Patterns fence", () => {
+	it("extracts the missing-example fixture guide's one Patterns fence with its heading title", () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/missing-example/guides/src/widget.md'))
 		expect(guide.fences()).toEqual([
 			{
 				language: 'ts',
 				code: "import { greet } from '../module/helpers.js'\n\ngreet('world')",
+				title: 'Patterns',
 			},
 		])
 	})
@@ -77,14 +106,17 @@ describe('Guide', () => {
 	it('reflects a missing method row (missing-interface-method fixture)', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/missing-interface-method/widget.md'))
 		expect(guide.methods()).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render'] },
+			{ interface: 'WidgetInterface', methods: [{ name: 'inspect' }, { name: 'render' }] },
 		])
 	})
 
 	it('reflects a phantom method row (phantom-method fixture)', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/phantom-method/widget.md'))
 		expect(guide.methods()).toEqual([
-			{ interface: 'WidgetInterface', methods: ['inspect', 'render', 'reset', 'destroy'] },
+			{
+				interface: 'WidgetInterface',
+				methods: [{ name: 'inspect' }, { name: 'render' }, { name: 'reset' }, { name: 'destroy' }],
+			},
 		])
 	})
 })
@@ -112,6 +144,9 @@ describe('bijection matrix', () => {
 		const [group] = guide.methods()
 		expect(group?.methods).toEqual(goodSource.methods('WidgetInterface'))
 		expect(goodSource.methods('WidgetInterface')).toEqual(goodSource.methods('Widget'))
+		expect(guide.tagline()).toBe(
+			'A tiny fixture module exercising every ExportKeyword for guides-parity tests.',
+		)
 	})
 
 	it('undocumented-export: source has DEFAULT_COUNT the guide does not document', () => {
@@ -139,16 +174,21 @@ describe('bijection matrix', () => {
 	it('missing-interface-method: the guide is missing the reset row', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/missing-interface-method/widget.md'))
 		const [group] = guide.methods()
-		const sourceMethods = goodSource.methods('WidgetInterface')
-		const missing = sourceMethods.filter((method) => !(group?.methods ?? []).includes(method))
+		const documented = (group?.methods ?? []).map((entry) => entry.name)
+		const missing = goodSource
+			.methods('WidgetInterface')
+			.map((entry) => entry.name)
+			.filter((method) => !documented.includes(method))
 		expect(missing).toEqual(['reset'])
 	})
 
 	it('phantom-method: the guide documents a destroy method the interface does not have', () => {
 		const guide = new Guide(requireText(FIXTURES, 'broken/phantom-method/widget.md'))
 		const [group] = guide.methods()
-		const sourceMethods = goodSource.methods('WidgetInterface')
-		const phantom = (group?.methods ?? []).filter((method) => !sourceMethods.includes(method))
+		const declared = goodSource.methods('WidgetInterface').map((entry) => entry.name)
+		const phantom = (group?.methods ?? [])
+			.map((entry) => entry.name)
+			.filter((method) => !declared.includes(method))
 		expect(phantom).toEqual(['destroy'])
 	})
 
@@ -161,9 +201,11 @@ describe('bijection matrix', () => {
 		})
 		const guide = new Guide(requireText(FIXTURES, 'broken/class-extra-method/widget.md'))
 		const [group] = guide.methods()
+		const documented = (group?.methods ?? []).map((entry) => entry.name)
 		const extra = extraSource
 			.methods('Widget')
-			.filter((method) => !(group?.methods ?? []).includes(method))
+			.map((entry) => entry.name)
+			.filter((method) => !documented.includes(method))
 		expect(extra).toEqual(['extra'])
 	})
 

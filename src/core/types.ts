@@ -10,13 +10,63 @@ import type { EXPORT_KEYWORDS } from './constants.js'
 export type ExportKeyword = (typeof EXPORT_KEYWORDS)[number]
 
 /**
- * Represents one documented / exported symbol — its identifier plus its declaration keyword.
+ * Represents one documented / exported symbol — its identifier, its declaration keyword, and
+ * the description paragraph the guide and the doc block are compared on.
  */
 export interface SurfaceSymbol {
 	/** Holds the symbol's identifier. */
 	readonly name: string
 	/** Holds the symbol's declaration keyword — half of the bijection key alongside {@link name}. */
 	readonly keyword: ExportKeyword
+	/**
+	 * Holds the normalized description paragraph this side carries — a guide table's `Summary`
+	 * cell, or a doc block's text before its first block tag — and is absent when this side
+	 * carries none. Optional, so a hand-built symbol stays valid; {@link computeSymbolKey} never
+	 * reads it.
+	 */
+	readonly summary?: string
+}
+
+/**
+ * Represents one documented method — its identifier plus the description paragraph the guide's
+ * `Summary` cell and the member's doc block are compared on.
+ */
+export interface MethodEntry {
+	/** Holds the method's identifier. */
+	readonly name: string
+	/** Holds the normalized description paragraph this side carries, or is absent when it carries none. */
+	readonly summary?: string
+}
+
+/**
+ * Represents one `@example` block read from a doc comment — the declaration it documents, its
+ * title, and the code it carries.
+ */
+export interface SourceExample {
+	/** Names the declaration or member whose doc block carries the block. */
+	readonly name: string
+	/** Holds the text after the `@example` tag, which pairs the block with the guide fence under the heading of that text; absent when the tag carries none. */
+	readonly title?: string
+	/** Holds the block's code — the body of its fence, or the whole block when it carries no fence. */
+	readonly code: string
+	/** Holds the info-string language of the block's fence, or is absent when the block carries no fence. */
+	readonly language?: string
+}
+
+/**
+ * Represents one disagreement between a guide and the source it documents — the compared key
+ * with the text each side carries there.
+ */
+export interface Drift {
+	/**
+	 * Names the compared pair: a {@link computeSymbolKey} symbol key for a `## Surface` row, an
+	 * `Owner.member` key for a `## Methods` row, or the shared title for an example.
+	 */
+	readonly key: string
+	/** Holds the guide's text, or is absent when the guide carries none there. */
+	readonly guide?: string
+	/** Holds the source's text, or is absent when the source carries none there. */
+	readonly source?: string
 }
 
 /**
@@ -44,6 +94,21 @@ export interface SourceLine {
 }
 
 /**
+ * Represents one eligible genuine JSDoc block paired with the physical record it documents —
+ * the block's unwrapped body and the {@link SourceLine} that follows its chain.
+ */
+export interface SourceComment {
+	/**
+	 * Holds the authoritative span's unwrapped body: the `/**` opener, the closing marker, each
+	 * line's continuation marker, and the block's leading indentation removed, with per-line
+	 * trailing whitespace trimmed.
+	 */
+	readonly text: string
+	/** Holds the physical record the block documents — the next record after its chain. */
+	readonly line: SourceLine
+}
+
+/**
  * Represents one `## By concept` manifest row — a single guides-parity check target, paths
  * normalized to workspace root.
  */
@@ -65,8 +130,8 @@ export interface ManifestEntry {
 export interface MethodGroup {
 	/** Holds the backticked interface name. */
 	readonly interface: string
-	/** Lists the group's documented Method-cell identifiers, in table order. */
-	readonly methods: readonly string[]
+	/** Lists the group's documented Method-cell entries, in table order. */
+	readonly methods: readonly MethodEntry[]
 }
 
 /**
@@ -86,6 +151,11 @@ export interface GuideFence {
 	readonly language: string | undefined
 	/** Holds the fence's verbatim code body. */
 	readonly code: string
+	/**
+	 * Holds the flattened text of the fence's nearest preceding heading, which pairs the fence
+	 * with the `@example` block carrying that title; absent when no heading precedes it.
+	 */
+	readonly title?: string
 }
 
 /**
@@ -101,7 +171,19 @@ export interface GuideInterface {
 	 */
 	sections(): readonly string[]
 	/**
+	 * Returns the text of the blockquote following the document's H1 — the guide's tagline.
+	 *
+	 * @returns The tagline, or `undefined` when no blockquote follows an H1 before the next heading
+	 *
+	 * @example
+	 * ```ts
+	 * guide.tagline() // 'A pure, I/O-free guides-parity toolkit'
+	 * ```
+	 */
+	tagline(): string | undefined
+	/**
 	 * Lists every `## Surface` identifier + keyword — table rows union backticked entity headings.
+	 * Each row carries its `Summary` cell, located by header text, when the table has that column.
 	 *
 	 * @returns The documented surface symbols, in encounter order
 	 */
@@ -112,6 +194,21 @@ export interface GuideInterface {
 	 * @returns One group per documented behavioral interface, in document order
 	 */
 	methods(): readonly MethodGroup[]
+	/**
+	 * Lists every `## Surface` or `## Methods` row whose first cell carries no code span — the
+	 * rows {@link surface} and {@link methods} skip for want of a name, each entry being the
+	 * row's cells joined by ` | `. Such a row reaches neither projection, so no bijection check
+	 * can report it and this one names it instead. The `## Surface` rows come first, then the
+	 * `## Methods` rows, each in document order.
+	 *
+	 * @returns One entry per row carrying no code-span name, in document order
+	 *
+	 * @example
+	 * ```ts
+	 * guide.unnamed() // ['Widget | class | Represents a widget.']
+	 * ```
+	 */
+	unnamed(): readonly string[]
 	/**
 	 * Lists every link href in the guide, including table cells.
 	 *
@@ -138,7 +235,7 @@ export interface GuideInterface {
 	 * Lists every fenced code block in the whole document, in document order — no
 	 * language filter, so a consumer decides which languages its checks read.
 	 *
-	 * @returns Every fence's language and verbatim code, in document order
+	 * @returns Every fence's language, verbatim code, and nearest preceding heading title, in document order
 	 *
 	 * @example
 	 * ```ts
@@ -230,9 +327,9 @@ export interface SourceInterface {
 	 * collapses a cycle and a diamond to a single visit.
 	 *
 	 * @param name - The declaration's identifier
-	 * @returns Its declared and inherited method names, deduplicated and sorted, a class `constructor` excluded
+	 * @returns Its declared and inherited members, each with its doc block's description paragraph, deduplicated by name and sorted, a class `constructor` excluded
 	 */
-	methods(name: string): readonly string[]
+	methods(name: string): readonly MethodEntry[]
 	/**
 	 * Checks whether a workspace-root-relative path names a file or a directory present
 	 * in the inventory.
@@ -259,24 +356,25 @@ export interface SourceInterface {
 	 */
 	hidden(): readonly SurfaceSymbol[]
 	/**
-	 * Lists the names of every exported function whose next-physical-record eligible
-	 * genuine JSDoc chain ends in a span carrying an exact block-position
-	 * `@example` tag. Title text is allowed; intervening material severs
-	 * association.
+	 * Lists every `@example` block carried by an exported function whose next-physical-record
+	 * eligible genuine JSDoc chain ends in a span holding an `@example` tag opening a line at its
+	 * first non-blank column. Each block carries its title, its fence language, and its code;
+	 * intervening material severs association.
 	 *
-	 * @returns The exported function names carrying an `@example`, in first-seen order
+	 * @returns The exported functions' `@example` blocks, in first-seen order
 	 *
 	 * @example
 	 * ```ts
-	 * source.examples() // ['createGuide', 'createSource']
+	 * source.examples() // [{ name: 'createGuide', code: "createGuide('# Guide')" }]
 	 * ```
 	 */
-	examples(): readonly string[]
+	examples(): readonly SourceExample[]
 	/**
-	 * Lists the members of the `class` / `interface` named `name` whose immediately
-	 * preceding eligible genuine JSDoc chain, within the declaration body, ends
-	 * in a span carrying an exact block-position `@example` tag. Title text is
-	 * allowed; intervening material severs association. Declaration and callable
+	 * Lists every `@example` block carried by a member of the `class` / `interface` named
+	 * `name` whose immediately preceding eligible genuine JSDoc chain, within the declaration
+	 * body, ends in a span holding an `@example` tag opening a line at its first non-blank column.
+	 * Each block carries its title, its fence language, and its code; intervening material severs
+	 * association. Declaration and callable
 	 * member eligibility comes from aligned projected code while genuine JSDoc
 	 * evidence retains its source columns.
 	 *
@@ -287,14 +385,14 @@ export interface SourceInterface {
 	 * belongs to the base that declares it.
 	 *
 	 * @param name - The declaration's identifier
-	 * @returns Its own members carrying an `@example`, deduplicated and sorted
+	 * @returns Its own members' `@example` blocks, deduplicated by name and title and sorted by name
 	 *
 	 * @example
 	 * ```ts
-	 * source.examples('GuideInterface') // ['fences', 'links', 'tests']
+	 * source.examples('GuideInterface') // [{ name: 'fences', code: 'guide.fences()' }]
 	 * ```
 	 */
-	examples(name: string): readonly string[]
+	examples(name: string): readonly SourceExample[]
 }
 
 /**

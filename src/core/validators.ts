@@ -1,5 +1,13 @@
 import type { Guard } from '@orkestrel/contract'
-import type { ExportKeyword, ManifestEntry, MethodGroup, SurfaceSymbol } from './types.js'
+import type {
+	Drift,
+	ExportKeyword,
+	ManifestEntry,
+	MethodEntry,
+	MethodGroup,
+	SourceExample,
+	SurfaceSymbol,
+} from './types.js'
 import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/contract'
 import { EXPORT_KEYWORDS } from './constants.js'
 
@@ -26,7 +34,7 @@ export const isExportKeyword: Guard<ExportKeyword> = literalOf(EXPORT_KEYWORDS)
 
 /**
  * Checks whether `value` is a well-formed {@link SurfaceSymbol} — a `name`
- * string paired with a valid {@link ExportKeyword}.
+ * string paired with a valid {@link ExportKeyword}, and an optional `summary`.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed {@link SurfaceSymbol}; false otherwise
@@ -37,27 +45,97 @@ export const isExportKeyword: Guard<ExportKeyword> = literalOf(EXPORT_KEYWORDS)
  * isSurfaceSymbol({ name: 'Markdown', keyword: 'enum' })   // false
  * ```
  */
-export const isSurfaceSymbol: Guard<SurfaceSymbol> = recordOf({
-	name: isString,
-	keyword: isExportKeyword,
-})
+export const isSurfaceSymbol: Guard<SurfaceSymbol> = recordOf(
+	{
+		name: isString,
+		keyword: isExportKeyword,
+		summary: isString,
+	},
+	['summary'],
+)
+
+/**
+ * Checks whether `value` is a well-formed {@link MethodEntry} — a `name` string with an
+ * optional `summary`.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed {@link MethodEntry}; false otherwise
+ *
+ * @example
+ * ```ts
+ * isMethodEntry({ name: 'walk' })   // true
+ * isMethodEntry({ name: 1 })        // false
+ * ```
+ */
+export const isMethodEntry: Guard<MethodEntry> = recordOf(
+	{
+		name: isString,
+		summary: isString,
+	},
+	['summary'],
+)
+
+/**
+ * Checks whether `value` is a well-formed {@link SourceExample} — a `name` and `code`
+ * string with an optional `title` and `language`.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed {@link SourceExample}; false otherwise
+ *
+ * @example
+ * ```ts
+ * isSourceExample({ name: 'walk', code: 'walk()' }) // true
+ * isSourceExample({ name: 'walk' })                 // false
+ * ```
+ */
+export const isSourceExample: Guard<SourceExample> = recordOf(
+	{
+		name: isString,
+		title: isString,
+		code: isString,
+		language: isString,
+	},
+	['title', 'language'],
+)
+
+/**
+ * Checks whether `value` is a well-formed {@link Drift} — a compared `key` with an optional
+ * `guide` and `source` text.
+ *
+ * @param value - The value to test
+ * @returns True if `value` is a well-formed {@link Drift}; false otherwise
+ *
+ * @example
+ * ```ts
+ * isDrift({ key: 'class Widget', guide: 'A widget.' }) // true
+ * isDrift({ guide: 'A widget.' })                      // false
+ * ```
+ */
+export const isDrift: Guard<Drift> = recordOf(
+	{
+		key: isString,
+		guide: isString,
+		source: isString,
+	},
+	['guide', 'source'],
+)
 
 /**
  * Checks whether `value` is a well-formed {@link MethodGroup} — a backticked
- * `interface` name paired with its documented `methods`.
+ * `interface` name paired with its documented {@link MethodEntry} rows.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed {@link MethodGroup}; false otherwise
  *
  * @example
  * ```ts
- * isMethodGroup({ interface: 'MarkdownInterface', methods: ['walk'] }) // true
- * isMethodGroup({ interface: 'MarkdownInterface', methods: [1] })      // false
+ * isMethodGroup({ interface: 'MarkdownInterface', methods: [{ name: 'walk' }] }) // true
+ * isMethodGroup({ interface: 'MarkdownInterface', methods: [1] })                // false
  * ```
  */
 export const isMethodGroup: Guard<MethodGroup> = recordOf({
 	interface: isString,
-	methods: arrayOf(isString),
+	methods: arrayOf(isMethodEntry),
 })
 
 /**

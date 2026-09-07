@@ -1,8 +1,11 @@
 import {
+	createDriftContract,
 	createGuide,
 	createManifestEntryContract,
+	createMethodEntryContract,
 	createMethodGroupContract,
 	createSource,
+	createSourceExampleContract,
 	createSurfaceSymbolContract,
 } from '@src/core'
 import { seededRandom } from '@orkestrel/contract'
@@ -13,8 +16,7 @@ import { readInventory } from '@orkestrel/test/server'
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
 // The factory surface — createGuide / createSource construct working
-// instances, and createSurfaceSymbolContract / createMethodGroupContract /
-// createManifestEntryContract compile each shape into a full contract
+// instances, and each create*Contract compiles its shape into a full contract
 // (.claude/rules/patterns.md § Validation and contracts). Guide/Source's own
 // projections are covered in depth by
 // Guide.test.ts / Source.test.ts — this suite is a spot-check that the
@@ -36,7 +38,11 @@ describe('createSource', () => {
 			module: 'module',
 		})
 		expect(source.exports()).toHaveLength(6)
-		expect(source.methods('WidgetInterface')).toEqual(['inspect', 'render', 'reset'])
+		expect(source.methods('WidgetInterface').map((entry) => entry.name)).toEqual([
+			'inspect',
+			'render',
+			'reset',
+		])
 		expect(source.exists('module/Widget.ts')).toBe(true)
 	})
 })
@@ -56,7 +62,7 @@ describe('createSurfaceSymbolContract', () => {
 describe('createMethodGroupContract', () => {
 	it('compiles a working MethodGroup contract', () => {
 		const contract = createMethodGroupContract()
-		expect(contract.is({ interface: 'WidgetInterface', methods: ['inspect'] })).toBe(true)
+		expect(contract.is({ interface: 'WidgetInterface', methods: [{ name: 'inspect' }] })).toBe(true)
 		expect(contract.is({ interface: 'WidgetInterface', methods: [1] })).toBe(false)
 
 		const value = contract.generate(seededRandom(TEST_SEED))
@@ -77,6 +83,42 @@ describe('createManifestEntryContract', () => {
 			}),
 		).toBe(true)
 		expect(contract.is({ concept: 1 })).toBe(false)
+
+		const value = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(value)).toBe(true)
+		expect(contract.parse(value)).toEqual(value)
+	})
+})
+
+describe('createMethodEntryContract', () => {
+	it('compiles a working MethodEntry contract', () => {
+		const contract = createMethodEntryContract()
+		expect(contract.is({ name: 'render' })).toBe(true)
+		expect(contract.is({ name: 1 })).toBe(false)
+
+		const value = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(value)).toBe(true)
+		expect(contract.parse(value)).toEqual(value)
+	})
+})
+
+describe('createSourceExampleContract', () => {
+	it('compiles a working SourceExample contract', () => {
+		const contract = createSourceExampleContract()
+		expect(contract.is({ name: 'render', code: 'widget.render()' })).toBe(true)
+		expect(contract.is({ name: 'render' })).toBe(false)
+
+		const value = contract.generate(seededRandom(TEST_SEED))
+		expect(contract.is(value)).toBe(true)
+		expect(contract.parse(value)).toEqual(value)
+	})
+})
+
+describe('createDriftContract', () => {
+	it('compiles a working Drift contract', () => {
+		const contract = createDriftContract()
+		expect(contract.is({ key: 'class Widget', guide: 'A widget.' })).toBe(true)
+		expect(contract.is({ guide: 'A widget.' })).toBe(false)
 
 		const value = contract.generate(seededRandom(TEST_SEED))
 		expect(contract.is(value)).toBe(true)
