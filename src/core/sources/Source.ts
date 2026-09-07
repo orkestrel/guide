@@ -50,10 +50,10 @@ import {
  * under the name asked for — so a reader asking twice reads the files once and
  * receives the same records, and a second instance over the same inventory
  * derives the same readings of its own. Source projection preserves columns
- * without widening direct/hidden column-zero heads. Literal ECMAScript Unicode identifiers
- * participate in bounded slash-state recognition without escape decoding.
- * Regex recognition is bounded: slash after bare `}` is division, so a
- * post-brace regex statement requires an explicit `;`. General semicolonless
+ * without widening direct/hidden column-zero heads. Literal ECMAScript Unicode
+ * identifiers participate in bounded slash-state recognition without escape
+ * decoding. Regex recognition is bounded: slash after bare `}` is division, so
+ * a post-brace regex statement requires an explicit `;`. General semicolonless
  * declaration/ASI classification is also outside the finite projector, so a
  * slash-leading statement after such a declaration requires an explicit `;`.
  *

@@ -492,7 +492,7 @@ export interface DeclarationHead {
  * Represents one located `export class` / `export interface` declaration — the body lines
  * and the base identifiers read from the same head, so a consumer never pairs
  * one declaration's body with another declaration's heritage (see
- * {@link extractDeclaration}).
+ * {@link collectDeclarations}).
  */
 export interface Declaration {
 	/** Holds the declaration's raw body lines, between the head and the column-zero closing `}`. */
@@ -502,7 +502,7 @@ export interface Declaration {
 }
 
 /**
- * Represents which declaration head {@link extractDeclaration} and {@link Source} locate —
+ * Represents which declaration head {@link collectDeclarations} and {@link Source} locate —
  * a `class` or an `interface`. That pair is the subset of {@link ExportKeyword}
  * carrying a body whose members a guide's `## Methods` table documents.
  */

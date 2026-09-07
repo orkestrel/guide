@@ -47,8 +47,8 @@ A `Shape` cell lists an interface's property names alone, and a type alias's val
 | `SourceOptions`          | interface | `{ files, module }`                                                      | Represents the construction input for a `Source` — a consumer-supplied file inventory (root-relative path → file text) plus the module scope to reflect. The consumer gathers `files` however their environment allows (`node:fs` in a Node script, `import.meta.glob` in a browser/vitest run) — `Source` itself never touches disk.                                                |
 | `SourceManagerOptions`   | interface | `{ files, modules }`                                                     | Represents the construction input for a `SourceManager`: one shared file inventory plus the consumer's specifier-to-module policy.                                                                                                                                                                                                                                                   |
 | `DeclarationHead`        | interface | `{ text, end }`                                                          | Pairs a declaration head joined into a single line with the index of the line carrying its opening `{` — how a head that oxfmt wrapped across lines (printWidth 100) is matched as if it were written on one.                                                                                                                                                                        |
-| `Declaration`            | interface | `{ body, bases }`                                                        | Represents one located `export class` / `export interface` declaration — the body lines and the base identifiers read from the same head, so a consumer never pairs one declaration's body with another declaration's heritage (see `extractDeclaration`).                                                                                                                           |
-| `DeclarationKeyword`     | type      | `'class' \| 'interface'`                                                 | Represents which declaration head `extractDeclaration` and `Source` locate — a `class` or an `interface`. That pair is the subset of `ExportKeyword` carrying a body whose members a guide's `## Methods` table documents.                                                                                                                                                           |
+| `Declaration`            | interface | `{ body, bases }`                                                        | Represents one located `export class` / `export interface` declaration — the body lines and the base identifiers read from the same head, so a consumer never pairs one declaration's body with another declaration's heritage (see `collectDeclarations`).                                                                                                                          |
+| `DeclarationKeyword`     | type      | `'class' \| 'interface'`                                                 | Represents which declaration head `collectDeclarations` and `Source` locate — a `class` or an `interface`. That pair is the subset of `ExportKeyword` carrying a body whose members a guide's `## Methods` table documents.                                                                                                                                                          |
 
 ### Constants
 
@@ -226,20 +226,19 @@ public call-signature surface.
 
 The implementing class of `SourceInterface`, from [`Source.ts`](../src/core/sources/Source.ts). A
 pure reflection over a consumer-supplied file inventory (root-relative path → file text) plus a
-module scope. `exports()` inventories direct `type`, `interface`, `const`, `function`, and
-`class` declarations in the selected canonical directories' exact opaque module keys over
-comment/template-excluded projected code lines; `enum` is outside this reflection population without being forbidden by
-general package policy;
-`surface()` inventories declarations reachable through each selected directory's conventional
-root barrel. Both projections are computed on first access, cached, deduplicated by name and
+module scope. `exports()` inventories direct `type`, `interface`, `const`, `function`, and `class`
+declarations in the selected canonical directories' exact opaque module keys over
+comment/template-excluded projected code lines; `enum` is outside this reflection population without
+being forbidden by general package policy; `surface()` inventories declarations reachable through
+each selected directory's conventional root barrel. Both projections are deduplicated by name and
 keyword, and sorted by name. Member structure comes from projected lines while raw bodies preserve
 JSDoc evidence, and `methods(name)` resolves a declaration's members through its `extends` chain
 within the same module scope, reading the first file that declares the name. Every reading derives
-once per instance from the immutable inventory and is reused — the scope's declaration map on the
-first `methods` or `examples` lookup, then each name's members and each example collection under the
-name it was asked for — so a whole-guide comparison reads each file once rather than once per
-compared row. `Source` never uses the
-TypeScript compiler API or filesystem; the consumer gathers `files` however its environment
+once per instance from the immutable inventory and is reused — the `exports` and `surface`
+projections on first access, the scope's declaration map on the first `methods` or `examples`
+lookup, then each name's members and each example collection under the name it was asked for — so a
+whole-guide comparison reads each file once rather than once per compared row. `Source` never uses
+the TypeScript compiler API or filesystem; the consumer gathers `files` however its environment
 allows. See [`## Methods`](#methods) for the public call-signature surface.
 
 ### `SourceManager`
@@ -361,7 +360,8 @@ occurs rather than on a side reserved for it:
 
 - Every single-backtick code span — one backtick per side, no inner backtick, no adjacent backtick — is located, before any other clause runs.
 - `{@link X}` and `{@link A.b}` become the code token of the target text, outside a located span.
-- A target's module part — the inline import form `import('./module.js').` and TSDoc's package-qualified form `@scope/pkg#`, whose package carries `@` or `/` — drops, so `{@link @scope/pkg#A.b}` becomes the code token of `A.b`, outside a located span.
+- A target's module part — the inline import form `import('./module.js').` and TSDoc's package-qualified form `@scope/pkg#`, each a package or path token, one carrying `@` or `/` — drops, so `{@link @scope/pkg#A.b}` becomes the code token of `A.b`, outside a located span.
+- `{@link Owner#member}` and `{@link #member}` travel whole — a `#` that no `@` or `/` precedes is JSDoc's member reference rather than a module part — so a guide cell documents each as written, outside a located span.
 - `{@link X | text}` becomes the code token of `text`, outside a located span.
 - Emphasis — `**text**` and `_text_` — drops to its text.
 - A link, `[text](target)`, drops to `text`.
@@ -464,34 +464,36 @@ keyed `${keyword} ${name}`. One collector is what keeps a body and a heritage cl
 declaration. The identifier is the head's own run up to its generic parameter list or its heritage
 clause, so it enters the key as literal text: a name carrying a regex metacharacter reaches no
 `RegExp`, and a lookup of that name matches the character rather than a wildcard. A head that opens
-no column-zero close records nothing, and a later head of a key already collected adds nothing. `extractDeclaration` is the named lookup over that map, so a caller reading many names
-from one file projects it once rather than once per name. `extractMemberMethods` projects that body once through `extractBodyLines`, which reads it
-inside an owner head so each member keys to its owner, and `collectKeys` matches
-`^\t(?:async )?\*?(\w+)\??(?:<.*>)?\(` against those body lines — plain / `async` /
-generator / optional methods count; getters, setters, `static` members, and `#` privates
-never match (their keyword or sigil breaks the `name(` shape), and `constructor` is filtered
-out of `Source.methods`. Every balanced `<...>` span is removed from the head before its `extends`
-clause is read, so a `T extends Base` type parameter never reads as a base and `Base<T>` reads as
-`Base`, and a class's `implements` clause is excluded. `Source.methods(name)` unions the located
-declaration's own members with those of every declaration it extends, following each base through
-the same module scope and keeping the keyword it started from — an interface chain resolves through
-interfaces, a class chain through classes, so an interface extending a name only a class declares
-gets nothing from it. One declaration answers for a name: the module scope's files are read in
-sorted key order, and the first one whose located head has a body or has bases supplies both the
+no column-zero close records nothing, and a later head of a key already collected adds nothing.
+`extractDeclaration` is the named lookup over that map: it spells the `${keyword} ${name}` key so a
+consumer reading one name never writes that convention, and it collects the file afresh on every
+call. A consumer reading many names from one file calls `collectDeclarations` once and reads the
+map, and `Source` holds one such map per module scope. `extractMemberMethods` projects that body
+once through `extractBodyLines`, which reads it inside an owner head so each member keys to its
+owner, and `collectKeys` matches `^\t(?:async )?\*?(\w+)\??(?:<.*>)?\(` against those body lines —
+plain / `async` / generator / optional methods count; getters, setters, `static` members, and `#`
+privates never match (their keyword or sigil breaks the `name(` shape), and `constructor` is
+filtered out of `Source.methods`. Every balanced `<...>` span is removed from the head before its
+`extends` clause is read, so a `T extends Base` type parameter never reads as a base and `Base<T>`
+reads as `Base`, and a class's `implements` clause is excluded. `Source.methods(name)` unions the
+located declaration's own members with those of every declaration it extends, following each base
+through the same module scope and keeping the keyword it started from — an interface chain resolves
+through interfaces, a class chain through classes, so an interface extending a name only a class
+declares gets nothing from it. One declaration answers for a name: the module scope's files are read
+in sorted key order, and the first one whose located head has a body or has bases supplies both the
 members and the bases; a head with neither a body nor bases does not count as declared, so an empty
 `export interface X {}` is skipped and the scan continues to a later file or falls through to a
 same-named class, and a second file declaring the same name after one is found adds nothing. The
-inventory is the further bound: a base the
-selected directories do not declare, whether it is imported from another package or written as a
-qualified name such as `external.Store`, contributes no members and is not an error, and one
-visited set per call collapses a cycle and a diamond to a single visit. `Source.examples(name)` is
-deliberately asymmetric with it — it reads only the named declaration's own body, under each
-keyword, and follows no `extends` clause, so an inherited member's `@example` belongs to the base
-that declares it. `selectModuleKeys` scopes the inventory to one `GuideModule`'s `.ts` files,
-excluding each scope directory's own `index.ts` and any `*.test.ts` file. `Source.hidden()`
-mechanically asserts the export-discipline rule `.claude/rules/architecture.md` § Barrel exports
-states, and catches a hidden declaration-keyword declaration the surface bijection alone would
-never see.
+inventory is the further bound: a base the selected directories do not declare, whether it is
+imported from another package or written as a qualified name such as `external.Store`, contributes
+no members and is not an error, and one visited set per call collapses a cycle and a diamond to a
+single visit. `Source.examples(name)` is deliberately asymmetric with it — it reads only the named
+declaration's own body, under each keyword, and follows no `extends` clause, so an inherited
+member's `@example` belongs to the base that declares it. `selectModuleKeys` scopes the inventory to
+one `GuideModule`'s `.ts` files, excluding each scope directory's own `index.ts` and any `*.test.ts`
+file. `Source.hidden()` mechanically asserts the export-discipline rule
+`.claude/rules/architecture.md` § Barrel exports states, and catches a hidden declaration-keyword
+declaration the surface bijection alone would never see.
 
 `Source.surface()` starts only at exact `index.ts` for canonical `'.'`, or exact
 `<directory>/index.ts` for each nested directory returned by `normalizeDirectories(module)`.

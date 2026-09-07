@@ -2,7 +2,14 @@ import { seededRandom } from '@orkestrel/contract'
 import { createScratch, readInventory } from '@orkestrel/test/server'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { TEST_SEED, requireText, requireTable } from './setup.js'
+import { Source } from '@src/core'
+import {
+	TEST_SEED,
+	buildStoreSource,
+	readStoreReadings,
+	requireText,
+	requireTable,
+} from './setup.js'
 
 // Proves the host-independent setup helpers every project relies on. `setup.ts` is
 // host-independent, so its full contract is reachable from the `setup` project, which
@@ -69,5 +76,40 @@ describe('requireText', () => {
 	it('throws naming the missing relative path when the key is absent', () => {
 		const files = { 'present.md': 'content' }
 		expect(() => requireText(files, 'missing/widget.md')).toThrow('Missing file: missing/widget.md')
+	})
+})
+
+describe('buildStoreSource', () => {
+	it('declares the named member beside the inherited read, each carrying its own example tag', () => {
+		const text = buildStoreSource('open')
+		// A second route: literal substrings of the fixture text, never the array
+		// buildStoreSource joins, so the assertion can disagree with the helper.
+		expect(text.includes('\topen(): void')).toBe(true)
+		expect(text.includes('\tread(): string')).toBe(true)
+		expect(text.includes('export interface StoreInterface extends ReadInterface {')).toBe(true)
+	})
+
+	it('declares no member the caller did not name', () => {
+		expect(buildStoreSource('open').includes('\tclose(): void')).toBe(false)
+	})
+})
+
+describe('readStoreReadings', () => {
+	it('answers each reading under the argument it was asked for', () => {
+		const files = { 'module/types.ts': buildStoreSource('open') }
+		expect(readStoreReadings(new Source({ files, module: 'module' }))).toEqual({
+			member: ['open'],
+			module: [],
+			store: ['open', 'read'],
+			base: ['read'],
+			absent: [],
+		})
+	})
+
+	it('answers a differently named member with that name', () => {
+		const files = { 'module/types.ts': buildStoreSource('close') }
+		const readings = readStoreReadings(new Source({ files, module: 'module' }))
+		expect(readings.member).toEqual(['close'])
+		expect(readings.store).toEqual(['close', 'read'])
 	})
 })

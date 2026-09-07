@@ -1299,9 +1299,12 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
  *
  * @remarks
  * The one named lookup over {@link collectDeclarations}, which owns the head grammar, the body
- * window, and the base reading. `name` is compared as literal text against the identifier the head
- * itself carries, so a metacharacter in `name` names that character rather than matching text it
- * does not name, and a caller reading many names from one file collects once instead.
+ * window, and the base reading. This lookup spells the map's `${keyword} ${name}` key for its
+ * caller, so a consumer reading one name never writes that convention itself. `name` is compared
+ * as literal text against the identifier the head itself carries, so a metacharacter in `name`
+ * names that character rather than matching text it does not name. Every call collects the whole
+ * file afresh: a consumer reading many names from one file calls {@link collectDeclarations} once
+ * and reads the map, and {@link Source} holds one such map per module scope.
  *
  * @param source - The file's source text to search
  * @param keyword - Whether to look for a `class` or an `interface`

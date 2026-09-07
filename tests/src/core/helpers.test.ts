@@ -1645,7 +1645,7 @@ describe('collectDeclarations', () => {
 		})
 	})
 
-	it('reads each file once however many names a caller looks up', () => {
+	it('answers an absent and a metacharacter-carrying key with no entry, and a declared key as extractDeclaration does', () => {
 		const source = 'export interface X {\n\twalk(): void\n}\n'
 		const collected = collectDeclarations(source)
 		expect({

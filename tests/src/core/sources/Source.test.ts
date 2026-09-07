@@ -8,7 +8,7 @@ import {
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { requireText } from '../../../setup.js'
+import { buildStoreSource, readStoreReadings, requireText } from '../../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../../fixtures/', import.meta.url), ['.'])
 const GOOD_FILES = readInventory(new URL('../../../fixtures/good/', import.meta.url), ['.'])
@@ -1177,27 +1177,6 @@ describe('Source', () => {
 	})
 
 	it('answers every repeated reading with the same records, one argument never answering for another', () => {
-		const declare = (member: string) =>
-			[
-				'export interface ReadInterface {',
-				'\t/** @example */',
-				'\tread(): string',
-				'}',
-				'export interface StoreInterface extends ReadInterface {',
-				'\t/** @example */',
-				`\t${member}(): void`,
-				'}',
-				'',
-			].join('\n')
-		// Read the member collection before the module-wide one, and the derived name before
-		// the declared one, so a reading answering under another argument's key shows up here.
-		const read = (source: Source) => ({
-			member: source.examples('StoreInterface').map((example) => example.name),
-			module: source.examples().map((example) => example.name),
-			store: source.methods('StoreInterface').map((entry) => entry.name),
-			base: source.methods('ReadInterface').map((entry) => entry.name),
-			absent: source.methods('AbsentInterface').map((entry) => entry.name),
-		})
 		const declared = {
 			member: ['open'],
 			module: [],
@@ -1205,14 +1184,17 @@ describe('Source', () => {
 			base: ['read'],
 			absent: [],
 		}
-		const source = new Source({ files: { 'module/types.ts': declare('open') }, module: 'module' })
-		const first = read(source)
-		const repeated = read(source)
-		const sibling = read(
-			new Source({ files: { 'module/types.ts': declare('open') }, module: 'module' }),
+		const source = new Source({
+			files: { 'module/types.ts': buildStoreSource('open') },
+			module: 'module',
+		})
+		const first = readStoreReadings(source)
+		const repeated = readStoreReadings(source)
+		const sibling = readStoreReadings(
+			new Source({ files: { 'module/types.ts': buildStoreSource('open') }, module: 'module' }),
 		)
-		const other = read(
-			new Source({ files: { 'module/types.ts': declare('close') }, module: 'module' }),
+		const other = readStoreReadings(
+			new Source({ files: { 'module/types.ts': buildStoreSource('close') }, module: 'module' }),
 		)
 
 		expect({ first, repeated, sibling, other }).toEqual({
