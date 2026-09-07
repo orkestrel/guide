@@ -1192,11 +1192,10 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
  * inside a larger `RegExp` source rather than as syntax.
  *
  * @remarks
- * Every caller-supplied name reaches a `RegExp` through this: {@link
- * extractDeclaration} splices it into the head grammar and {@link
- * findUnexampled} into a word-boundary search, so a name carrying `$`, `(`,
- * `[`, or `.` matches that character literally instead of throwing or matching
- * text it does not name. Pure and total; never throws.
+ * A caller-supplied name reaches a `RegExp` through this: {@link
+ * findUnexampled} splices it into a word-boundary search, so a name carrying
+ * `$`, `(`, `[`, or `.` matches that character literally instead of throwing or
+ * matching text it does not name. Pure and total; never throws.
  *
  * @param value - The literal string to escape
  * @returns `value` with every regex metacharacter backslash-escaped
@@ -1212,24 +1211,97 @@ export function escapeRegExp(value: string): string {
 }
 
 /**
+ * Collects every `export class` / `export interface` declaration one file's source text declares,
+ * each keyed `${keyword} ${name}` and carrying the body lines and the base identifiers read from
+ * its own head, so a body and a heritage clause always come from the same declaration.
+ *
+ * @remarks
+ * The whole file is projected once through {@link extractSourceLines} and every head is read from
+ * that one projection, so a scope resolving many names reads each file once rather than once per
+ * name. A head is a column-zero `export class` / `export interface` line, an oxfmt-wrapped
+ * signature joined through {@link joinHead}, with an optional generic parameter list and an
+ * optional heritage clause between the identifier and the opening `{`; the identifier is the head's
+ * own run up to that list or clause, so it enters the key as literal text and no name reaches a
+ * `RegExp`. Body lines are the raw source between the head and the first projected column-zero `}`,
+ * keeping JSDoc evidence intact. Every balanced `<...>` span is removed from the head before its
+ * `extends` clause is read, so a `T extends Base` type parameter is never a base and `Base<T>`
+ * reads as `Base`; a class's `implements` clause and everything after it is excluded, and a
+ * qualified base such as `namespace.Base` is returned verbatim. The first head of a key that opens
+ * a column-zero close answers for that key: a head that opens none records nothing, and a later
+ * head of a key already collected adds nothing.
+ *
+ * @param source - The file's source text to read
+ * @returns One entry per collected declaration, keyed `${keyword} ${name}`
+ *
+ * @example
+ * ```ts
+ * collectDeclarations('export interface X extends Y {\n\twalk(): void\n}\n').get('interface X')
+ * // { body: ['\twalk(): void'], bases: ['Y'] }
+ * ```
+ */
+export function collectDeclarations(source: string): ReadonlyMap<string, Declaration> {
+	const declarations = new Map<string, Declaration>()
+	const opener = /^export (?:class|interface) /
+	const grammar = /^export (class|interface) ([^\s<]+)(?:<.*>)?(?: .*)? \{$/
+	const lines = extractSourceLines(source)
+	const projected = lines.map((line) => line.code)
+
+	for (let index = 0; index < projected.length; index += 1) {
+		const line = projected[index]
+		if (line === undefined || !opener.test(line)) continue
+
+		const head = joinHead(projected, index)
+		if (head === undefined) continue
+		const declared = grammar.exec(head.text)
+		const keyword = declared?.[1]
+		const name = declared?.[2]
+		if (keyword === undefined || name === undefined) continue
+
+		const key = `${keyword} ${name}`
+		if (declarations.has(key)) continue
+
+		let depth = 0
+		let flat = ''
+		for (const character of head.text.slice(`export ${key}`.length, -1)) {
+			if (character === '<') depth += 1
+			else if (character === '>') depth = Math.max(0, depth - 1)
+			else if (depth === 0) flat += character
+		}
+		const clause = flat.replace(/\bimplements\b[\s\S]*$/, '').match(/\bextends\b([\s\S]*)$/)?.[1]
+		const bases =
+			clause === undefined
+				? []
+				: clause
+						.split(',')
+						.map((base) => base.trim())
+						.filter(isNonEmptyString)
+
+		for (let close = head.end + 1; close < projected.length; close += 1) {
+			if (projected[close] !== '}') continue
+			declarations.set(key, {
+				body: lines.slice(head.end + 1, close).map((record) => record.source),
+				bases,
+			})
+			break
+		}
+
+		// An unterminated body records nothing — keep scanning in case a later head closes.
+	}
+
+	return declarations
+}
+
+/**
  * Locates the named `export class` / `export interface` declaration in one file's source text
  * and returns its body lines and its base identifiers read from that one head, so a body and a
  * heritage clause always come from the same declaration, or `undefined` when the file declares
  * no such head.
  *
  * @remarks
- * The head is matched on projected lines (column 0, an oxfmt-wrapped signature
- * joined through {@link joinHead}), with an optional generic parameter list and
- * an optional heritage clause between the identifier and the opening `{`; the
- * identifier matches exactly and is escaped through {@link escapeRegExp}, so a
- * metacharacter in `name` is literal text. The returned body lines are the raw
- * source between that head and the first projected column-zero `}`, keeping
- * JSDoc evidence intact. Every balanced `<...>` span is removed from the head
- * before its `extends` clause is read, so a `T extends Base` type parameter is
- * never a base and `Base<T>` reads as `Base`; a class's `implements` clause and
- * everything after it is excluded, and a qualified base such as
- * `namespace.Base` is returned verbatim. A head that opens no column-zero close
- * is skipped and the scan continues, so a later real declaration still answers.
+ * The one named lookup over {@link collectDeclarations}, which owns the head grammar, the body
+ * window, and the base reading. `name` is compared as literal text against the identifier the head
+ * itself carries, so a metacharacter in `name` names that character rather than matching text it
+ * does not name, and a caller reading many names from one file collects once instead.
  *
  * @param source - The file's source text to search
  * @param keyword - Whether to look for a `class` or an `interface`
@@ -1247,43 +1319,7 @@ export function extractDeclaration(
 	keyword: DeclarationKeyword,
 	name: string,
 ): Declaration | undefined {
-	const opener = `export ${keyword} ${name}`
-	const grammar = new RegExp(`^${escapeRegExp(opener)}(?:<.*>)?(?: .*)? \\{$`)
-	const lines = extractSourceLines(source)
-	const projected = lines.map((line) => line.code)
-
-	for (let index = 0; index < projected.length; index += 1) {
-		const line = projected[index]
-		if (line === undefined || !line.startsWith(opener)) continue
-
-		const head = joinHead(projected, index)
-		if (head === undefined || !grammar.test(head.text)) continue
-
-		let depth = 0
-		let flat = ''
-		for (const character of head.text.slice(opener.length, -1)) {
-			if (character === '<') depth += 1
-			else if (character === '>') depth = Math.max(0, depth - 1)
-			else if (depth === 0) flat += character
-		}
-		const clause = flat.replace(/\bimplements\b[\s\S]*$/, '').match(/\bextends\b([\s\S]*)$/)?.[1]
-		const bases =
-			clause === undefined
-				? []
-				: clause
-						.split(',')
-						.map((base) => base.trim())
-						.filter(isNonEmptyString)
-
-		for (let close = head.end + 1; close < projected.length; close += 1) {
-			if (projected[close] !== '}') continue
-			return { body: lines.slice(head.end + 1, close).map((record) => record.source), bases }
-		}
-
-		// Unterminated body — keep scanning in case a later head closes.
-	}
-
-	return undefined
+	return collectDeclarations(source).get(`${keyword} ${name}`)
 }
 
 /**

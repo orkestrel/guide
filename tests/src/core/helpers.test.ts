@@ -4,6 +4,7 @@ import {
 	buildComment,
 	buildFence,
 	buildTable,
+	collectDeclarations,
 	collectExamples,
 	collectFences,
 	collectGroups,
@@ -1594,6 +1595,70 @@ describe('extractDeclaration', () => {
 	it('reports no declaration for a head that opens no column-zero close', () => {
 		const source = ['export interface B extends A {', '\twalk(): void', ''].join('\n')
 		expect(extractDeclaration(source, 'interface', 'B')).toBeUndefined()
+	})
+})
+
+describe('collectDeclarations', () => {
+	it('keys every declaration of one file by its keyword and its own identifier', () => {
+		const source = [
+			'export interface ReadInterface {',
+			'\tread(): string',
+			'}',
+			'export interface StoreInterface<T> extends ReadInterface {',
+			'\topen(value: T): void',
+			'}',
+			'export class Store implements StoreInterface<string> {',
+			'\topen(): void {}',
+			'}',
+			'export const store = new Store()',
+			'',
+		].join('\n')
+		expect(Object.fromEntries(collectDeclarations(source))).toEqual({
+			'interface ReadInterface': { body: ['\tread(): string'], bases: [] },
+			'interface StoreInterface': { body: ['\topen(value: T): void'], bases: ['ReadInterface'] },
+			'class Store': { body: ['\topen(): void {}'], bases: [] },
+		})
+	})
+
+	it('collects nothing from a file declaring no class and no interface head', () => {
+		expect(collectDeclarations('export const store = 1\nexport type Store = string\n').size).toBe(0)
+	})
+
+	it('records nothing for a head that opens no column-zero close', () => {
+		const source = ['export interface B extends A {', '\twalk(): void', ''].join('\n')
+		expect(Object.fromEntries(collectDeclarations(source))).toEqual({})
+	})
+
+	it('keeps the first complete head of a key and drops a later one of the same key', () => {
+		const source = [
+			'export interface B {',
+			'\twalk(): void',
+			'}',
+			'export interface B {',
+			'\tfold(): void',
+			'}',
+			'',
+		].join('\n')
+		expect(collectDeclarations(source).get('interface B')).toEqual({
+			body: ['\twalk(): void'],
+			bases: [],
+		})
+	})
+
+	it('reads each file once however many names a caller looks up', () => {
+		const source = 'export interface X {\n\twalk(): void\n}\n'
+		const collected = collectDeclarations(source)
+		expect({
+			absent: collected.get('interface Absent'),
+			literal: collected.get('interface .*'),
+			named: collected.get('interface X'),
+			lookup: extractDeclaration(source, 'interface', 'X'),
+		}).toEqual({
+			absent: undefined,
+			literal: undefined,
+			named: { body: ['\twalk(): void'], bases: [] },
+			lookup: { body: ['\twalk(): void'], bases: [] },
+		})
 	})
 })
 

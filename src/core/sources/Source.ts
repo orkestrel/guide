@@ -8,8 +8,8 @@ import type {
 	SurfaceSymbol,
 } from '../types.js'
 import {
+	collectDeclarations,
 	computeSymbolKey,
-	extractDeclaration,
 	extractExampleMethods,
 	extractExamples,
 	extractExports,
@@ -44,8 +44,13 @@ import {
  * from; a base the scope does not declare contributes nothing. One declaration
  * answers for a name: the first file in sorted key order that declares the head
  * supplies its members and its bases, and a second file declaring the same name
- * adds nothing. Source projection preserves columns without widening
- * direct/hidden column-zero heads. Literal ECMAScript Unicode identifiers
+ * adds nothing. Every reading derives once per instance from the immutable
+ * inventory and is reused — the scope's declaration map on the first `methods`
+ * or `examples` lookup, then each name's members and each example collection
+ * under the name asked for — so a reader asking twice reads the files once and
+ * receives the same records, and a second instance over the same inventory
+ * derives the same readings of its own. Source projection preserves columns
+ * without widening direct/hidden column-zero heads. Literal ECMAScript Unicode identifiers
  * participate in bounded slash-state recognition without escape decoding.
  * Regex recognition is bounded: slash after bare `}` is division, so a
  * post-brace regex statement requires an explicit `;`. General semicolonless
@@ -73,10 +78,12 @@ import {
 export class Source implements SourceInterface {
 	readonly #files: Readonly<Record<string, string>>
 	readonly #directories: readonly string[]
+	readonly #methods = new Map<string, readonly MethodEntry[]>()
+	readonly #examples = new Map<string | undefined, readonly SourceExample[]>()
 	#exports: readonly SurfaceSymbol[] | undefined
 	#surface: readonly SurfaceSymbol[] | undefined
 	#hidden: readonly SurfaceSymbol[] | undefined
-	#examples: readonly SourceExample[] | undefined
+	#declarations: ReadonlyMap<string, Declaration> | undefined
 
 	constructor(options: SourceOptions) {
 		this.#files = options.files
@@ -97,12 +104,15 @@ export class Source implements SourceInterface {
 		return this.#surface
 	}
 
+	// A name's members are computed once per instance and cached under that name, so a
+	// reader asking twice resolves one `extends` chain rather than two.
 	methods(name: string): readonly MethodEntry[] {
-		const declared = this.#members('interface', name, new Set<string>())
-		if (declared !== undefined) return declared
+		const cached = this.#methods.get(name)
+		if (cached !== undefined) return cached
 
-		const inherited = this.#members('class', name, new Set<string>())
-		return inherited === undefined ? [] : inherited.filter((entry) => entry.name !== 'constructor')
+		const members = this.#scanMethods(name)
+		this.#methods.set(name, members)
+		return members
 	}
 
 	exists(relative: string): boolean {
@@ -117,15 +127,27 @@ export class Source implements SourceInterface {
 		return this.#hidden
 	}
 
+	// Each reading is computed once per instance and cached under the name it was asked
+	// for, the module-wide collection under the absent name.
 	examples(): readonly SourceExample[]
 	examples(name: string): readonly SourceExample[]
 	examples(name?: string): readonly SourceExample[] {
-		if (name === undefined) {
-			if (this.#examples === undefined) this.#examples = this.#scanExamples()
-			return this.#examples
-		}
+		const cached = this.#examples.get(name)
+		if (cached !== undefined) return cached
 
-		return this.#exampleMembers(name)
+		const examples = name === undefined ? this.#scanExamples() : this.#exampleMembers(name)
+		this.#examples.set(name, examples)
+		return examples
+	}
+
+	// The interface shape answers first for a name both shapes declare; a class's members
+	// arrive without the `constructor` no guide documents.
+	#scanMethods(name: string): readonly MethodEntry[] {
+		const declared = this.#members('interface', name, new Set<string>())
+		if (declared !== undefined) return declared
+
+		const inherited = this.#members('class', name, new Set<string>())
+		return inherited === undefined ? [] : inherited.filter((entry) => entry.name !== 'constructor')
 	}
 
 	// The union of exported declaration heads' `@example` blocks across the module's
@@ -284,22 +306,33 @@ export class Source implements SourceInterface {
 		)
 	}
 
-	// The one declaration that answers for `name` — the first file in sorted key
-	// order whose located head has a body or bases, whose body and bases are
-	// read together, so a later file declaring the same name contributes
-	// nothing. A located head with neither a body nor bases does not declare;
-	// the scan continues past it to a later file or falls through unanswered.
+	// The one declaration that answers for `name`, read from the scope's declaration map,
+	// which is collected once on first lookup and reused by every later one.
 	#locate(keyword: DeclarationKeyword, name: string): Declaration | undefined {
+		if (this.#declarations === undefined) this.#declarations = this.#scanDeclarations()
+		return this.#declarations.get(`${keyword} ${name}`)
+	}
+
+	// The scope's declarations, keyed `${keyword} ${name}` — one `collectDeclarations`
+	// pass per file in sorted key order, so a scope reads each file once however many
+	// names it resolves. The first file whose located head has a body or bases answers
+	// for a key, its body and bases read together, so a later file declaring the same
+	// name contributes nothing. A located head with neither a body nor bases does not
+	// declare; the scan continues past it to a later file or leaves the key unanswered.
+	#scanDeclarations(): ReadonlyMap<string, Declaration> {
+		const declarations = new Map<string, Declaration>()
+
 		for (const key of selectModuleKeys(this.#files, this.#directories)) {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			const declaration = extractDeclaration(text, keyword, name)
-			if (declaration === undefined) continue
-			if (declaration.body.length === 0 && declaration.bases.length === 0) continue
-			return declaration
+			for (const [identity, declaration] of collectDeclarations(text)) {
+				if (declarations.has(identity)) continue
+				if (declaration.body.length === 0 && declaration.bases.length === 0) continue
+				declarations.set(identity, declaration)
+			}
 		}
 
-		return undefined
+		return declarations
 	}
 }

@@ -1175,4 +1175,51 @@ describe('Source', () => {
 		const source = new Source({ files, module: 'src/core' })
 		expect(source.examples('Widget').map((example) => example.name)).toEqual(['fold'])
 	})
+
+	it('answers every repeated reading with the same records, one argument never answering for another', () => {
+		const declare = (member: string) =>
+			[
+				'export interface ReadInterface {',
+				'\t/** @example */',
+				'\tread(): string',
+				'}',
+				'export interface StoreInterface extends ReadInterface {',
+				'\t/** @example */',
+				`\t${member}(): void`,
+				'}',
+				'',
+			].join('\n')
+		// Read the member collection before the module-wide one, and the derived name before
+		// the declared one, so a reading answering under another argument's key shows up here.
+		const read = (source: Source) => ({
+			member: source.examples('StoreInterface').map((example) => example.name),
+			module: source.examples().map((example) => example.name),
+			store: source.methods('StoreInterface').map((entry) => entry.name),
+			base: source.methods('ReadInterface').map((entry) => entry.name),
+			absent: source.methods('AbsentInterface').map((entry) => entry.name),
+		})
+		const declared = {
+			member: ['open'],
+			module: [],
+			store: ['open', 'read'],
+			base: ['read'],
+			absent: [],
+		}
+		const source = new Source({ files: { 'module/types.ts': declare('open') }, module: 'module' })
+		const first = read(source)
+		const repeated = read(source)
+		const sibling = read(
+			new Source({ files: { 'module/types.ts': declare('open') }, module: 'module' }),
+		)
+		const other = read(
+			new Source({ files: { 'module/types.ts': declare('close') }, module: 'module' }),
+		)
+
+		expect({ first, repeated, sibling, other }).toEqual({
+			first: declared,
+			repeated: declared,
+			sibling: declared,
+			other: { ...declared, member: ['close'], store: ['close', 'read'] },
+		})
+	})
 })
