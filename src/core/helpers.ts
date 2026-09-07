@@ -2087,10 +2087,10 @@ export function collectExamples(comment: string, name: string): readonly SourceE
  * text, each named for the declaration its block documents. Shared adjacency comes from
  * {@link extractSourceComments} and each block is read by {@link collectExamples}; head
  * membership is the {@link collectKeys} key of the documented record under every keyword that
- * grammar heads, so comment and template payload cannot qualify and the head grammar stays the
- * one every reader here shares. A member key carries a dot and a head key does not, so a
- * member's block belongs to {@link extractExampleMethods} instead. A head carrying several
- * blocks contributes each.
+ * grammar admits at column zero, so comment and template payload cannot qualify and the head
+ * grammar stays the one every reader here shares. A member key carries a dot and a head key
+ * does not, so a member's block belongs to {@link extractExampleMethods} instead. A head
+ * carrying several blocks contributes each.
  *
  * @param source - The file's source text
  * @returns The exported declaration heads' `@example` blocks, in file order, deduplicated by name and title

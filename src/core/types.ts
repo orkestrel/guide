@@ -379,8 +379,7 @@ export interface SourceInterface {
 	 * association. Declaration and callable
 	 * member eligibility comes from aligned projected code while genuine JSDoc
 	 * evidence retains its source columns. The head's own block belongs to the
-	 * no-argument overload instead, so the overloads split the axis at the
-	 * declaration head against its members.
+	 * no-argument overload instead.
 	 *
 	 * @remarks
 	 * This overload reads only the named declaration's own body, in the first

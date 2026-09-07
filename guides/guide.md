@@ -425,6 +425,8 @@ physical record is returned once as the candidate. `extractExamples` and `extrac
 adjacency parser and apply their distinct declaration-head and callable-member grammars only to
 `code`. `extractExamples` dedupes by name and title, so a `type` and a `const` sharing one name
 contribute the first block of a title rather than one block each.
+`collectTitles` reads a module's head blocks before its documented members' blocks, so where a head
+and a member carry one title the head's block answers.
 
 Across the `.ts` module keys under each selected directory, excluding its root `index.ts` and
 every `*.test.ts`, `collectKeys` matches
@@ -553,7 +555,7 @@ guard so a renamed heading fails loudly instead of passing on an empty extractio
 - **MQ — Methods summary equality.** The same comparison per `MethodGroup`, over the members
   `group.methods` and `source.methods(group.interface)` both carry, keyed `Owner.member`.
 - **EQ — Example equality.** Every titled guide fence against the `@example` block of the same title,
-  body and fence language together. The block is a declaration head's own — a `type`, `interface`,
+  body and fence language together. The block is an exported declaration head's own — a `type`, `interface`,
   `const`, `function`, or `class` head at column zero — or a documented `class` or `interface`
   member's, so a head's titled block is compared the way a member's is. The pairing is per title
   across the document, not per heading: the

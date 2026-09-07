@@ -1773,7 +1773,7 @@ describe('extractExamples', () => {
 			'export class Widget {}',
 			'',
 		].join('\n')
-		expect(extractExamples(source)).toEqual([{ name: 'Widget', code: 'new Widget()' }])
+		expect(extractExamples(source)).toStrictEqual([{ name: 'Widget', code: 'new Widget()' }])
 		expect(extractExamples('export class Widget {}\n')).toEqual([])
 	})
 
