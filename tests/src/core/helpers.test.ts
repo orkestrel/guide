@@ -74,7 +74,12 @@ import {
 import { createMarkdown, isTableNode, renderMarkdown } from '@orkestrel/markdown'
 import { parseSync } from 'vite'
 import { describe, expect, it } from 'vitest'
-import { ENTITY_HEADING_GUIDE, requireTable, requireText } from '../../setup.js'
+import {
+	DEMONSTRATION_HEADING_GUIDE,
+	ENTITY_HEADING_CASES,
+	requireTable,
+	requireText,
+} from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
@@ -1069,22 +1074,13 @@ describe('extractSurface', () => {
 		expect(surface).toContainEqual({ name: 'Widget', keyword: 'class' })
 	})
 
-	it.each([
-		['### `Widget`', [{ name: 'Widget', keyword: 'class' }]],
-		['### `Widget<T>`', [{ name: 'Widget', keyword: 'class' }]],
-		['###   `Widget`   ', [{ name: 'Widget', keyword: 'class' }]],
-		['### **`Widget`**', [{ name: 'Widget', keyword: 'class' }]],
-		['### [`Widget`](target)', [{ name: 'Widget', keyword: 'class' }]],
-		['### Bind a `Widget` to a transport', []],
-		['### `Widget` and `Alias`', []],
-		['### `Widget` ` `', []],
-	])('applies the entity-heading boundary to %s', (heading, expected) => {
+	it.each(ENTITY_HEADING_CASES)('applies the heading boundary to %s', (heading, expected) => {
 		const document = createMarkdown(['## Surface', '', heading, ''].join('\n')).document
 		expect(extractSurface(document)).toEqual(expected)
 	})
 
 	it('refuses an embedded demonstration heading and keeps the following row summary', () => {
-		expect(extractSurface(createMarkdown(ENTITY_HEADING_GUIDE).document)).toEqual([
+		expect(extractSurface(createMarkdown(DEMONSTRATION_HEADING_GUIDE).document)).toEqual([
 			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
 		])
 	})

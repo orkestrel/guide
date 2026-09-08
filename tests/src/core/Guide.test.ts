@@ -1,7 +1,7 @@
 import { Guide, createSource, isExternalLink, findMissingSymbols, resolveLink } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
-import { ENTITY_HEADING_GUIDE, requireText } from '../../setup.js'
+import { DEMONSTRATION_HEADING_GUIDE, requireText } from '../../setup.js'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
@@ -28,7 +28,7 @@ describe('Guide', () => {
 	})
 
 	it('caches a surface that refuses an embedded demonstration heading', () => {
-		const guide = new Guide(ENTITY_HEADING_GUIDE)
+		const guide = new Guide(DEMONSTRATION_HEADING_GUIDE)
 		expect(guide.surface()).toEqual([
 			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
 		])

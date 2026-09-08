@@ -1,5 +1,5 @@
 import type { TableNode } from '@orkestrel/markdown'
-import type { SourceInterface } from '@src/core'
+import type { SourceInterface, SurfaceSymbol } from '@src/core'
 import { parseDocument } from '@orkestrel/markdown'
 import { requireValue } from '@orkestrel/test'
 
@@ -12,7 +12,7 @@ import { requireValue } from '@orkestrel/test'
 export const TEST_SEED = 42
 
 /** Holds a guide where an embedded demonstration heading precedes the class row it mentions. */
-export const ENTITY_HEADING_GUIDE = [
+export const DEMONSTRATION_HEADING_GUIDE = [
 	'## Surface',
 	'',
 	'### Bind a `Widget` to a transport',
@@ -22,6 +22,21 @@ export const ENTITY_HEADING_GUIDE = [
 	'| `Widget` | class | Represents a widget. |',
 	'',
 ].join('\n')
+
+/** Represents one candidate H3 heading paired with the surface it yields. */
+export type EntityHeadingCase = readonly [heading: string, surface: readonly SurfaceSymbol[]]
+
+/** Holds each candidate H3 heading the entity-heading boundary admits or refuses. */
+export const ENTITY_HEADING_CASES: readonly EntityHeadingCase[] = [
+	['### `Widget`', [{ name: 'Widget', keyword: 'class' }]],
+	['### `Widget<T>`', [{ name: 'Widget', keyword: 'class' }]],
+	['###   `Widget`   ', [{ name: 'Widget', keyword: 'class' }]],
+	['### **`Widget`**', [{ name: 'Widget', keyword: 'class' }]],
+	['### [`Widget`](target)', [{ name: 'Widget', keyword: 'class' }]],
+	['### Bind a `Widget` to a transport', []],
+	['### `Widget` and `Alias`', []],
+	['### `Widget` ` `', []],
+]
 
 /**
  * Requires markdown whose first block is a table.

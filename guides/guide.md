@@ -321,18 +321,16 @@ caches its projections at construction — `sections`, `tagline`, `surface`, `me
 of identifiers: every table's column-0 code span (keyword read from the column whose header text
 is `Kind`, located positionally so it survives reordering) and every H3 entity heading whose
 trimmed compared inline content is exactly its backticked code-span name (a class documented
-outside a table, keyword fixed to `'class'`). Heading padding, emphasis, and links preserve that
-identity. Additional visible text or code spans refuse admission. The heading boundary compares
-`extractCellText(block.children).trim()` with the raw value from `findFirstCode` before generic
-normalization. `extractMethods` scopes to
+outside a table, keyword fixed to `'class'`). Surrounding spaces, emphasis, and links preserve
+that identity. `extractSurface` refuses a heading carrying any other visible text or an additional
+code span. Surface entries retain encounter order and deduplicate by name + keyword: the
+first-seen entry wins, so a genuine entity heading before its matching class row keeps the
+summary-less heading entry, while a table row before that heading keeps its `Summary`; the same
+name under another keyword remains distinct. `extractMethods` scopes to
 `## Methods`: an H4 whose first code span sets the current interface name, and the very next
 table becomes that interface's `MethodGroup`. Both extractors normalize every identifier
 through `normalizeIdentifier`, stripping a generic-parameter annotation (`` `WidgetInterface<T>` ``
-→ `WidgetInterface`) so the bijection key is always the bare name. Surface entries retain
-encounter order and deduplicate by name + keyword: the first-seen entry wins, so a genuine entity
-heading before its matching class row keeps the summary-less heading entry, while a table row
-before that heading keeps its `Summary`; the same name under another keyword remains distinct.
-`extractLinks` walks the
+→ `WidgetInterface`) so the bijection key is always the bare name. `extractLinks` walks the
 whole AST for every `link` node (table cells included); `extractTests` does the same walk
 scoped to the `## Tests` section only; and `extractFences` walks the whole AST for every
 fenced code block, tagged or not, keeping each fence's info-string language and verbatim body.

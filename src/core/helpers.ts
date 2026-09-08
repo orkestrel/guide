@@ -973,8 +973,8 @@ export function normalizeIdentifier(code: string): string {
  * the parity reader compares it. Emphasis drops to its text, a link drops to its text, an image
  * drops to its alternative text, and the markdown parser has already unescaped `\|`.
  *
- * @param cell - The cell's inline nodes
- * @returns The cell's text, code spans included
+ * @param cell - The inline nodes to flatten
+ * @returns The compared text, code spans included
  *
  * @example
  * ```ts
@@ -1499,11 +1499,11 @@ export function extractRowSummary(table: TableNode, row: number): string | undef
  *
  * @remarks
  * The heading boundary compares {@link extractCellText} with the raw value from
- * {@link findFirstCode} before {@link normalizeIdentifier} strips a generic annotation. Heading
- * padding, emphasis, and links preserve that identity. Additional visible text or code spans
- * refuse admission. Entries retain encounter order, and the first-seen name + keyword wins: a
- * genuine heading before its table row keeps the heading's summary-less class entry, while a
- * table row before that heading keeps its `Summary`.
+ * {@link findFirstCode} before {@link normalizeIdentifier} strips a generic annotation.
+ * Surrounding spaces, emphasis, and links preserve that identity. This reader refuses a heading
+ * carrying any other visible text or an additional code span. Entries retain encounter order, and
+ * the first-seen name + keyword wins: a genuine heading before its table row keeps the heading's
+ * summary-less class entry, while a table row before that heading keeps its `Summary`.
  *
  * @param document - The parsed guide document
  * @returns The documented surface, in encounter order
