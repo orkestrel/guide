@@ -57,7 +57,7 @@ import {
 	createPolicyScratch,
 	inspectPolicyConfiguration,
 	inspectPolicyWiring,
-	normalizePolicyPath,
+	normalizePolicyFilename,
 } from './setupPolicy.js'
 import { describe, expect, it } from 'vitest'
 
@@ -1750,6 +1750,8 @@ describe('policy plugin', () => {
 	it('loads every configured policy rule through the real binary', () => {
 		const scratch = createPolicyScratch({ prefix: 'orkestrel-config-policy-' })
 		try {
+			// Compare diagnostics from the real directory while the child keeps the scratch cwd.
+			const comparisonRoot = realpathSync.native(scratch.path)
 			scratch.write('.oxlintrc.json', readFileSync(resolve(root, '.oxlintrc.json'), 'utf8'))
 			scratch.write('configs/policy.ts', readFileSync(resolve(root, 'configs/policy.ts'), 'utf8'))
 			scratch.write(
@@ -1860,7 +1862,7 @@ describe('policy plugin', () => {
 					if (typeof code !== 'string' || typeof filename !== 'string') {
 						throw new Error('Oxlint returned a diagnostic without a rule id and a file')
 					}
-					codes.push(`${code} ${normalizePolicyPath(filename)}`)
+					codes.push(`${code} ${normalizePolicyFilename(comparisonRoot, filename)}`)
 				}
 				reports.push(codes)
 			}
@@ -1871,30 +1873,42 @@ describe('policy plugin', () => {
 				throw new Error('Oxlint returned no fixture reports')
 			}
 			expect(violations.status).toBe(1)
-			for (const reported of [
-				'policy(no-mocking) src/violations/fixture.ts',
-				'policy(no-keyword-privacy) src/violations/fixture.ts',
-				'policy(no-nested-functions) src/violations/fixture.ts',
-				'policy(no-misplaced-type) src/violations/fixture.ts',
-				'policy(no-misplaced-data) src/violations/fixture.ts',
-				'policy(no-misplaced-function) src/violations/fixture.ts',
-				'policy(no-misplaced-class) src/violations/fixture.ts',
-				'policy(no-host-line-endings) src/violations/fixture.ts',
-				'policy(no-hidden-declaration) src/violations/helpers.ts',
-				'policy(no-misnamed-parser) src/violations/parsers.ts',
-				'policy(no-misnamed-factory) src/violations/factories.ts',
-				'policy(no-malformed-constant) src/violations/constants.ts',
-				'policy(no-malformed-domain) src/violations/composables.ts',
-				'policy(no-malformed-domain) app/browser/composables/useTheme.ts',
-				'policy(no-banned-term) src/violations/fixture.ts',
-				'policy(no-malformed-summary) src/violations/fixture.ts',
-				'typescript(parameter-properties) src/violations/fixture.ts',
-				'typescript(explicit-member-accessibility) src/violations/fixture.ts',
+			for (const { code, filename } of [
+				{ code: 'policy(no-mocking)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-keyword-privacy)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-nested-functions)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-misplaced-type)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-misplaced-data)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-misplaced-function)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-misplaced-class)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-host-line-endings)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-hidden-declaration)', filename: 'src/violations/helpers.ts' },
+				{ code: 'policy(no-misnamed-parser)', filename: 'src/violations/parsers.ts' },
+				{ code: 'policy(no-misnamed-factory)', filename: 'src/violations/factories.ts' },
+				{ code: 'policy(no-malformed-constant)', filename: 'src/violations/constants.ts' },
+				{ code: 'policy(no-malformed-domain)', filename: 'src/violations/composables.ts' },
+				{
+					code: 'policy(no-malformed-domain)',
+					filename: 'app/browser/composables/useTheme.ts',
+				},
+				{ code: 'policy(no-banned-term)', filename: 'src/violations/fixture.ts' },
+				{ code: 'policy(no-malformed-summary)', filename: 'src/violations/fixture.ts' },
+				{ code: 'typescript(parameter-properties)', filename: 'src/violations/fixture.ts' },
+				{
+					code: 'typescript(explicit-member-accessibility)',
+					filename: 'src/violations/fixture.ts',
+				},
 			]) {
-				expect(violationCodes).toContain(reported)
+				expect(violationCodes).toContain(
+					`${code} ${normalizePolicyFilename(comparisonRoot, filename)}`,
+				)
 			}
-			expect(violationCodes).toContain('eslint(no-debugger) scripts/read.ts')
-			expect(violationCodes).not.toContain('policy(no-host-line-endings) scripts/read.ts')
+			expect(violationCodes).toContain(
+				`eslint(no-debugger) ${normalizePolicyFilename(comparisonRoot, 'scripts/read.ts')}`,
+			)
+			expect(violationCodes).not.toContain(
+				`policy(no-host-line-endings) ${normalizePolicyFilename(comparisonRoot, 'scripts/read.ts')}`,
+			)
 			expect(clean.status).toBe(0)
 			expect(cleanCodes).toHaveLength(0)
 		} finally {
@@ -2138,36 +2152,51 @@ describe('configuration helpers', () => {
 
 	it('reads the compiler scope and fixed extractor override a declaration roll-up requires', () => {
 		const compiler = createRequire(import.meta.url).resolve('typescript/bin/tsc')
-		const project = resolve(root, 'configs/src/tsconfig.core.json')
+		// The order mirrors ENVIRONMENTS in src/core/constants.ts; a server-only workspace vendors
+		// no core project, so this walks to the first face the workspace actually carries.
+		const faces = ['core', 'browser', 'server']
+		const face = faces.find((candidate) =>
+			existsSync(resolve(root, `configs/src/tsconfig.${candidate}.json`)),
+		)
+		if (face === undefined) throw new Error('The workspace declares no face project')
+		const project = resolve(root, `configs/src/tsconfig.${face}.json`)
 		const declared: unknown = JSON.parse(readFileSync(project, 'utf8'))
 		if (typeof declared !== 'object' || declared === null) {
-			throw new Error('The core project is not a TypeScript configuration record')
+			throw new Error(`The ${face} project is not a TypeScript configuration record`)
 		}
 		const declaredOptions: unknown = Object.getOwnPropertyDescriptor(
 			declared,
 			'compilerOptions',
 		)?.value
 		if (typeof declaredOptions !== 'object' || declaredOptions === null) {
-			throw new Error('The core project carries no compiler options')
+			throw new Error(`The ${face} project carries no compiler options`)
 		}
 		const declaredLib: unknown = Object.getOwnPropertyDescriptor(declaredOptions, 'lib')?.value
 		const declaredTypes: unknown = Object.getOwnPropertyDescriptor(declaredOptions, 'types')?.value
 		if (!configHelpers.isStringList(declaredLib) || !configHelpers.isStringList(declaredTypes)) {
-			throw new Error('The core project declares no lib or types')
+			throw new Error(`The ${face} project declares no lib or types`)
 		}
+		const declaredRootDir: unknown = Object.getOwnPropertyDescriptor(
+			declaredOptions,
+			'rootDir',
+		)?.value
+		if (typeof declaredRootDir !== 'string') {
+			throw new Error(`The ${face} project declares no rootDir`)
+		}
+		const expectedRoot = resolve(dirname(project), declaredRootDir)
 
 		const scope = configHelpers.parseProjectScope(
 			configHelpers.readCompilerOutput(compiler, ['--showConfig', '-p', project]),
 			project,
 		)
-		if (scope === undefined) throw new Error('The core project resolved no compiler scope')
+		if (scope === undefined) throw new Error(`The ${face} project resolved no compiler scope`)
 		// The compiler lowercases every resolved library name, so the committed project is the
 		// second mechanism this reading is compared against rather than the reading itself.
 		expect(scope.lib.map((entry) => entry.toLowerCase())).toStrictEqual(
 			declaredLib.map((entry) => entry.toLowerCase()),
 		)
 		expect(scope.types).toStrictEqual(declaredTypes)
-		expect(scope.root).toBe(resolve(root, 'src/core'))
+		expect(scope.root).toBe(expectedRoot)
 
 		expect(configHelpers.parseProjectScope('not a configuration', project)).toBeUndefined()
 		expect(

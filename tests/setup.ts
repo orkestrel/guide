@@ -11,6 +11,18 @@ import { requireValue } from '@orkestrel/test'
 // wants determinism uses the same starting point.
 export const TEST_SEED = 42
 
+/** Holds a guide where an embedded demonstration heading precedes the class row it mentions. */
+export const ENTITY_HEADING_GUIDE = [
+	'## Surface',
+	'',
+	'### Bind a `Widget` to a transport',
+	'',
+	'| Name | Kind | Summary |',
+	'| --- | --- | --- |',
+	'| `Widget` | class | Represents a widget. |',
+	'',
+].join('\n')
+
 /**
  * Requires markdown whose first block is a table.
  *

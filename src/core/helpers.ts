@@ -968,10 +968,10 @@ export function normalizeIdentifier(code: string): string {
 }
 
 /**
- * Extracts one table cell's compared text — the inline content flattened with every code
- * span kept as a code span, so `` `Widget` `` reads the same on both sides of the parity
- * comparison. Emphasis drops to its text, a link drops to its text, an image drops to its
- * alternative text, and the markdown parser has already unescaped `\|`.
+ * Extracts compared inline content — the text of a table cell or candidate entity heading
+ * flattened with every code span kept as a code span, so `` `Widget` `` reads the same wherever
+ * the parity reader compares it. Emphasis drops to its text, a link drops to its text, an image
+ * drops to its alternative text, and the markdown parser has already unescaped `\|`.
  *
  * @param cell - The cell's inline nodes
  * @returns The cell's text, code spans included
@@ -1489,13 +1489,21 @@ export function extractRowSummary(table: TableNode, row: number): string | undef
 
 /**
  * Extracts every `## Surface` identifier the guide documents — each table row's column 0
- * code span (the name) paired with its `Kind` column (located by header text)
- * unioned with every backticked H3 entity heading in the section
- * (`{name: <codeSpan>, keyword: 'class'}`), deduped by {@link computeSymbolKey}. A row with no
- * code-span name has no name to key a symbol on, so this reader skips it and
- * {@link extractUnnamed} reports it; a row with an unrecognized `Kind` text is skipped. A row
- * also carries its {@link SUMMARY} column's compared text when the table has that column; a
- * table without it leaves every row's summary absent, which {@link findDrift} reports.
+ * code span (the name) paired with its `Kind` column (located by header text), unioned with every
+ * H3 entity heading whose trimmed compared inline content is exactly its backticked code-span
+ * name, deduped by {@link computeSymbolKey}. A row with no code-span name has no name to key a
+ * symbol on, so this reader skips it and {@link extractUnnamed} reports it; a row with an
+ * unrecognized `Kind` text is skipped. A row also carries its {@link SUMMARY} column's compared
+ * text when the table has that column; a table without it leaves every row's summary absent,
+ * which {@link findDrift} reports.
+ *
+ * @remarks
+ * The heading boundary compares {@link extractCellText} with the raw value from
+ * {@link findFirstCode} before {@link normalizeIdentifier} strips a generic annotation. Heading
+ * padding, emphasis, and links preserve that identity. Additional visible text or code spans
+ * refuse admission. Entries retain encounter order, and the first-seen name + keyword wins: a
+ * genuine heading before its table row keeps the heading's summary-less class entry, while a
+ * table row before that heading keeps its `Summary`.
  *
  * @param document - The parsed guide document
  * @returns The documented surface, in encounter order
@@ -1524,8 +1532,10 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 
 		if (isHeadingNode(block) && block.level === 3) {
 			const rawName = findFirstCode(block.children)
-			const name = rawName === undefined ? undefined : normalizeIdentifier(rawName)
-			if (name === undefined) continue
+			if (rawName === undefined || extractCellText(block.children).trim() !== `\`${rawName}\``) {
+				continue
+			}
+			const name = normalizeIdentifier(rawName)
 			const symbol: SurfaceSymbol = { name, keyword: 'class' }
 			const key = computeSymbolKey(symbol)
 			if (seen.has(key)) continue

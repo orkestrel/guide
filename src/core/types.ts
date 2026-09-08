@@ -190,8 +190,14 @@ export interface GuideInterface {
 	 */
 	tagline(): string | undefined
 	/**
-	 * Lists every `## Surface` identifier + keyword — table rows union backticked entity headings.
-	 * Each row carries its `Summary` cell, located by header text, when the table has that column.
+	 * Lists every `## Surface` identifier + keyword — table rows union H3 entity headings whose
+	 * trimmed compared inline content is exactly their backticked code-span name. Each row carries
+	 * its `Summary` cell, located by header text, when the table has that column.
+	 *
+	 * @remarks
+	 * Entries retain encounter order, and the first-seen name + keyword wins. A genuine entity
+	 * heading before its matching class row keeps the heading's summary-less entry; a table row
+	 * before that heading keeps its `Summary`.
 	 *
 	 * @returns The documented surface symbols, in encounter order
 	 */

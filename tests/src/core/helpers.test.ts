@@ -74,7 +74,7 @@ import {
 import { createMarkdown, isTableNode, renderMarkdown } from '@orkestrel/markdown'
 import { parseSync } from 'vite'
 import { describe, expect, it } from 'vitest'
-import { requireTable, requireText } from '../../setup.js'
+import { ENTITY_HEADING_GUIDE, requireTable, requireText } from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
@@ -1067,6 +1067,86 @@ describe('extractSurface', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toContainEqual({ name: 'Widget', keyword: 'class' })
+	})
+
+	it.each([
+		['### `Widget`', [{ name: 'Widget', keyword: 'class' }]],
+		['### `Widget<T>`', [{ name: 'Widget', keyword: 'class' }]],
+		['###   `Widget`   ', [{ name: 'Widget', keyword: 'class' }]],
+		['### **`Widget`**', [{ name: 'Widget', keyword: 'class' }]],
+		['### [`Widget`](target)', [{ name: 'Widget', keyword: 'class' }]],
+		['### Bind a `Widget` to a transport', []],
+		['### `Widget` and `Alias`', []],
+		['### `Widget` ` `', []],
+	])('applies the entity-heading boundary to %s', (heading, expected) => {
+		const document = createMarkdown(['## Surface', '', heading, ''].join('\n')).document
+		expect(extractSurface(document)).toEqual(expected)
+	})
+
+	it('refuses an embedded demonstration heading and keeps the following row summary', () => {
+		expect(extractSurface(createMarkdown(ENTITY_HEADING_GUIDE).document)).toEqual([
+			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+		])
+	})
+
+	it('excludes an otherwise valid entity heading outside the Surface section', () => {
+		const document = createMarkdown(
+			['### `Widget`', '', '## Surface', '', '| Name | Kind |', '| --- | --- |', ''].join('\n'),
+		).document
+		expect(extractSurface(document)).toEqual([])
+	})
+
+	it('retains the same name under a different keyword', () => {
+		const document = createMarkdown(
+			[
+				'## Surface',
+				'',
+				'| Name | Kind |',
+				'| --- | --- |',
+				'| `Widget` | type |',
+				'',
+				'### `Widget`',
+				'',
+			].join('\n'),
+		).document
+		expect(extractSurface(document)).toEqual([
+			{ name: 'Widget', keyword: 'type' },
+			{ name: 'Widget', keyword: 'class' },
+		])
+	})
+
+	it('keeps a table summary when the row precedes its genuine entity heading', () => {
+		const document = createMarkdown(
+			[
+				'## Surface',
+				'',
+				'| Name | Kind | Summary |',
+				'| --- | --- | --- |',
+				'| `Widget` | class | Represents a widget. |',
+				'',
+				'### `Widget`',
+				'',
+			].join('\n'),
+		).document
+		expect(extractSurface(document)).toEqual([
+			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+		])
+	})
+
+	it('keeps the genuine entity heading when it precedes its table row', () => {
+		const document = createMarkdown(
+			[
+				'## Surface',
+				'',
+				'### `Widget`',
+				'',
+				'| Name | Kind | Summary |',
+				'| --- | --- | --- |',
+				'| `Widget` | class | Represents a widget. |',
+				'',
+			].join('\n'),
+		).document
+		expect(extractSurface(document)).toEqual([{ name: 'Widget', keyword: 'class' }])
 	})
 
 	it('extracts empty when the Surface heading was renamed', () => {
