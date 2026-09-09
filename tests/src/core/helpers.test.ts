@@ -11,6 +11,7 @@ import {
 	collectKeys,
 	collectSummaries,
 	collectTitles,
+	compareMembership,
 	computeDrift,
 	createGuide,
 	createSource,
@@ -40,12 +41,15 @@ import {
 	findUnexampled,
 	findUnlisted,
 	findFirstCode,
+	formatDrift,
+	formatSide,
 	maskFences,
 	normalizeComment,
 	normalizeIdentifier,
 	normalizeSummary,
 	isExternalLink,
 	hasCanonicalSegments,
+	identifyDrift,
 	extractHidden,
 	joinHead,
 	locateComment,
@@ -83,6 +87,53 @@ import {
 import { readInventory } from '@orkestrel/test/server'
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
+
+describe('parity leaves', () => {
+	it('compares sorted membership exactly and preserves duplicates', () => {
+		expect(
+			compareMembership(
+				'guides/widget.md',
+				'WidgetInterface',
+				['render', 'open'],
+				['open', 'render'],
+			),
+		).toBeUndefined()
+		expect(compareMembership('guides/widget.md', 'WidgetInterface', ['render'], ['open'])).toEqual({
+			spec: 'guides/widget.md',
+			text: 'guides/widget.md WidgetInterface documents ["render"] and declares ["open"].',
+		})
+		expect(
+			compareMembership('guides/widget.md', 'WidgetInterface', ['render', 'render'], ['render']),
+		).toEqual({
+			spec: 'guides/widget.md',
+			text: 'guides/widget.md WidgetInterface documents ["render","render"] and declares ["render"].',
+		})
+	})
+
+	it('keeps the drift category in its identity', () => {
+		expect([
+			identifyDrift('guides/widget.md', { category: 'summary', key: 'Open a widget' }),
+			identifyDrift('guides/widget.md', { category: 'example', key: 'Open a widget' }),
+		]).toEqual([
+			'guides/widget.md\nsummary\nOpen a widget',
+			'guides/widget.md\nexample\nOpen a widget',
+		])
+	})
+
+	it('distinguishes absent, empty, and present side text', () => {
+		expect([formatSide(undefined), formatSide(''), formatSide('Walks.')]).toEqual([
+			'absent',
+			'""',
+			'"Walks."',
+		])
+	})
+
+	it('formats categorized drift through the side formatter', () => {
+		expect(formatDrift({ category: 'summary', key: 'function walk', guide: '' })).toBe(
+			'summary function walk: guide "" source absent',
+		)
+	})
+})
 
 // Every pure leaf behind the guides-parity scanners — the source-line
 // projection and its declaration/member/JSDoc grammars, the guide-markdown
@@ -2876,16 +2927,19 @@ describe('findDrift', () => {
 		expect(findDrift(createGuide(drifted), source)).toEqual([
 			{
 				key: 'function createWidget',
+				category: 'summary',
 				guide: 'Constructs a widget.',
 				source: 'Creates a widget.',
 			},
 			{
 				key: 'WidgetInterface.render',
+				category: 'summary',
 				guide: 'Draws the widget.',
 				source: 'Renders the widget.',
 			},
 			{
 				key: 'Render a widget',
+				category: 'example',
 				guide: 'ts\nwidget.render(true)',
 				source: 'ts\nwidget.render()',
 			},
@@ -2921,8 +2975,8 @@ describe('findDrift', () => {
 			'| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n| `createWidget` | function |',
 		)
 		expect(findDrift(createGuide(stripped), source)).toEqual([
-			{ key: 'interface WidgetInterface', source: 'Represents a widget.' },
-			{ key: 'function createWidget', source: 'Creates a widget.' },
+			{ key: 'interface WidgetInterface', category: 'summary', source: 'Represents a widget.' },
+			{ key: 'function createWidget', category: 'summary', source: 'Creates a widget.' },
 		])
 	})
 
@@ -2932,7 +2986,7 @@ describe('findDrift', () => {
 			module: 'module',
 		})
 		expect(findDrift(createGuide(AGREEING_GUIDE), undocumented)).toEqual([
-			{ key: 'function createWidget', guide: 'Creates a widget.' },
+			{ key: 'function createWidget', category: 'summary', guide: 'Creates a widget.' },
 		])
 	})
 
@@ -2946,15 +3000,20 @@ describe('findDrift', () => {
 			module: 'module',
 		})
 		expect(findDrift(createGuide(stripped), undocumented)).toEqual([
-			{ key: 'interface WidgetInterface', source: 'Represents a widget.' },
-			{ key: 'function createWidget' },
+			{ key: 'interface WidgetInterface', category: 'summary', source: 'Represents a widget.' },
+			{ key: 'function createWidget', category: 'summary' },
 		])
 	})
 
 	it('reports a fence whose language the block does not share', () => {
 		const relanguaged = AGREEING_GUIDE.replace('```ts\nwidget.render()', '```js\nwidget.render()')
 		expect(findDrift(createGuide(relanguaged), source)).toEqual([
-			{ key: 'Render a widget', guide: 'js\nwidget.render()', source: 'ts\nwidget.render()' },
+			{
+				key: 'Render a widget',
+				category: 'example',
+				guide: 'js\nwidget.render()',
+				source: 'ts\nwidget.render()',
+			},
 		])
 	})
 
@@ -2972,7 +3031,12 @@ describe('findDrift', () => {
 			'```ts\nwidget.render(true)\n```\n\n```ts\nwidget.render()\n```\n',
 		)
 		expect(findDrift(createGuide(first), source)).toEqual([
-			{ key: 'Render a widget', guide: 'ts\nwidget.render(true)', source: 'ts\nwidget.render()' },
+			{
+				key: 'Render a widget',
+				category: 'example',
+				guide: 'ts\nwidget.render(true)',
+				source: 'ts\nwidget.render()',
+			},
 		])
 	})
 
@@ -3064,31 +3128,41 @@ describe('findDrift', () => {
 	it('reports a class-head block against a same-titled fence carrying another body', () => {
 		const drifted = HEAD_GUIDE.replace('```ts\nnew Widget()\n```', '```ts\nnew Widget(1)\n```')
 		expect(findDrift(createGuide(drifted), headSource)).toEqual([
-			{ key: 'Build a widget', guide: 'ts\nnew Widget(1)', source: 'ts\nnew Widget()' },
+			{
+				key: 'Build a widget',
+				category: 'example',
+				guide: 'ts\nnew Widget(1)',
+				source: 'ts\nnew Widget()',
+			},
 		])
 	})
 })
 
 describe('computeDrift', () => {
 	it('returns undefined when both sides carry the same text', () => {
-		expect(computeDrift('function walk', 'Walks.', 'Walks.')).toBeUndefined()
+		expect(computeDrift('function walk', 'summary', 'Walks.', 'Walks.')).toBeUndefined()
 	})
 
 	it('reports the key alone when neither side carries text', () => {
-		expect(computeDrift('function walk', undefined, undefined)).toEqual({ key: 'function walk' })
+		expect(computeDrift('function walk', 'summary', undefined, undefined)).toEqual({
+			key: 'function walk',
+			category: 'summary',
+		})
 	})
 
 	it('names both sides when they differ', () => {
-		expect(computeDrift('function walk', 'Walks.', 'Walks a tree.')).toEqual({
+		expect(computeDrift('function walk', 'summary', 'Walks.', 'Walks a tree.')).toEqual({
 			key: 'function walk',
+			category: 'summary',
 			guide: 'Walks.',
 			source: 'Walks a tree.',
 		})
 	})
 
 	it('omits the side carrying no text', () => {
-		expect(computeDrift('function walk', undefined, 'Walks a tree.')).toEqual({
+		expect(computeDrift('function walk', 'summary', undefined, 'Walks a tree.')).toEqual({
 			key: 'function walk',
+			category: 'summary',
 			source: 'Walks a tree.',
 		})
 	})

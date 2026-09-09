@@ -17,6 +17,7 @@ import type {
 	GuideModule,
 	MethodEntry,
 	MethodGroup,
+	ParityFinding,
 	SourceComment,
 	SourceExample,
 	SourceInterface,
@@ -2341,27 +2342,116 @@ export function extractTagline(document: MarkdownDocument): string | undefined {
  * reports as `{ key }`.
  *
  * @param key - The compared pair's key
+ * @param category - The compared site the drift came from
  * @param guide - The guide's text there, or `undefined` when it carries none
  * @param source - The source's text there, or `undefined` when it carries none
  * @returns The drift, or `undefined` when both sides carry the same text
  *
  * @example
  * ```ts
- * computeDrift('function walk', 'Walks the tree.', 'Walks a tree.')
- * // { key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }
+ * computeDrift('function walk', 'summary', 'Walks the tree.', 'Walks a tree.')
+ * // { key: 'function walk', category: 'summary', guide: 'Walks the tree.', source: 'Walks a tree.' }
  * ```
  */
 export function computeDrift(
 	key: string,
+	category: Drift['category'],
 	guide: string | undefined,
 	source: string | undefined,
 ): Drift | undefined {
 	if (guide !== undefined && guide === source) return undefined
 	return {
 		key,
+		category,
 		...(guide === undefined ? {} : { guide }),
 		...(source === undefined ? {} : { source }),
 	}
+}
+
+/**
+ * Compares documented and declared membership exactly after sorting copies, preserving duplicates.
+ *
+ * @param spec - The guide inventory key the finding belongs to
+ * @param name - The declaration whose membership is compared
+ * @param documented - The documented member names
+ * @param declared - The declared member names
+ * @returns The membership finding, or `undefined` when the sorted populations match
+ *
+ * @example Compare declaration membership
+ * ```ts
+ * import { compareMembership } from '@orkestrel/guide'
+ *
+ * compareMembership('guides/widget.md', 'WidgetInterface', ['open'], ['open']) // undefined
+ * ```
+ */
+export function compareMembership(
+	spec: string,
+	name: string,
+	documented: readonly string[],
+	declared: readonly string[],
+): ParityFinding | undefined {
+	const left = [...documented].sort()
+	const right = [...declared].sort()
+	if (JSON.stringify(left) === JSON.stringify(right)) return undefined
+	return {
+		spec,
+		text: `${spec} ${name} documents ${JSON.stringify(left)} and declares ${JSON.stringify(right)}.`,
+	}
+}
+
+/**
+ * Computes a category-separated identity for a guide finding.
+ *
+ * @param spec - The guide inventory key the drift belongs to
+ * @param drift - The categorized disagreement
+ * @returns The inventory key, category, and compared key separated by line feeds
+ *
+ * @example Identify categorized drift
+ * ```ts
+ * import { identifyDrift } from '@orkestrel/guide'
+ *
+ * identifyDrift('guides/widget.md', { category: 'summary', key: 'function open' })
+ * // 'guides/widget.md\nsummary\nfunction open'
+ * ```
+ */
+export function identifyDrift(spec: string, drift: Drift): string {
+	return `${spec}\n${drift.category}\n${drift.key}`
+}
+
+/**
+ * Formats present parity text as a JSON string and absent text as `absent`.
+ *
+ * @param value - The compared side's text, or `undefined` when absent
+ * @returns The developer-facing side text
+ *
+ * @example Format a parity side
+ * ```ts
+ * import { formatSide } from '@orkestrel/guide'
+ *
+ * formatSide('Walks.') // '"Walks."'
+ * formatSide(undefined) // 'absent'
+ * ```
+ */
+export function formatSide(value: string | undefined): string {
+	return value === undefined ? 'absent' : JSON.stringify(value)
+}
+
+/**
+ * Formats a categorized drift with its guide and source sides.
+ *
+ * @param drift - The categorized disagreement to format
+ * @returns The complete developer-facing drift text
+ *
+ * @example Format categorized drift
+ * ```ts
+ * import { formatDrift } from '@orkestrel/guide'
+ *
+ * formatDrift({ category: 'summary', key: 'function walk', guide: 'Walks.', source: 'Walks a tree.' })
+ * // 'summary function walk: guide "Walks." source "Walks a tree."'
+ * ```
+ */
+export function formatDrift(drift: Drift): string {
+	return `${drift.category} ${drift.key}: guide ${formatSide(drift.guide)} source ${formatSide(drift.source)}`
 }
 
 /**
@@ -2386,7 +2476,7 @@ export function computeDrift(
  *
  * @example
  * ```ts
- * findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks.', source: 'Walks a tree.' }]
+ * findDrift(guide, source) // [{ key: 'function walk', category: 'summary', guide: 'Walks.', source: 'Walks a tree.' }]
  * ```
  */
 export function findDrift(guide: GuideInterface, source: SourceInterface): readonly Drift[] {
@@ -2397,7 +2487,7 @@ export function findDrift(guide: GuideInterface, source: SourceInterface): reado
 		const key = computeSymbolKey(symbol)
 		const match = declared.get(key)
 		if (match === undefined) continue
-		const drift = computeDrift(key, symbol.summary, match.summary)
+		const drift = computeDrift(key, 'summary', symbol.summary, match.summary)
 		if (drift !== undefined) drifts.push(drift)
 	}
 
@@ -2406,7 +2496,12 @@ export function findDrift(guide: GuideInterface, source: SourceInterface): reado
 		for (const entry of group.methods) {
 			const member = members.get(entry.name)
 			if (member === undefined) continue
-			const drift = computeDrift(`${group.interface}.${entry.name}`, entry.summary, member.summary)
+			const drift = computeDrift(
+				`${group.interface}.${entry.name}`,
+				'summary',
+				entry.summary,
+				member.summary,
+			)
 			if (drift !== undefined) drifts.push(drift)
 		}
 	}
@@ -2420,6 +2515,7 @@ export function findDrift(guide: GuideInterface, source: SourceInterface): reado
 		if (example === undefined) continue
 		const drift = computeDrift(
 			fence.title,
+			'example',
 			`${fence.language ?? ''}\n${fence.code}`,
 			`${example.language ?? ''}\n${example.code}`,
 		)

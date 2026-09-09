@@ -6,7 +6,7 @@ import {
 	stringShape,
 	unionShape,
 } from '@orkestrel/contract'
-import { EXPORT_KEYWORDS } from './constants.js'
+import { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
 
 // AGENTS.md § Design laws: shapers are `ContractShape` values, not functions
 // or types - a JSON-Schema blueprint the compilers (factories.ts) turn into a
@@ -80,11 +80,12 @@ export const sourceExampleShape = objectShape({
  * import { driftShape } from '@orkestrel/guide'
  *
  * const drift = createContract(driftShape)
- * drift.is({ key: 'class Widget', guide: 'A widget.' }) // true
+ * drift.is({ key: 'class Widget', category: 'summary', guide: 'A widget.' }) // true
  * ```
  */
 export const driftShape = objectShape({
 	key: stringShape(),
+	category: literalShape(DRIFT_CATEGORIES),
 	guide: optionalShape(stringShape()),
 	source: optionalShape(stringShape()),
 })

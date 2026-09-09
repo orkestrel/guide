@@ -1,4 +1,4 @@
-import type { EXPORT_KEYWORDS } from './constants.js'
+import type { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
 
 /**
  * Represents the declaration keyword a documented / exported symbol carries — the reflected
@@ -54,10 +54,17 @@ export interface SourceExample {
 }
 
 /**
+ * Represents the compared site one disagreement came from.
+ */
+export type DriftCategory = (typeof DRIFT_CATEGORIES)[number]
+
+/**
  * Represents one disagreement between a guide and the source it documents — the compared key
  * with the text each side carries there, the side carrying no text omitted.
  */
 export interface Drift {
+	/** Names whether the disagreement belongs to a summary or a titled example. */
+	readonly category: DriftCategory
 	/**
 	 * Names the compared pair: a {@link computeSymbolKey} symbol key for a `## Surface` row, an
 	 * `Owner.member` key for a `## Methods` row, or the shared title for an example.
@@ -121,6 +128,155 @@ export interface ManifestEntry {
 	readonly source: GuideModule
 	/** Names the tests directory the guide's `## Tests` links resolve against. */
 	readonly tests: string
+}
+
+/**
+ * Names the inventory keys paired for README pitch parity.
+ */
+export interface ParityPitch {
+	/** Names the README inventory key. */
+	readonly readme: string
+	/** Names the guide inventory key whose tagline the README pitch must match. */
+	readonly spec: string
+}
+
+/**
+ * Represents the pure inputs that configure a guides-parity composition.
+ */
+export interface ParityOptions {
+	/** Holds the workspace's root-relative path-to-text inventory. */
+	readonly files: Readonly<Record<string, string>>
+	/** Lists the concept-manifest rows to inspect. */
+	readonly entries: readonly ManifestEntry[]
+	/** Maps each self import specifier to the source scope it exposes. */
+	readonly modules: Readonly<Record<string, GuideModule>>
+	/** Lists every fence language the package admits. */
+	readonly languages: readonly string[]
+	/** Names the fence language inspected for examples and self imports. */
+	readonly language: string
+	/** Names the optional README and guide tagline pair. */
+	readonly pitch?: ParityPitch
+}
+
+/**
+ * Represents a manifest row joined to its parsed guide and reflected source.
+ */
+export interface ParityRow {
+	/** Holds the manifest row. */
+	readonly entry: ManifestEntry
+	/** Holds the parsed guide view. */
+	readonly guide: GuideInterface
+	/** Holds the reflected source view. */
+	readonly source: SourceInterface
+}
+
+/**
+ * Represents a preformatted guides-parity finding.
+ */
+export interface ParityFinding {
+	/** Names the guide or inventory key the finding belongs to. */
+	readonly spec?: string
+	/** Holds the complete developer-facing finding text. */
+	readonly text: string
+}
+
+/**
+ * Groups executable-example findings by their independent evidence populations.
+ */
+export interface ParityExampleResult {
+	/** Lists findings for absence of a fence in the configured example language. */
+	readonly fences: readonly ParityFinding[]
+	/** Lists documented functions without example evidence. */
+	readonly functions: readonly ParityFinding[]
+	/** Lists documented methods without example evidence. */
+	readonly methods: readonly ParityFinding[]
+	/** Lists missing top-level guide/source title intersections. */
+	readonly titles: readonly ParityFinding[]
+}
+
+/**
+ * Groups independently assertable guides-parity findings by subject.
+ */
+export interface ParityResult {
+	/** Lists missing or unusable manifest inputs. */
+	readonly input: readonly ParityFinding[]
+	/** Lists required-section and documented method-group population findings. */
+	readonly sections: readonly ParityFinding[]
+	/** Lists documented-surface and barrel-surface findings. */
+	readonly surface: readonly ParityFinding[]
+	/** Lists behavioral-interface and implementing-class findings. */
+	readonly methods: readonly ParityFinding[]
+	/** Lists documented-group and source-driven behavioral declaration findings. */
+	readonly declarations: readonly ParityFinding[]
+	/** Lists unresolved relative guide links. */
+	readonly links: readonly ParityFinding[]
+	/** Lists missing or vacant documented test links. */
+	readonly tests: readonly ParityFinding[]
+	/** Lists unadmitted fence languages. */
+	readonly fences: readonly ParityFinding[]
+	/** Groups executable-example findings by evidence population. */
+	readonly examples: ParityExampleResult
+	/** Lists mapped self imports that do not resolve to public exports. */
+	readonly imports: readonly ParityFinding[]
+	/** Lists categorized summary and titled-example disagreements. */
+	readonly drift: readonly ParityFinding[]
+	/** Lists README pitch and guide-tagline disagreements. */
+	readonly pitch: readonly ParityFinding[]
+}
+
+/**
+ * Represents the destination an explicit parity rewrite updates.
+ */
+export type ParityDirection = 'guide' | 'source'
+
+/**
+ * Represents a changed inventory text returned by a parity rewrite.
+ */
+export interface ParityChange {
+	/** Names the changed root-relative inventory path. */
+	readonly path: string
+	/** Holds the accumulated replacement text for the path. */
+	readonly content: string
+}
+
+/**
+ * Represents the changed texts and unresolved findings from an explicit rewrite.
+ */
+export interface ParityRewriteResult {
+	/** Lists only texts that differ from the input inventory. */
+	readonly changes: readonly ParityChange[]
+	/** Lists requested rewrites that remain unresolved after accumulation. */
+	readonly findings: readonly ParityFinding[]
+}
+
+/**
+ * Represents a pure guides-parity composition over caller-supplied inventory.
+ */
+export interface ParityInterface {
+	/**
+	 * Lists the manifest rows whose guide text is present, joined to parsed guide and source views.
+	 *
+	 * @returns The shared readonly row views
+	 */
+	rows(): readonly ParityRow[]
+	/**
+	 * Inspects the configured inventory and groups generic parity findings.
+	 *
+	 * @returns The grouped parity report
+	 */
+	inspect(): ParityResult
+	/**
+	 * Updates guide summaries and titled examples from source authority without touching disk.
+	 *
+	 * @returns The changed texts and unresolved requested rewrites
+	 */
+	document(): ParityRewriteResult
+	/**
+	 * Updates source doc-block summaries and examples from guide authority without touching disk.
+	 *
+	 * @returns The changed texts and unresolved requested rewrites
+	 */
+	annotate(): ParityRewriteResult
 }
 
 /**

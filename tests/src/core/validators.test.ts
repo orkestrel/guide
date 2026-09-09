@@ -224,12 +224,21 @@ describe('isSourceExample', () => {
 
 describe('isDrift', () => {
 	it('accepts a drift naming one side and a drift naming both', () => {
-		expect(isDrift({ key: 'class Widget', source: 'Represents a widget.' })).toBe(true)
-		expect(isDrift({ key: 'class Widget', guide: 'A widget.', source: 'A widget!' })).toBe(true)
+		expect(
+			isDrift({ key: 'class Widget', category: 'summary', source: 'Represents a widget.' }),
+		).toBe(true)
+		expect(
+			isDrift({
+				key: 'class Widget',
+				category: 'summary',
+				guide: 'A widget.',
+				source: 'A widget!',
+			}),
+		).toBe(true)
 	})
 
 	it('accepts a drift naming neither side', () => {
-		expect(isDrift({ key: 'class Widget' })).toBe(true)
+		expect(isDrift({ key: 'class Widget', category: 'example' })).toBe(true)
 	})
 
 	it('rejects a drift with no key', () => {

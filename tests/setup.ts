@@ -1,5 +1,5 @@
 import type { TableNode } from '@orkestrel/markdown'
-import type { SourceInterface, SurfaceSymbol } from '@src/core'
+import type { ParityOptions, SourceInterface, SurfaceSymbol } from '@src/core'
 import { parseDocument } from '@orkestrel/markdown'
 import { requireValue } from '@orkestrel/test'
 
@@ -37,6 +37,149 @@ export const ENTITY_HEADING_CASES: readonly EntityHeadingCase[] = [
 	['### `Widget` and `Alias`', []],
 	['### `Widget` ` `', []],
 ]
+
+/** Names the guide inventory key used by parity fixtures. */
+export const PARITY_SPEC = 'guides/widget.md'
+
+/** Holds a complete guide that agrees with the parity fixture's source. */
+export const PARITY_GUIDE = [
+	'# Widget',
+	'',
+	'> A widget toolkit.',
+	'',
+	'## Surface',
+	'',
+	'| Name | Kind | Summary |',
+	'| --- | --- | --- |',
+	'| `WidgetInterface` | interface | Represents a widget. |',
+	'| `Widget` | class | Represents an implementing widget. |',
+	'| `createWidget` | function | Creates a widget. |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name | Summary |',
+	'| --- | --- |',
+	'| `render` | Renders the widget. |',
+	'',
+	'## Patterns',
+	'',
+	'### Create a widget',
+	'',
+	'```ts',
+	"import { createWidget } from '@scope/widget'",
+	'createWidget()',
+	'```',
+	'',
+	'### Render a widget',
+	'',
+	'```ts',
+	'widget.render()',
+	'```',
+	'',
+	'## Tests',
+	'',
+	'- [`Widget`](../tests/src/core/Widget.test.ts)',
+	'',
+].join('\n')
+
+/** Holds the source file carrying the parity fixture's behavioral contract. */
+export const PARITY_TYPES = [
+	'/**',
+	' * Represents a widget.',
+	' */',
+	'export interface WidgetInterface {',
+	'\t/**',
+	'\t * Renders the widget.',
+	'\t *',
+	'\t * @example Render a widget',
+	'\t * ```ts',
+	'\t * widget.render()',
+	'\t * ```',
+	'\t */',
+	'\trender(): void',
+	'}',
+	'',
+].join('\n')
+
+/** Holds the source file carrying the parity fixture's entity implementation. */
+export const PARITY_WIDGET = [
+	'/**',
+	' * Represents an implementing widget.',
+	' */',
+	'export class Widget {',
+	'\trender(): void {}',
+	'}',
+	'',
+].join('\n')
+
+/** Holds the source file carrying the parity fixture's factory and titled example. */
+export const PARITY_FACTORIES = [
+	'/**',
+	' * Creates a widget.',
+	' *',
+	' * @example Create a widget',
+	' * ```ts',
+	" * import { createWidget } from '@scope/widget'",
+	' * createWidget()',
+	' * ```',
+	' */',
+	'export function createWidget(): void {}',
+	'',
+].join('\n')
+
+/** Represents optional replacements applied to a parity fixture inventory. */
+export interface ParityFixtureOptions {
+	/** Replaces or removes inventory texts by root-relative key. */
+	readonly files?: Readonly<Record<string, string | undefined>>
+	/** Replaces the manifest rows. */
+	readonly entries?: ParityOptions['entries']
+	/** Replaces the self-specifier map. */
+	readonly modules?: ParityOptions['modules']
+	/** Replaces the admitted fence-language list. */
+	readonly languages?: ParityOptions['languages']
+	/** Replaces the example and import language. */
+	readonly language?: string
+	/** Replaces or removes the pitch pairing. */
+	readonly pitch?: ParityOptions['pitch'] | false
+}
+
+/**
+ * Creates a complete parity fixture with optional inventory and policy replacements.
+ *
+ * @param options - The fixture replacements
+ * @returns A parity input whose guide and source agree by default
+ */
+export function createParityFixture(options?: ParityFixtureOptions): ParityOptions {
+	const files: Record<string, string> = {
+		'README.md': '# Widget\n\n> A widget toolkit.\n',
+		[PARITY_SPEC]: PARITY_GUIDE,
+		'src/core/index.ts':
+			"export * from './types.js'\nexport * from './Widget.js'\nexport * from './factories.js'\n",
+		'src/core/types.ts': PARITY_TYPES,
+		'src/core/Widget.ts': PARITY_WIDGET,
+		'src/core/factories.ts': PARITY_FACTORIES,
+		'tests/src/core/Widget.test.ts': '',
+	}
+	for (const [path, content] of Object.entries(options?.files ?? {})) {
+		if (content === undefined) delete files[path]
+		else files[path] = content
+	}
+
+	return {
+		files,
+		entries: options?.entries ?? [
+			{ concept: 'Widget', spec: PARITY_SPEC, source: 'src/core', tests: 'tests/src/core' },
+		],
+		modules: options?.modules ?? { '@scope/widget': 'src/core' },
+		languages: options?.languages ?? ['ts'],
+		language: options?.language ?? 'ts',
+		...(options?.pitch === false
+			? {}
+			: { pitch: options?.pitch ?? { readme: 'README.md', spec: PARITY_SPEC } }),
+	}
+}
 
 /**
  * Requires markdown whose first block is a table.

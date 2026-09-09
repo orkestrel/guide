@@ -174,7 +174,7 @@ export function createSourceExampleContract(): ContractInterface<SourceExample> 
  * import { createDriftContract } from '@orkestrel/guide'
  *
  * const drift = createDriftContract()
- * drift.is({ key: 'class Widget', guide: 'A widget.' }) // true
+ * drift.is({ key: 'class Widget', category: 'summary', guide: 'A widget.' }) // true
  * ```
  */
 export function createDriftContract(): ContractInterface<Drift> {

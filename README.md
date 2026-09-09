@@ -1,13 +1,14 @@
 # @orkestrel/guide
 
-> A pure, I/O-free guides-parity toolkit: the `Guide` and `Source` readers, the `findDrift`
-> comparison, and the renderers and replacers that carry a change across.
+> A guides-parity toolkit: pure inventory readers and comparisons in core, plus a reusable server
+> command that checks or explicitly rewrites a package's guides.
 
 Add it as a devDependency, drop one short test file into `tests/guides.test.ts`, wire a vitest
 `guides` project, and thereafter every guide is proven — mechanically, in CI, as ordinary vitest
-assertions — against the code it documents. No CLI, no runner, no exit-code contract: it is a
-library of extraction and reflection helpers your test suite calls. Built on
-`@orkestrel/markdown`. Part of the `@orkestrel` line.
+assertions — against the code it documents. The core remains I/O-free. The optional server command
+owns native checking and explicit rewrites,
+while package assertions remain in the guides worker. Built on `@orkestrel/markdown`. Part of the
+`@orkestrel` line.
 
 ## Install
 
@@ -59,6 +60,11 @@ for (const entry of manifest) {
 
 Every row added to the consumer's `guides/README.md` manifest auto-extends
 coverage with zero test edits.
+
+Packages using the server entry point make `tests/guides.test.ts` their direct
+`npm run test:guides` entry. Vitest loads it as the guides worker; a native run checks without
+writing, and `--to guide` or `--to source` explicitly selects host writes. No separate command
+helper script owns that workflow.
 
 `exports()` inventories direct `type`, `interface`, `const`, `function`, and
 `class` declarations in the selected directories' canonical-segment module
@@ -180,11 +186,10 @@ and guide index, see [`guides/`](./guides/).
 
 ## Package
 
-Published as one pure, I/O-free typed entry point — `@orkestrel/guide` — per
-the `exports` field in `package.json`, with both ESM and CommonJS output. The
-consumer supplies the file inventory `Source` reflects over; runtime
-dependencies provide parsing and contract primitives without changing that
-boundary.
+Published through typed `@orkestrel/guide` and `@orkestrel/guide/server` entry points, with ESM and
+CommonJS output. Core remains pure and I/O-free: the consumer supplies the file inventory `Source`
+reflects over. The server entry owns the optional Node command shell and accepts the host inventory
+reader and guides-project runner as direct ports.
 
 ## License
 

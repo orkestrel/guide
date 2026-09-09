@@ -5,14 +5,12 @@ import type { SurfaceSymbol } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
 	createGuide,
+	Parity,
 	createSource,
 	createSourceManager,
-	extractFenceImports,
 	extractSourceLines,
 	findMissing,
-	findUnexampled,
 	findUnlisted,
-	isExternalLink,
 	findDrift,
 	replaceCell,
 	replaceSummary,
@@ -21,16 +19,18 @@ import {
 	parseManifest,
 	resolveLink,
 	resolvePath,
-	computeSymbolKey,
 } from '@src/core'
 import { isNonEmptyString } from '@orkestrel/contract'
-import { requireValue } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
 import { requireText } from './setup.js'
 
 const FENCE_LANGUAGES = Object.freeze(['ts'])
 const EXAMPLE_LANGUAGE = 'ts'
 const GUIDE_SPEC = 'guides/guide.md'
+const GUIDE_MODULES = Object.freeze({
+	'@orkestrel/guide': 'src/core',
+	'@orkestrel/guide/server': 'src/server',
+})
 const files = readInventory(
 	new URL('../', import.meta.url),
 	['src', 'guides', 'tests', 'README.md'],
@@ -39,17 +39,30 @@ const files = readInventory(
 	},
 )
 const manifest = parseManifest(requireText(files, 'guides/README.md'), 'guides')
-const own = requireValue(
-	manifest.find((entry) => entry.spec === GUIDE_SPEC),
-	`Missing manifest row: ${GUIDE_SPEC}`,
-)
 const sources = createSourceManager({
 	files,
-	modules: { '@orkestrel/guide': 'src/core' },
+	modules: GUIDE_MODULES,
+})
+const parity = new Parity({
+	files,
+	entries: manifest,
+	modules: GUIDE_MODULES,
+	languages: FENCE_LANGUAGES,
+	language: EXAMPLE_LANGUAGE,
+	pitch: { readme: 'README.md', spec: GUIDE_SPEC },
+})
+const report = parity.inspect()
+
+it('loads every indexed guide input', () => {
+	expect(report.input).toEqual([])
 })
 
 it('manifest lists at least one guide', () => {
 	expect(manifest.length).toBeGreaterThan(0)
+})
+
+it('constructs the package guide row', () => {
+	expect(parity.rows().map((row) => row.entry.spec)).toContain(GUIDE_SPEC)
 })
 
 it('documents only real exports in the README API list', () => {
@@ -92,24 +105,7 @@ it('documents only real exports in the README API list', () => {
 // The failure names both title sets, because a pin reporting only its own emptiness
 // leaves the reader to work out which side dropped the title.
 it('pairs at least one example title across the guide and the source', () => {
-	const guide = createGuide(requireText(files, GUIDE_SPEC))
-	const source = createSource({ files, module: own.source })
-	const declared = source
-		.examples()
-		.map((example) => example.title)
-		.filter(isNonEmptyString)
-	const headings = guide
-		.fences()
-		.map((fence) => fence.title)
-		.filter(isNonEmptyString)
-	const paired = headings.filter((title) => declared.includes(title))
-	const unpaired =
-		paired.length > 0
-			? []
-			: [
-					`${GUIDE_SPEC} pairs: guide ${JSON.stringify(headings)} source ${JSON.stringify(declared)}`,
-				]
-	expect(unpaired).toEqual([])
+	expect(report.examples.titles.filter((finding) => finding.spec === GUIDE_SPEC)).toEqual([])
 })
 
 // The README's pitch and the guide's tagline are one text, each read as the blockquote
@@ -118,72 +114,18 @@ it('pairs at least one example title across the guide and the source', () => {
 // against `undefined` first, so a file that lost its blockquote reports that rather
 // than reporting two absences as agreement.
 it('opens the README with the guide tagline', () => {
-	const pitch = createGuide(requireText(files, 'README.md')).tagline()
-	const tagline = createGuide(requireText(files, GUIDE_SPEC)).tagline()
-
-	expect(pitch).not.toBeUndefined()
-	expect(tagline).not.toBeUndefined()
-	expect(pitch).toBe(tagline)
+	expect(report.pitch).toEqual([])
 })
 
-for (const entry of manifest) {
-	const guide = createGuide(requireText(files, entry.spec))
-	const source = createSource({ files, module: entry.source })
-
-	describe(`${entry.concept}`, () => {
-		it('uses only listed fence languages', () => {
-			expect(findUnlisted(guide.fences(), FENCE_LANGUAGES)).toEqual([])
+for (const row of parity.rows()) {
+	describe(`${row.entry.concept}`, () => {
+		it('keeps the documented, direct, and barrel surfaces in parity', () => {
+			expect(report.surface.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
 
-		it('extracts a non-empty documented surface', () => {
-			expect(guide.surface().length).toBeGreaterThan(0)
+		it('keeps behavioral interfaces and implementing classes in parity', () => {
+			expect(report.methods.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
-		it('names every Surface and Methods row', () => {
-			expect(guide.unnamed()).toEqual([])
-		})
-		it('re-exports every direct declaration', () => {
-			expect(findMissingSymbols(source.exports(), source.surface())).toEqual([])
-		})
-		it('re-exports only direct declarations', () => {
-			expect(findMissingSymbols(source.surface(), source.exports())).toEqual([])
-		})
-		it('documents every barrel export', () => {
-			expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
-		})
-		it('documents only barrel exports', () => {
-			expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
-		})
-
-		it('exposes no hidden module-scope declarations', () => {
-			expect(source.hidden().map(computeSymbolKey)).toEqual([])
-		})
-
-		for (const group of guide.methods()) {
-			const members = source.methods(group.interface).map((method) => method.name)
-			const documented = group.methods.map((method) => method.name)
-			const entity = group.interface.replace(/Interface$/, '')
-			describe(`${group.interface}`, () => {
-				it('documents at least one method', () => {
-					expect(documented.length).toBeGreaterThan(0)
-				})
-				it('documents every interface method', () => {
-					expect(findMissing(members, documented)).toEqual([])
-				})
-				it('documents no phantom method', () => {
-					expect(findMissing(documented, members)).toEqual([])
-				})
-				it(`${entity} exposes no undocumented method`, () => {
-					const extra =
-						entity === group.interface
-							? []
-							: findMissing(
-									source.methods(entity).map((method) => method.name),
-									documented,
-								)
-					expect(extra).toEqual([])
-				})
-			})
-		}
 
 		// The equality gate: a `Summary` cell against its export's description paragraph, a
 		// titled fence against the `@example` of that title. `findDrift` owns the comparison
@@ -194,86 +136,34 @@ for (const entry of manifest) {
 		// worklist `npm run docs` prints, so a failure here is read the way that command's
 		// output is.
 		it('keeps every compared summary and example equal to its source', () => {
-			const disagreeing: string[] = []
-			for (const drift of findDrift(guide, source)) {
-				const left = drift.guide === undefined ? 'absent' : JSON.stringify(drift.guide)
-				const right = drift.source === undefined ? 'absent' : JSON.stringify(drift.source)
-				disagreeing.push(`${entry.spec} ${drift.key}: guide ${left} source ${right}`)
-			}
-			expect(disagreeing).toEqual([])
+			expect(report.drift.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
 
 		it('documents an example for every Surface function', () => {
-			const fences = guide
-				.fences()
-				.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-				.map((fence) => fence.code)
-			const names = guide
-				.surface()
-				.filter((symbol) => symbol.keyword === 'function')
-				.map((symbol) => symbol.name)
 			expect(
-				findUnexampled(
-					names,
-					fences,
-					source.examples().map((example) => example.name),
-				),
+				report.examples.functions.filter((finding) => finding.spec === row.entry.spec),
 			).toEqual([])
 		})
 
-		for (const group of guide.methods()) {
-			const entity = group.interface.replace(/Interface$/, '')
-			describe(`${group.interface} examples`, () => {
-				it('documents an example for every method', () => {
-					const fences = guide
-						.fences()
-						.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-						.map((fence) => fence.code)
-					const examples = (
-						entity === group.interface
-							? source.examples(group.interface)
-							: source.examples(group.interface).concat(source.examples(entity))
-					).map((example) => example.name)
-					const documented = group.methods.map((method) => method.name)
-					expect(findUnexampled(documented, fences, examples)).toEqual([])
-				})
-			})
-		}
+		it('documents an example for every method', () => {
+			expect(report.examples.methods.filter((finding) => finding.spec === row.entry.spec)).toEqual(
+				[],
+			)
+		})
 
 		it('imports only real exports in every ```ts fence', () => {
-			// `compared` is the non-vacuousness guard: an unmapped `modules` policy, a
-			// package rename, or fences moved to a subpath specifier all leave every
-			// import skipped, and a loop that ran no assertion reports green.
-			const fences = guide.fences().filter((fence) => fence.language === EXAMPLE_LANGUAGE)
-			let compared = 0
-			for (const fence of fences) {
-				for (const { specifier, names } of extractFenceImports(fence.code)) {
-					const imported = sources.source(specifier)
-					if (imported === undefined) continue
-					compared += 1
-					const surface = imported.surface().map((symbol) => symbol.name)
-					expect(findMissing(names, surface)).toEqual([])
-				}
-			}
-			expect(compared).toBeGreaterThan(0)
+			expect(report.imports.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
 
 		it('resolves every relative link', () => {
-			expect(guide.links().length).toBeGreaterThan(0)
-			const broken = guide
-				.links()
-				.filter((href) => !isExternalLink(href))
-				.map((href) => resolveLink(entry.spec, href))
-				.filter((path) => !source.exists(path))
-			expect(broken).toEqual([])
+			expect(report.links.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
 		it('links only to test files that exist', () => {
-			expect(guide.tests().length).toBeGreaterThan(0)
-			const missing = guide
-				.tests()
-				.map((href) => resolveLink(entry.spec, href))
-				.filter((path) => !source.exists(path))
-			expect(missing).toEqual([])
+			expect(report.tests.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
+		})
+
+		it('uses admitted fence languages', () => {
+			expect(report.fences.filter((finding) => finding.spec === row.entry.spec)).toEqual([])
 		})
 	})
 }
@@ -422,7 +312,12 @@ describe('flagship fences', () => {
 		})
 
 		expect(findDrift(guide, source)).toEqual([
-			{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' },
+			{
+				key: 'function walk',
+				category: 'summary',
+				guide: 'Walks the tree.',
+				source: 'Walks a tree.',
+			},
 		])
 	})
 
@@ -431,7 +326,7 @@ describe('flagship fences', () => {
 			'// One entry per disagreement, naming both sites; a symbol one side lacks belongs to SB.',
 		)
 		expect(guideText).toContain(
-			"findDrift(guide, source) // [{ key: 'function walk', guide: 'Walks the tree.', source: 'Walks a tree.' }]",
+			"findDrift(guide, source) // [{ key: 'function walk', category: 'summary', guide: 'Walks the tree.', source: 'Walks a tree.' }]",
 		)
 	})
 

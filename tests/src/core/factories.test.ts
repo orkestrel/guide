@@ -117,7 +117,7 @@ describe('createSourceExampleContract', () => {
 describe('createDriftContract', () => {
 	it('compiles a working Drift contract', () => {
 		const contract = createDriftContract()
-		expect(contract.is({ key: 'class Widget', guide: 'A widget.' })).toBe(true)
+		expect(contract.is({ key: 'class Widget', category: 'summary', guide: 'A widget.' })).toBe(true)
 		expect(contract.is({ guide: 'A widget.' })).toBe(false)
 
 		const value = contract.generate(seededRandom(TEST_SEED))

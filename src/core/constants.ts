@@ -14,7 +14,14 @@ export const EXPORT_KEYWORDS = Object.freeze([
 	'const',
 	'function',
 	'class',
-] as const)
+] satisfies ReadonlyArray<'type' | 'interface' | 'const' | 'function' | 'class'>)
+
+/**
+ * Lists the compared sites a {@link Drift} can describe.
+ */
+export const DRIFT_CATEGORIES = Object.freeze(['summary', 'example'] satisfies ReadonlyArray<
+	'summary' | 'example'
+>)
 
 /**
  * Names the `## Surface` heading text a guide's documented exports section is keyed on.

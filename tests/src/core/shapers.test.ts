@@ -227,16 +227,25 @@ describe('driftShape', () => {
 	const contract = createContract(driftShape)
 
 	it('is: accepts a drift naming one side and a drift naming both', () => {
-		expect(contract.is({ key: 'class Widget', source: 'Represents a widget.' })).toBe(true)
-		expect(contract.is({ key: 'class Widget', guide: 'A widget.', source: 'A widget!' })).toBe(true)
+		expect(
+			contract.is({ key: 'class Widget', category: 'summary', source: 'Represents a widget.' }),
+		).toBe(true)
+		expect(
+			contract.is({
+				key: 'class Widget',
+				category: 'summary',
+				guide: 'A widget.',
+				source: 'A widget!',
+			}),
+		).toBe(true)
 	})
 
 	it('is: rejects a drift with no key', () => {
 		expect(contract.is({ guide: 'A widget.' })).toBe(false)
 	})
 
-	it('schema: requires the key alone', () => {
-		expect(contract.schema.required).toEqual(['key'])
+	it('schema: requires the key and category', () => {
+		expect(contract.schema.required).toEqual(['key', 'category'])
 		expect(contract.schema.additionalProperties).toBe(false)
 	})
 

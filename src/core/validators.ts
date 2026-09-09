@@ -1,6 +1,7 @@
 import type { Guard } from '@orkestrel/contract'
 import type {
 	Drift,
+	DriftCategory,
 	ExportKeyword,
 	ManifestEntry,
 	MethodEntry,
@@ -9,7 +10,7 @@ import type {
 	SurfaceSymbol,
 } from './types.js'
 import { arrayOf, isString, literalOf, recordOf, unionOf } from '@orkestrel/contract'
-import { EXPORT_KEYWORDS } from './constants.js'
+import { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
 
 // AGENTS.md § Design laws: guards are total. Every guard here validates an arbitrary
 // `unknown` value crossing an untrusted boundary (parsed guide/manifest data)
@@ -31,6 +32,9 @@ import { EXPORT_KEYWORDS } from './constants.js'
  * ```
  */
 export const isExportKeyword: Guard<ExportKeyword> = literalOf(EXPORT_KEYWORDS)
+
+/** Checks whether `value` names a supported drift category. */
+export const isDriftCategory: Guard<DriftCategory> = literalOf(DRIFT_CATEGORIES)
 
 /**
  * Checks whether `value` is a well-formed {@link SurfaceSymbol} — a `name`
@@ -107,13 +111,14 @@ export const isSourceExample: Guard<SourceExample> = recordOf(
  *
  * @example
  * ```ts
- * isDrift({ key: 'class Widget', guide: 'A widget.' }) // true
+ * isDrift({ key: 'class Widget', category: 'summary', guide: 'A widget.' }) // true
  * isDrift({ guide: 'A widget.' })                      // false
  * ```
  */
 export const isDrift: Guard<Drift> = recordOf(
 	{
 		key: isString,
+		category: isDriftCategory,
 		guide: isString,
 		source: isString,
 	},
