@@ -733,6 +733,13 @@ Limits states what that costs a target that keeps one at a canon path. The sweep
 directories its deletions emptied, so a swept target does not keep the shape of the set it no longer
 holds, and git records no directory to report that shape with.
 
+Each git query streams raw NUL-delimited output and retains only complete non-empty records. The
+reader applies `MAX_INVENTORY_PATHS` while it collects them and bounds an unfinished record by
+`MAX_PATH_LENGTH` plus git's porcelain prefix. The worktree guard validates every complete path
+after that prefix is removed. A spawn fault, failed exit, signal, stream or listener fault, drain
+cutoff, or incomplete final record refuses the target under `TARGET`; no partial inventory reaches
+deletion.
+
 ### Machine-readable output
 
 `--json` replaces the report with one JSON value on standard output. Warnings and refusals go to
