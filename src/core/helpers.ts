@@ -2073,7 +2073,8 @@ export function extractBodyLines(lines: readonly string[]): readonly SourceLine[
  * and {@link locateComment} matches a caller's key against the whole map. A change to the head
  * shape or to the member shape reaches every one of them at once.
  *
- * An owner opens at a column-zero `export class` or `export interface` head and closes at the
+ * An owner opens at a column-zero `export class`, `export abstract class`, or `export interface`
+ * head and closes at the
  * first column-zero `}`, so a member declared past that brace keys nothing. A column-zero `export` declaration carrying any other keyword closes the owner it follows,
  * because a member belongs to the head enclosing it. Reading runs over {@link extractSourceLines}'s
  * projection, so a head or
@@ -2093,7 +2094,10 @@ export function collectKeys(lines: readonly SourceLine[]): ReadonlyMap<SourceLin
 	let owner: string | undefined
 
 	for (const line of lines) {
-		const head = /^export (?:async )?(function\*?|class|const|interface|type) (\w+)/.exec(line.code)
+		const head =
+			/^export (?:async )?(?:abstract )?(function\*?|class|const|interface|type) (\w+)/.exec(
+				line.code,
+			)
 		const keyword = head?.[1]?.replace(/\*$/, '')
 		const name = head?.[2]
 		if (isNonEmptyString(keyword) && isNonEmptyString(name) && isExportKeyword(keyword)) {

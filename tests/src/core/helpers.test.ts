@@ -4445,6 +4445,13 @@ describe('collectKeys', () => {
 		expect(Array.from(keys.values())).toEqual(['class Widget', 'Widget.walk'])
 	})
 
+	it('keys an abstract class head and its member the same as a plain class head', () => {
+		const keys = collectKeys(
+			extractSourceLines(['export abstract class Widget<T> {', '\twalk(): void', '}'].join('\n')),
+		)
+		expect(Array.from(keys.values())).toEqual(['class Widget', 'Widget.walk'])
+	})
+
 	it('closes an owner at a head carrying any other keyword', () => {
 		expect(Array.from(collectKeys(extractSourceLines(UNOWNED)).values())).toEqual([
 			'interface Widget',
