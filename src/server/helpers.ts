@@ -1,5 +1,5 @@
 import type { ManifestEntry, ParityFinding } from '../core/types.js'
-import { isArray, isFunction, isObject } from '@orkestrel/contract'
+import { isArray, isFunction, isInstance, isObject } from '@orkestrel/contract'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -59,7 +59,7 @@ export function matchesGuideResult(result: unknown): boolean {
  * ```
  */
 export function resolveGuideRoot(root: URL | string): string {
-	return resolve(root instanceof URL ? fileURLToPath(root) : root)
+	return resolve(isInstance(root, URL) ? fileURLToPath(root) : root)
 }
 
 /**

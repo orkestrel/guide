@@ -8,7 +8,7 @@ import {
 	sourceExampleShape,
 	surfaceSymbolShape,
 } from '@src/core'
-import { createContract, seededRandom } from '@orkestrel/contract'
+import { createContract, isArray, isString, seededRandom } from '@orkestrel/contract'
 import { describe, expect, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
 
@@ -137,8 +137,8 @@ describe('manifestEntryShape', () => {
 		for (let seed = TEST_SEED; seed < TEST_SEED + 50; seed += 1) {
 			const value = contract.generate(seededRandom(seed))
 			expect(contract.is(value)).toBe(true)
-			if (typeof value.source === 'string') sawString = true
-			if (Array.isArray(value.source)) sawArray = true
+			if (isString(value.source)) sawString = true
+			if (isArray(value.source)) sawArray = true
 		}
 
 		expect(sawString || sawArray).toBe(true)

@@ -40,7 +40,7 @@ import {
 	renderMarkdown,
 	walkNodes,
 } from '@orkestrel/markdown'
-import { isNonEmptyString } from '@orkestrel/contract'
+import { isNonEmptyString, isString } from '@orkestrel/contract'
 import {
 	EXTERNAL_SCHEMES,
 	KIND,
@@ -613,7 +613,7 @@ export function hasCanonicalSegments(key: string): boolean {
 export function normalizeDirectories(module: GuideModule): readonly string[] {
 	const directories: string[] = []
 	const seen = new Set<string>()
-	for (const value of typeof module === 'string' ? [module] : module) {
+	for (const value of isString(module) ? [module] : module) {
 		const directory = resolvePath('.', value)
 		if (seen.has(directory)) continue
 		seen.add(directory)

@@ -7,7 +7,7 @@ import type {
 	GuideRunnerFunction,
 } from './types.js'
 import type { GuideModule, ParityFinding, ParityOptions } from '../core/types.js'
-import { isFunction, isObject } from '@orkestrel/contract'
+import { isError, isFiniteNumber, isFunction, isObject, isString } from '@orkestrel/contract'
 import { globSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
@@ -88,7 +88,7 @@ export class GuideCommand implements GuideCommandInterface {
 		try {
 			await this.#executeNative()
 		} catch (error) {
-			process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+			process.stderr.write(`${isError(error) ? error.message : String(error)}\n`)
 			this.#raise(1)
 		}
 	}
@@ -221,8 +221,8 @@ export class GuideCommand implements GuideCommandInterface {
 
 	#raise(code: number): void {
 		const current = process.exitCode
-		const numeric = typeof current === 'string' ? Number.parseInt(current, 10) : current
-		if (typeof numeric !== 'number' || !Number.isFinite(numeric) || numeric < code) {
+		const numeric = isString(current) ? Number.parseInt(current, 10) : current
+		if (!isFiniteNumber(numeric) || numeric < code) {
 			process.exitCode = code
 		}
 	}

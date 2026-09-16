@@ -1,5 +1,5 @@
 import type { ParityDirection } from '../core/types.js'
-import { isRecord, parseJSON } from '@orkestrel/contract'
+import { isNonEmptyString, isRecord, parseEnum, parseJSONAs } from '@orkestrel/contract'
 
 /**
  * Maps the supported `--to guide` and `--to source` arguments to an explicit rewrite destination.
@@ -14,8 +14,7 @@ import { isRecord, parseJSON } from '@orkestrel/contract'
  */
 export function parseGuideDirection(args: readonly string[]): ParityDirection | undefined {
 	if (args.length !== 2 || args[0] !== '--to') return undefined
-	const direction = args[1]
-	return direction === 'guide' || direction === 'source' ? direction : undefined
+	return parseEnum(args[1], ['guide', 'source'])
 }
 
 /**
@@ -30,9 +29,9 @@ export function parseGuideDirection(args: readonly string[]): ParityDirection | 
  * ```
  */
 export function parsePackageName(manifest: string): string | undefined {
-	const parsed = parseJSON(manifest)
-	if (!isRecord(parsed)) return undefined
+	const parsed = parseJSONAs(manifest, isRecord)
+	if (parsed === undefined) return undefined
 	const name = parsed.name
-	if (typeof name !== 'string' || name.length === 0) return undefined
+	if (!isNonEmptyString(name)) return undefined
 	return name.slice(name.lastIndexOf('/') + 1)
 }
