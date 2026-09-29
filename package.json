@@ -86,12 +86,12 @@
 	},
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.18",
-		"@orkestrel/markdown": "^0.0.15"
+		"@orkestrel/markdown": "^0.0.16"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.59.3",
-		"@orkestrel/probe": "^0.0.17",
-		"@orkestrel/scaffold": "^0.0.78",
+		"@orkestrel/probe": "^0.0.18",
+		"@orkestrel/scaffold": "^0.0.79",
 		"@orkestrel/test": "^0.0.24",
 		"@types/node": "^26.6.3",
 		"oxfmt": "^0.71.0",
