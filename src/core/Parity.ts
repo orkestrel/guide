@@ -25,6 +25,7 @@ import {
 	findUnlisted,
 	formatDrift,
 	formatSide,
+	hasBehaviouralSurface,
 	identifyDrift,
 	isExternalLink,
 	locateComment,
@@ -198,7 +199,7 @@ export class Parity implements ParityInterface {
 				text: `${row.entry.spec} has no ## ${heading} section.`,
 			})
 		}
-		if (row.guide.methods().length === 0) {
+		if (row.guide.methods().length === 0 && hasBehaviouralSurface(row.source)) {
 			findings.push({
 				spec: row.entry.spec,
 				text: `${row.entry.spec} has no documented method groups.`,

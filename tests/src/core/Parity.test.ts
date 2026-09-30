@@ -153,6 +153,31 @@ describe('Parity', () => {
 		expect(emptyReport.methods).not.toEqual([])
 	})
 
+	it('owes no method group where the source declares no behavioural member', () => {
+		const guide = PARITY_GUIDE.replace(
+			/## Methods[\s\S]*?## Patterns/,
+			'## Methods\n\nThe surface exposes no behavioural interface.\n\n## Patterns',
+		)
+			.replace('| `WidgetInterface` | interface | Represents a widget. |\n', '')
+			.replace('| `Widget` | class | Represents an implementing widget. |\n', '')
+			.replace(/### Render a widget[\s\S]*?```\n\n/, '')
+		const constantsOnly = createParityFixture({
+			files: {
+				[PARITY_SPEC]: guide,
+				'src/core/index.ts': "export * from './factories.js'\n",
+				'src/core/types.ts': undefined,
+				'src/core/Widget.ts': undefined,
+			},
+		})
+		const report = new Parity(constantsOnly).inspect()
+		const control = new Parity(createParityFixture({ files: { [PARITY_SPEC]: guide } })).inspect()
+
+		expect(report.sections).toEqual([])
+		expect(control.sections).toEqual([
+			{ spec: PARITY_SPEC, text: `${PARITY_SPEC} has no documented method groups.` },
+		])
+	})
+
 	it('reports source-driven declaration populations without requiring memberless classes', () => {
 		const guide = PARITY_GUIDE.replace(
 			'| `render` | Renders the widget. |',

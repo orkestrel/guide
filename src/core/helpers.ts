@@ -761,6 +761,30 @@ export function findMissingSymbols(
 }
 
 /**
+ * Checks whether a source declares at least one behavioural member — a `class` or `interface`
+ * in its surface that carries a call-signature member — so a guide owes a `## Methods` group only
+ * where the source has one to document.
+ *
+ * @param source - The reflected source under parity
+ * @returns True if a surface `class` or `interface` declares a member; false otherwise
+ *
+ * @example
+ * ```ts
+ * hasBehaviouralSurface(createSource({ files: { 'src/types.ts': 'export interface Widget { render(): void }' }, module: 'src' })) // true
+ * hasBehaviouralSurface(createSource({ files: { 'src/constants.ts': 'export const NAMES = Object.freeze({})' }, module: 'src' })) // false
+ * ```
+ */
+export function hasBehaviouralSurface(source: SourceInterface): boolean {
+	return source
+		.surface()
+		.some(
+			(symbol) =>
+				(symbol.keyword === 'class' || symbol.keyword === 'interface') &&
+				source.methods(symbol.name).length > 0,
+		)
+}
+
+/**
  * Finds the names in `names` that have no example — a fence containing the name at a
  * word boundary in `fences`, or a membership in `examples`, both count as
  * "has an example"; presence-only, fence and JSDoc content are never checked.

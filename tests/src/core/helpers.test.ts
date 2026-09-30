@@ -38,6 +38,7 @@ import {
 	extractUnnamed,
 	findDrift,
 	findMissing,
+	hasBehaviouralSurface,
 	findUnexampled,
 	findUnlisted,
 	findFirstCode,
@@ -558,6 +559,42 @@ describe('findUnlisted', () => {
 	it('returns an empty array when every fence language is listed', () => {
 		const document = createMarkdown('```ts\nwalk()\n```\n\n```json\n{}\n```\n').document
 		expect(findUnlisted(extractFences(document), ['ts', 'json'])).toEqual([])
+	})
+})
+
+describe('hasBehaviouralSurface', () => {
+	const barrel = "export * from './types.js'\nexport * from './constants.js'\n"
+
+	it('is true for a surface interface or class that declares a member', () => {
+		const withInterface = createSource({
+			files: {
+				'src/index.ts': barrel,
+				'src/types.ts': 'export interface Widget {\n\trender(): void\n}\n',
+				'src/constants.ts': 'export const NAMES = Object.freeze({})\n',
+			},
+			module: 'src',
+		})
+		const withClass = createSource({
+			files: {
+				'src/index.ts': "export * from './Widget.js'\n",
+				'src/Widget.ts': 'export class Widget {\n\trender(): void {}\n}\n',
+			},
+			module: 'src',
+		})
+		expect(hasBehaviouralSurface(withInterface)).toBe(true)
+		expect(hasBehaviouralSurface(withClass)).toBe(true)
+	})
+
+	it('is false for a surface of constants, types, and memberless declarations', () => {
+		const constantsOnly = createSource({
+			files: {
+				'src/index.ts': barrel,
+				'src/types.ts': "export type Name = 'a' | 'b'\nexport interface Empty {}\n",
+				'src/constants.ts': 'export const NAMES = Object.freeze({})\n',
+			},
+			module: 'src',
+		})
+		expect(hasBehaviouralSurface(constantsOnly)).toBe(false)
 	})
 })
 
