@@ -41,7 +41,9 @@ import {
  * inventory entrances after relative-row reduction; canonical parent hops
  * remain valid. `methods` resolves a declaration's members through its
  * `extends` chain within the same module scope, keeping the keyword it started
- * from; a base the scope does not declare contributes nothing. One declaration
+ * from; a base the scope does not declare contributes nothing. A name declared
+ * as both an interface and a class answers with both shapes' members, the
+ * interface's entry first for a member both declare. One declaration
  * answers for a name: the first file in sorted key order that declares the head
  * supplies its members and its bases, and a second file declaring the same name
  * adds nothing. Every reading derives once per instance from the immutable
@@ -140,14 +142,20 @@ export class Source implements SourceInterface {
 		return examples
 	}
 
-	// The interface shape answers first for a name both shapes declare; a class's members
-	// arrive without the `constructor` no guide documents.
+	// A name both shapes declare is a TypeScript declaration merge whose type carries both member
+	// sets, so both shapes contribute; the interface's entry answers first for a member both
+	// declare, as in `#exampleMembers`. A class's members arrive without the `constructor` no
+	// guide documents.
 	#scanMethods(name: string): readonly MethodEntry[] {
-		const declared = this.#members('interface', name, new Set<string>())
-		if (declared !== undefined) return declared
+		const methods = new Map<string, MethodEntry>()
+		for (const entry of this.#members('interface', name, new Set<string>()) ?? [])
+			methods.set(entry.name, entry)
+		for (const entry of this.#members('class', name, new Set<string>()) ?? [])
+			if (entry.name !== 'constructor' && !methods.has(entry.name)) methods.set(entry.name, entry)
 
-		const inherited = this.#members('class', name, new Set<string>())
-		return inherited === undefined ? [] : inherited.filter((entry) => entry.name !== 'constructor')
+		return Array.from(methods.values()).sort((a, b) =>
+			a.name === b.name ? 0 : a.name < b.name ? -1 : 1,
+		)
 	}
 
 	// The union of exported declaration heads' `@example` blocks across the module's

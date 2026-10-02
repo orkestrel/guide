@@ -597,8 +597,10 @@ through interfaces, a class chain through classes, so an interface extending a n
 declares gets nothing from it. One declaration answers for a name: the module scope's files are read
 in sorted key order, and the first one whose located head has a body or has bases supplies both the
 members and the bases; a head with neither a body nor bases does not count as declared, so an empty
-`export interface X {}` is skipped and the scan continues to a later file or falls through to a
-same-named class, and a second file declaring the same name after one is found adds nothing. The
+`export interface X {}` is skipped and the scan continues to a later file, and a second file
+declaring the same name after one is found adds nothing. A name the scope declares as both an
+interface and a class, as a TypeScript declaration merge does, answers with both shapes' members
+unioned, and the interface's entry answers first for a member both shapes declare. The
 inventory is the further bound: a base the selected directories do not declare, whether it is
 imported from another package or written as a qualified name such as `external.Store`, contributes
 no members and is not an error, and one visited set per call collapses a cycle and a diamond to a

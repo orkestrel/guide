@@ -958,6 +958,69 @@ describe('Source', () => {
 		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
 	})
 
+	it('methods() unions both shapes of a same-file class and interface merge', () => {
+		const source = new Source({
+			files: {
+				'module/Widget.ts': [
+					'export interface Disposable {',
+					'\tdispose(): void',
+					'}',
+					'',
+					'export class Widget {',
+					'\trender(): void {}',
+					'}',
+					'',
+					'export interface Widget extends Disposable {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['dispose', 'render'])
+	})
+
+	it('methods() keeps the class members of a merge whose interface base the scope does not declare', () => {
+		const source = new Source({
+			files: {
+				'module/Widget.ts': [
+					"import type { Disposable } from '@orkestrel/lifecycle'",
+					'export class Widget {',
+					'\trender(): void {}',
+					'}',
+					'export interface Widget extends Disposable {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
+	})
+
+	it('methods() lets the interface entry answer for a member both shapes of a merge declare', () => {
+		const source = new Source({
+			files: {
+				'module/Widget.ts': [
+					'export interface Widget {',
+					'\t/** Renders the widget. */',
+					'\trender(): void',
+					'}',
+					'export class Widget {',
+					'\t/** Paints every pixel the widget covers. */',
+					'\trender(): void {}',
+					'\t/** Resets the widget. */',
+					'\treset(): void {}',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget')).toEqual([
+			{ name: 'render', summary: 'Renders the widget.' },
+			{ name: 'reset', summary: 'Resets the widget.' },
+		])
+	})
+
 	it('methods() skips an empty interface head with no bases and reads the same-named class', () => {
 		const source = new Source({
 			files: {
