@@ -578,7 +578,8 @@ declaration. The identifier is the head's own run up to its generic parameter li
 clause, so it enters the key as literal text: a name carrying a regex metacharacter reaches no
 `RegExp`, and a lookup of that name matches the character rather than a wildcard. A head that opens
 no column-zero close records nothing, a head whose last line closes its own body with `{}` or
-`{ }` records an empty body, and a later head of a key already collected adds nothing.
+`{ }` records an empty body, and a later head of a key already collected adds nothing unless the
+earlier head recorded neither a body nor bases, which the later head then replaces.
 `extractDeclaration` is the named lookup over that map: it spells the `${keyword} ${name}` key so a
 consumer reading one name never writes that convention, and it collects the file afresh on every
 call. A consumer reading many names from one file calls `collectDeclarations` once and reads the

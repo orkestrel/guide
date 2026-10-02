@@ -857,6 +857,22 @@ describe('Source', () => {
 		}).toEqual({ tooltip: ['show'], scrollspy: ['refresh'] })
 	})
 
+	it('methods() reads a same-file interface merge whose first declaration is empty', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface Registry {}',
+					'export interface Registry {',
+					'\tadd(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Registry').map((entry) => entry.name)).toEqual(['add'])
+	})
+
 	it('methods() skips a one-line empty interface head with no bases and reads the same-named class', () => {
 		const source = new Source({
 			files: {

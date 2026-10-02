@@ -1624,6 +1624,49 @@ describe('joinHead', () => {
 		})
 	})
 
+	it('reads a quoted bracket in a wrapped parameter list as text, not as a close of that list', () => {
+		const lines = [
+			'export class Tag<',
+			"\tClose extends string = '>',",
+			'\tMeta = {}',
+			'> {',
+			'\topen(): void {}',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: "export class Tag< Close extends string = '>', Meta = {} > {",
+			end: 3,
+		})
+	})
+
+	it('reads an empty object argument of a wrapped heritage call as an argument, not a body', () => {
+		const lines = [
+			'export class Store extends defineStore(',
+			"\t'harbor-store',",
+			'\t{}',
+			') {',
+			'\topen(): void {}',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: "export class Store extends defineStore( 'harbor-store', {} ) {",
+			end: 3,
+		})
+	})
+
+	it('ends at an empty body after a quoted bracket in a type argument', () => {
+		const lines = ["export interface Less extends Compare<'<'> {}", 'export interface Next {', '}']
+		expect(joinHead(lines, 0)).toEqual({
+			text: "export interface Less extends Compare<'<'> {}",
+			end: 0,
+		})
+	})
+
+	it('opens no body when the head runs into the next exported declaration', () => {
+		const lines = ['export interface Point { x: number }', 'export interface Empty extends Base {}']
+		expect(joinHead(lines, 0)).toBeUndefined()
+	})
+
 	it('ends a wrapped head at the line that closes its empty body', () => {
 		const lines = [
 			'export interface BoxInterface<',
@@ -1851,6 +1894,30 @@ describe('collectDeclarations', () => {
 	it('records nothing for a head that opens no column-zero close', () => {
 		const source = ['export interface B extends A {', '\twalk(): void', ''].join('\n')
 		expect(Object.fromEntries(collectDeclarations(source))).toEqual({})
+	})
+
+	it('lets a later head of one key replace an earlier head with no body and no bases', () => {
+		const source = [
+			'export interface Registry {}',
+			'export interface Registry {',
+			'\tadd(): void',
+			'}',
+			'',
+		].join('\n')
+		expect(Object.fromEntries(collectDeclarations(source))).toEqual({
+			'interface Registry': { body: ['\tadd(): void'], bases: [] },
+		})
+	})
+
+	it('records no base the next declaration carries for a one-line body it cannot read', () => {
+		const source = [
+			'export interface Point { x: number }',
+			'export interface Empty extends Base {}',
+			'',
+		].join('\n')
+		expect(Object.fromEntries(collectDeclarations(source))).toEqual({
+			'interface Empty': { body: [], bases: ['Base'] },
+		})
 	})
 
 	it('records an empty body for a head that closes its own body and reads the next head whole', () => {

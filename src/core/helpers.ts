@@ -1192,9 +1192,10 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
  * `{`, or one that closes an empty body with `{}` or `{ }`.
  *
  * @remarks
- * A line ending with `{}` closes an empty body only after the head's generic
- * parameter list has closed; inside that list, `{}` is an object type and an
- * arrow's `=>` closes nothing.
+ * A line ending with `{}` closes an empty body only when every angle, round,
+ * and square bracket the head opened outside quoted text has closed; inside
+ * one, `{}` is a type or an argument, and an arrow's `=>` closes nothing. A
+ * head that reaches the next column-zero `export` line opens no body.
  *
  * @param lines - The file's source lines
  * @param start - The index of the head's first line
@@ -1213,12 +1214,16 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 		const line = lines[index]
 		if (line === undefined) break
 		const text = line.trimEnd()
+		// A wrapped head never continues on an exported declaration, so reaching one means no body opened.
+		if (index > start && text.startsWith('export ')) return undefined
 		parts.push(index === start ? text : text.trimStart())
 		if (text.endsWith('{')) return { text: parts.join(' '), end: index }
-		// Inside an open generic parameter list, `{}` is an object type, so it closes no body there.
-		const joined = parts.join(' ')
-		const depth = (joined.match(/</g)?.length ?? 0) - (joined.match(/(?<!=)>/g)?.length ?? 0)
-		if (depth <= 0 && /\{\s*\}$/.test(text)) return { text: joined, end: index }
+		const bare = parts.join(' ').replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '')
+		const closed =
+			(bare.match(/</g)?.length ?? 0) <= (bare.match(/(?<!=)>/g)?.length ?? 0) &&
+			(bare.match(/\(/g)?.length ?? 0) <= (bare.match(/\)/g)?.length ?? 0) &&
+			(bare.match(/\[/g)?.length ?? 0) <= (bare.match(/\]/g)?.length ?? 0)
+		if (closed && /\{\s*\}$/.test(text)) return { text: parts.join(' '), end: index }
 	}
 
 	return undefined
@@ -1266,7 +1271,8 @@ export function escapeRegExp(value: string): string {
  * reads as `Base`; a class's `implements` clause and everything after it is excluded, and a
  * qualified base such as `namespace.Base` is returned verbatim. The first head of a key that opens
  * a column-zero close answers for that key: a head that opens none records nothing, and a later
- * head of a key already collected adds nothing.
+ * head of a key already collected adds nothing unless the earlier head recorded neither a body
+ * nor bases, which declares nothing as {@link Source} reads it, so the later head replaces it.
  *
  * @param source - The file's source text to read
  * @returns One entry per collected declaration, keyed `${keyword} ${name}`
@@ -1296,7 +1302,9 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 		if (keyword === undefined || name === undefined) continue
 
 		const key = `${keyword} ${name}`
-		if (declarations.has(key)) continue
+		const known = declarations.get(key)
+		// A head with neither a body nor bases declares nothing, as Source reads it, so a later head answers.
+		if (known !== undefined && (known.body.length > 0 || known.bases.length > 0)) continue
 
 		let depth = 0
 		let flat = ''
