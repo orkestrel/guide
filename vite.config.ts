@@ -3,7 +3,12 @@ import { mergeConfig } from 'vite'
 import { defineConfig } from 'vitest/config'
 import manifest from './package.json' with { type: 'json' }
 import tsconfig from './tsconfig.json' with { type: 'json' }
-import { enforceBuildLog, environmentBoundary, outputBoundary } from './configs/helpers.js'
+import {
+	enforceBuildLog,
+	environmentBoundary,
+	outputBoundary,
+	resolveExternal,
+} from './configs/helpers.js'
 import { fileURLToPath, URL } from 'node:url'
 
 export function resolveWorkspacePath(relativePath: string): string {
@@ -102,6 +107,17 @@ function isNamedPlugin(plugin: PluginOption): plugin is { name: string } {
 	)
 }
 
+function resolveSourceExternal(id: string): boolean {
+	return (
+		id === '@src/core' ||
+		resolveExternal(id, {
+			peers,
+			refused: [],
+			siblings: [resolveWorkspacePath('src/core/index.ts')],
+		})
+	)
+}
+
 export function srcCore(override?: UserConfig): UserConfig {
 	const project: UserConfig = {
 		resolve,
@@ -123,6 +139,10 @@ export function srcCore(override?: UserConfig): UserConfig {
 	return mergeOverride(project, override)
 }
 
+function resolveServerFilename(format: string): string {
+	return format === 'es' ? 'index.js' : 'index.cjs'
+}
+
 export function srcServer(override?: UserConfig): UserConfig {
 	const project: UserConfig = {
 		resolve,
@@ -135,18 +155,14 @@ export function srcServer(override?: UserConfig): UserConfig {
 			lib: {
 				entry: resolveWorkspacePath('src/server/index.ts'),
 				formats: ['es', 'cjs'],
-				fileName: (format: string) => (format === 'es' ? 'index.js' : 'index.cjs'),
+				fileName: resolveServerFilename,
 			},
 			outDir: 'dist/src/server',
 			target: 'node22',
 			rolldownOptions: {
 				onLog: enforceBuildLog,
 				platform: 'node',
-				external: (id: string) =>
-					id === '@src/core' ||
-					id.startsWith('node:') ||
-					id.startsWith('@orkestrel/') ||
-					peers.some((peer) => id === peer || id.startsWith(peer + '/')),
+				external: resolveSourceExternal,
 				output: [
 					{
 						format: 'es',
@@ -211,8 +227,10 @@ export function setup(override?: UserConfig): UserConfig {
 		test: {
 			name: { label: 'setup', color: 'white' },
 			include: ['tests/setup*.test.ts'],
-			exclude: ['tests/setupBrowser.test.ts'],
+			exclude: ['tests/setupBrowser.test.ts', 'tests/setupStyles.test.ts'],
 			setupFiles: ['./tests/setup.ts'],
+			pool: 'threads',
+			isolate: false,
 			environment: 'node',
 			browser: { enabled: false },
 		},

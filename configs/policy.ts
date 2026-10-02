@@ -20,6 +20,7 @@ export interface PolicyExpression extends PolicyNode {
 	readonly callee?: PolicyExpression
 	readonly argument?: PolicyExpression | null
 	readonly arguments?: readonly PolicyExpression[]
+	readonly elements?: ReadonlyArray<PolicyExpression | null>
 	readonly body?: PolicyExpression | readonly PolicyExpression[]
 	readonly quasis?: readonly PolicyExpression[]
 	readonly expressions?: readonly PolicyExpression[]
@@ -144,6 +145,7 @@ export const CENTRAL_SOURCE_FILES: readonly string[] = Object.freeze([
 	'inferers.ts',
 	'middlewares.ts',
 	'parsers.ts',
+	'plugins.ts',
 	'relations.ts',
 	'routes.ts',
 	'schemas.ts',
@@ -166,6 +168,7 @@ export const FUNCTION_SOURCE_FILES: readonly string[] = Object.freeze([
 	'inferers.ts',
 	'middlewares.ts',
 	'parsers.ts',
+	'plugins.ts',
 	'relations.ts',
 	'schemas.ts',
 	'seeders.ts',
@@ -514,39 +517,65 @@ export function isPolicyDeclaredFunction(node: PolicyExpression): boolean {
 	return node.type === 'FunctionDeclaration' || node.type === 'TSDeclareFunction'
 }
 
-/** Reports whether a policy function is anonymous. */
-export function isPolicyAnonymous(node: PolicyExpression): boolean {
-	return node.type === 'ArrowFunctionExpression' || node.id === null
-}
-
-/** Returns the outermost parenthesized expression holding a policy function. */
+/** Returns a policy function's position through parentheses, object values, and array elements. */
 export function functionToPolicyPosition(node: PolicyExpression): PolicyExpression {
 	let position = node
-	while (position.parent?.type === 'ParenthesizedExpression') {
-		position = position.parent
+	while (position.parent !== undefined && position.parent !== null) {
+		const parent = position.parent
+		if (parent.type === 'ParenthesizedExpression') {
+			position = parent
+			continue
+		}
+		if (
+			parent.type === 'Property' &&
+			parent.kind === 'init' &&
+			parent.method === false &&
+			parent.computed !== true &&
+			parent.value === position &&
+			parent.parent?.type === 'ObjectExpression'
+		) {
+			position = parent.parent
+			continue
+		}
+		if (parent.type === 'ArrayExpression' && parent.elements?.includes(position) === true) {
+			position = parent
+			continue
+		}
+		break
 	}
 	return position
 }
 
-/** Reports whether a policy function is an anonymous callback passed directly as an argument. */
+/** Reports whether a literal position is admitted as an argument, return, or arrow body. */
+export function isPolicyPosition(position: PolicyExpression): boolean {
+	const parent = position.parent
+	return (
+		((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') &&
+			parent.arguments?.includes(position) === true) ||
+		(parent?.type === 'ReturnStatement' && parent.argument === position) ||
+		(parent?.type === 'ArrowFunctionExpression' && parent.body === position)
+	)
+}
+
+/** Reports whether a function expression is passed as an argument through its literal position. */
 export function isPolicyCallback(node: PolicyExpression): boolean {
-	if (!isPolicyAnonymous(node)) return false
+	if (node.type !== 'ArrowFunctionExpression' && node.type !== 'FunctionExpression') return false
 	const position = functionToPolicyPosition(node)
 	const parent = position.parent
 	return (
 		(parent?.type === 'CallExpression' || parent?.type === 'NewExpression') &&
-		parent.arguments?.includes(position) === true
+		isPolicyPosition(position)
 	)
 }
 
-/** Reports whether a policy function is an anonymous function returned directly as a result. */
+/** Reports whether a function expression is returned as a result through its literal position. */
 export function isPolicyResult(node: PolicyExpression): boolean {
-	if (!isPolicyAnonymous(node)) return false
+	if (node.type !== 'ArrowFunctionExpression' && node.type !== 'FunctionExpression') return false
 	const position = functionToPolicyPosition(node)
 	const parent = position.parent
 	return (
-		(parent?.type === 'ReturnStatement' && parent.argument === position) ||
-		(parent?.type === 'ArrowFunctionExpression' && parent.body === position)
+		(parent?.type === 'ReturnStatement' || parent?.type === 'ArrowFunctionExpression') &&
+		isPolicyPosition(position)
 	)
 }
 
@@ -579,42 +608,6 @@ export function hasPolicyFunctionAncestor(node: PolicyExpression): boolean {
 		parent = parent.parent
 	}
 	return method
-}
-
-/** Reports whether an arrow is the policy plugin's sanctioned visitor-table delegation. */
-export function isPolicyVisitor(node: PolicyExpression): boolean {
-	const body = expressionToPolicyBody(node)
-	if (
-		node.type !== 'ArrowFunctionExpression' ||
-		node.expression !== true ||
-		body?.type !== 'CallExpression' ||
-		body.callee?.type !== 'Identifier' ||
-		typeof body.callee.name !== 'string' ||
-		!body.callee.name.startsWith('report')
-	) {
-		return false
-	}
-	const property = node.parent
-	const object = property?.parent
-	const returned = object?.parent
-	const block = returned?.parent
-	const create = block?.parent
-	const definition = create?.parent
-	return (
-		property?.type === 'Property' &&
-		property.method === false &&
-		property.value === node &&
-		object?.type === 'ObjectExpression' &&
-		returned?.type === 'ReturnStatement' &&
-		returned.argument === object &&
-		block?.type === 'BlockStatement' &&
-		create?.type === 'FunctionExpression' &&
-		definition?.type === 'Property' &&
-		definition.method === true &&
-		definition.value === create &&
-		definition.key?.type === 'Identifier' &&
-		definition.key.name === 'create'
-	)
 }
 
 /**
@@ -849,14 +842,16 @@ export function reportComments(context: PolicyContext): void {
 
 /** Reports function syntax nested inside another function body. */
 export function reportNested(context: PolicyContext, node: PolicyExpression): void {
-	if (
-		!hasPolicyFunctionAncestor(node) ||
-		isPolicyMethod(node) ||
-		isPolicyCallback(node) ||
-		isPolicyResult(node) ||
-		isPolicyVisitor(node)
-	) {
+	if (!hasPolicyFunctionAncestor(node) || isPolicyCallback(node) || isPolicyResult(node)) {
 		return
+	}
+	if (isPolicyMethod(node)) {
+		if (node.parent?.type === 'MethodDefinition') return
+		const object = node.parent?.parent
+		if (object?.type === 'ObjectExpression') {
+			const position = functionToPolicyPosition(object)
+			if (isPolicyPosition(position)) return
+		}
 	}
 	context.report({ node, messageId: 'nested' })
 }
@@ -969,7 +964,16 @@ export function reportFunction(context: PolicyContext, node: PolicyExpression): 
 		return
 	}
 	if (region.type !== 'VariableDeclaration') return
-	if (isPolicyCallback(node) || isPolicyResult(node)) return
+	let position = node
+	while (position.parent?.type === 'ParenthesizedExpression') position = position.parent
+	// Module placement admits direct callbacks; a literal member still belongs in a function file.
+	if (
+		(node.type === 'ArrowFunctionExpression' || node.id === null) &&
+		functionToPolicyPosition(node) === position &&
+		(isPolicyCallback(node) || isPolicyResult(node))
+	) {
+		return
+	}
 	context.report({ node, messageId: 'function' })
 }
 
@@ -1008,6 +1012,17 @@ export function reportFactory(context: PolicyContext, node: PolicyExpression): v
 	for (const binding of statementToPolicyBindings(node)) {
 		if (binding.name === undefined || !binding.name.startsWith('create')) {
 			context.report({ node: binding.node, messageId: 'factory' })
+		}
+	}
+}
+
+/** Reports a plugins.ts function whose name is not a create-prefixed plugin or plugins form. */
+export function reportPlugin(context: PolicyContext, node: PolicyExpression): void {
+	if (isPolicyAmbient(context.filename) || !isPolicyTop(node)) return
+	if (pathToPolicyFile(context.filename) !== 'plugins.ts') return
+	for (const binding of statementToPolicyBindings(node)) {
+		if (binding.name === undefined || !/^create[A-Z]\w*Plugins?$/u.test(binding.name)) {
+			context.report({ node: binding.node, messageId: 'plugin' })
 		}
 	}
 }
@@ -1059,11 +1074,12 @@ export const NESTED_RULE: PolicyRuleInterface = {
 	meta: {
 		type: 'problem',
 		docs: {
-			description: 'Disallow function declarations and assignments inside another function body.',
+			description:
+				'Disallow nested functions except callbacks passed as arguments or returned as results, directly or as members of object or array literals in those positions.',
 		},
 		messages: {
 			nested:
-				'Extract the function to module scope or make instance-bound work a method; only direct anonymous callbacks and returned anonymous functions may stay in a function body.',
+				'Extract the function to module scope or make instance-bound work a method; only a callback passed as an argument or returned as the result, directly or as a member of an object or array literal in that position, may stay in a function body.',
 		},
 	},
 	create(context) {
@@ -1291,6 +1307,28 @@ export const FACTORY_RULE: PolicyRuleInterface = {
 	},
 }
 
+/** Bans a plugins.ts function whose name is not a create-prefixed plugin or plugins form. */
+export const PLUGIN_RULE: PolicyRuleInterface = {
+	meta: {
+		type: 'problem',
+		docs: {
+			description:
+				'Disallow a plugins.ts function whose name is not create…Plugin or create…Plugins.',
+		},
+		messages: {
+			plugin:
+				'Name this plugins.ts function create…Plugin, or create…Plugins for a collection, or move it to its own kind file.',
+		},
+	},
+	create(context) {
+		return {
+			FunctionDeclaration: (node) => reportPlugin(context, node),
+			TSDeclareFunction: (node) => reportPlugin(context, node),
+			VariableDeclaration: (node) => reportPlugin(context, node),
+		}
+	},
+}
+
 /** Bans a malformed module in a registered function domain, and a file named for one. */
 export const DOMAIN_RULE: PolicyRuleInterface = {
 	meta: {
@@ -1389,6 +1427,7 @@ export default {
 		'no-malformed-constant': CONSTANT_RULE,
 		'no-misnamed-parser': PARSER_RULE,
 		'no-misnamed-factory': FACTORY_RULE,
+		'no-misnamed-plugin': PLUGIN_RULE,
 		'no-malformed-domain': DOMAIN_RULE,
 		'no-host-line-endings': ENDING_RULE,
 		'no-malformed-summary': VOICE_RULE,
