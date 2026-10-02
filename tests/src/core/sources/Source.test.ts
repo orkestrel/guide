@@ -1021,6 +1021,44 @@ describe('Source', () => {
 		])
 	})
 
+	it('methods() lets a member a merged class declares itself answer ahead of an inherited one', () => {
+		const source = new Source({
+			files: {
+				'module/Widget.ts': [
+					'export interface Disposable {',
+					'\tdispose(): void',
+					'}',
+					'export class Widget {',
+					'\t/** Releases the canvas. */',
+					'\tdispose(): void {}',
+					'}',
+					'export interface Widget extends Disposable {}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget')).toEqual([{ name: 'dispose', summary: 'Releases the canvas.' }])
+	})
+
+	it('methods() reads a same-named interface and class in two files as separate declarations', () => {
+		const source = new Source({
+			files: {
+				'module/index.ts': "export * from './types.js'\n",
+				'module/types.ts': ['export interface Widget {', '\trender(): void', '}', ''].join('\n'),
+				'module/internal/Widget.ts': [
+					'export class Widget {',
+					'\trender(): void {}',
+					'\tflush(): void {}',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
+	})
+
 	it('methods() skips an empty interface head with no bases and reads the same-named class', () => {
 		const source = new Source({
 			files: {

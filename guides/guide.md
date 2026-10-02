@@ -594,14 +594,15 @@ reads as `Base`, and a class's `implements` clause is excluded. `Source.methods(
 located declaration's own members with those of every declaration it extends, following each base
 through the same module scope and keeping the keyword it started from — an interface chain resolves
 through interfaces, a class chain through classes, so an interface extending a name only a class
-declares gets nothing from it. One declaration answers for a name: the module scope's files are read
-in sorted key order, and the first one whose located head has a body or has bases supplies both the
-members and the bases; a head with neither a body nor bases does not count as declared, so an empty
-`export interface X {}` is skipped and the scan continues to a later file, and a second file
-declaring the same name after one is found adds nothing. A name the scope declares as both an
-interface and a class, as a TypeScript declaration merge does, answers with both shapes' members
-unioned, and the interface's entry answers first for a member both shapes declare. The
-inventory is the further bound: a base the selected directories do not declare, whether it is
+declares gets nothing from it. One declaration answers under each keyword: the module scope's files
+are read in sorted key order, and the first one whose located head has a body or has bases supplies
+both the members and the bases; a head with neither a body nor bases does not count as declared, so
+an empty `export interface X {}` is skipped and the scan continues to a later file, and a second
+file declaring the same name under that keyword adds nothing. The interface answers for a name, and
+the class answers when no interface declares it. Where one file declares a name as both an interface
+and a class, which TypeScript merges into one type, both answer: each shape's own members come ahead
+of inherited ones, the interface's own first. Shapes from two files stay separate declarations, and
+Parity lets the class of a merge the barrel exports answer for its interface half. The inventory is the further bound: a base the selected directories do not declare, whether it is
 imported from another package or written as a qualified name such as `external.Store`, contributes
 no members and is not an error, and one visited set per call collapses a cycle and a diamond to a
 single visit. `Source.examples(name)` is deliberately asymmetric with it — it reads only the named

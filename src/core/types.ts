@@ -484,16 +484,17 @@ export interface SourceInterface {
 	 * block's description paragraph. The first file declaring the name answers for it.
 	 *
 	 * @remarks
-	 * One declaration answers for `name`: the module scope's files are read in
-	 * sorted key order and the first one whose located head has a body or has
-	 * bases supplies both the members and the bases, so a second file
-	 * declaring the same name adds nothing; a head with neither a body nor
-	 * bases does not count as declared, so an empty `export interface X {}`
-	 * is skipped and resolution continues to a later file. A name the scope
-	 * declares as both an interface and a class, as a TypeScript declaration
-	 * merge does, answers with both shapes' members unioned, and the
-	 * interface's entry answers first for a member both shapes declare.
-	 * Resolution reads each head's `extends` clause and follows it
+	 * One declaration answers under each keyword: the module scope's files are
+	 * read in sorted key order and the first one whose located head has a body
+	 * or has bases supplies both the members and the bases, so a second file
+	 * declaring the same name under that keyword adds nothing; a head with
+	 * neither a body nor bases does not count as declared, so an empty
+	 * `export interface X {}` is skipped and resolution continues to a later
+	 * file. The interface answers for `name`, and the class answers when no
+	 * interface declares it. Where one file declares `name` as both an
+	 * interface and a class, which TypeScript merges into one type, both
+	 * answer: each shape's own members come ahead of inherited ones, the
+	 * interface's own first. Resolution reads each head's `extends` clause and follows it
 	 * through this same module scope, keeping the keyword it started from: an
 	 * `interface` chain resolves through interfaces and a `class` chain through
 	 * classes, so a class's `implements` clause is outside the walk. A base the

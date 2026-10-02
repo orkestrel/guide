@@ -280,6 +280,12 @@ export class Parity implements ParityInterface {
 		const groups = row.guide.methods()
 		const documented = groups.map((group) => group.interface)
 		const declared = new Set(row.source.surface().map((symbol) => symbol.name))
+		const classes = new Set(
+			row.source
+				.surface()
+				.filter((symbol) => symbol.keyword === 'class')
+				.map((symbol) => symbol.name),
+		)
 
 		for (const group of groups) {
 			const finding = compareMembership(
@@ -293,6 +299,9 @@ export class Parity implements ParityInterface {
 
 		for (const symbol of row.source.surface()) {
 			if (symbol.keyword !== 'interface' && symbol.keyword !== 'class') continue
+			// A barrel exports a class and an interface of one name only as a declaration merge,
+			// because two modules exporting the name would conflict, so the class answers for it.
+			if (symbol.keyword === 'interface' && classes.has(symbol.name)) continue
 			const members = row.source.methods(symbol.name).map((entry) => entry.name)
 			if (members.length === 0) continue
 			const contract = `${symbol.name}Interface`

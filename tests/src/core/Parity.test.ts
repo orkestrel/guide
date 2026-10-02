@@ -219,6 +219,15 @@ describe('Parity', () => {
 		expect(report.declarations).not.toEqual([])
 	})
 
+	it('lets the class of a declaration merge answer for its interface half', () => {
+		const widget = `import type { Disposable } from '@orkestrel/lifecycle'\n${PARITY_WIDGET}export interface Widget extends Disposable {}\n`
+		const report = new Parity(
+			createParityFixture({ files: { 'src/core/Widget.ts': widget } }),
+		).inspect()
+
+		expect(report.declarations).toEqual([])
+	})
+
 	it('reports method membership and implementing-class contract drift', () => {
 		const guide = PARITY_GUIDE.replace(
 			'| `render` | Renders the widget. |',
