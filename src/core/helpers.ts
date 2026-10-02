@@ -1188,7 +1188,13 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
 
 /**
  * Joins the declaration head starting at `start` into one space-separated
- * line, consuming lines until the first that ends with `{`.
+ * line, consuming lines until the first that opens a body: one that ends with
+ * `{`, or one that closes an empty body with `{}` or `{ }`.
+ *
+ * @remarks
+ * A line ending with `{}` closes an empty body only after the head's generic
+ * parameter list has closed; inside that list, `{}` is an object type and an
+ * arrow's `=>` closes nothing.
  *
  * @param lines - The file's source lines
  * @param start - The index of the head's first line
@@ -1197,6 +1203,7 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
  * @example
  * ```ts
  * joinHead(['export class X {'], 0) // { text: 'export class X {', end: 0 }
+ * joinHead(['export interface Y extends X {}'], 0) // { text: 'export interface Y extends X {}', end: 0 }
  * ```
  */
 export function joinHead(lines: readonly string[], start: number): DeclarationHead | undefined {
@@ -1205,8 +1212,13 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 	for (let index = start; index < lines.length; index += 1) {
 		const line = lines[index]
 		if (line === undefined) break
-		parts.push(index === start ? line.trimEnd() : line.trim())
-		if (line.trimEnd().endsWith('{')) return { text: parts.join(' '), end: index }
+		const text = line.trimEnd()
+		parts.push(index === start ? text : text.trimStart())
+		if (text.endsWith('{')) return { text: parts.join(' '), end: index }
+		// Inside an open generic parameter list, `{}` is an object type, so it closes no body there.
+		const joined = parts.join(' ')
+		const depth = (joined.match(/</g)?.length ?? 0) - (joined.match(/(?<!=)>/g)?.length ?? 0)
+		if (depth <= 0 && /\{\s*\}$/.test(text)) return { text: joined, end: index }
 	}
 
 	return undefined
@@ -1248,7 +1260,8 @@ export function escapeRegExp(value: string): string {
  * optional heritage clause between the identifier and the opening `{`; the identifier is the head's
  * own run up to that list or clause, so it enters the key as literal text and no name reaches a
  * `RegExp`. Body lines are the raw source between the head and the first projected column-zero `}`,
- * keeping JSDoc evidence intact. Every balanced `<...>` span is removed from the head before its
+ * keeping JSDoc evidence intact; a head whose last line closes its own body with `{}` or `{ }`
+ * records an empty body. Every balanced `<...>` span is removed from the head before its
  * `extends` clause is read, so a `T extends Base` type parameter is never a base and `Base<T>`
  * reads as `Base`; a class's `implements` clause and everything after it is excluded, and a
  * qualified base such as `namespace.Base` is returned verbatim. The first head of a key that opens
@@ -1267,7 +1280,7 @@ export function escapeRegExp(value: string): string {
 export function collectDeclarations(source: string): ReadonlyMap<string, Declaration> {
 	const declarations = new Map<string, Declaration>()
 	const opener = /^export (?:class|interface) /
-	const grammar = /^export (class|interface) ([^\s<]+)(?:<.*>)?(?: .*)? \{$/
+	const grammar = /^export (class|interface) ([^\s<]+)(?:<.*>)?(?: .*)? \{(?:\s*\})?$/
 	const lines = extractSourceLines(source)
 	const projected = lines.map((line) => line.code)
 
@@ -1287,7 +1300,7 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 
 		let depth = 0
 		let flat = ''
-		for (const character of head.text.slice(`export ${key}`.length, -1)) {
+		for (const character of head.text.slice(`export ${key}`.length, head.text.lastIndexOf('{'))) {
 			if (character === '<') depth += 1
 			else if (character === '>') depth = Math.max(0, depth - 1)
 			else if (depth === 0) flat += character
@@ -1300,6 +1313,12 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 						.split(',')
 						.map((base) => base.trim())
 						.filter(isNonEmptyString)
+
+		// joinHead ends a head on `}` only where its line closes an empty body, so no close follows it.
+		if (head.text.endsWith('}')) {
+			declarations.set(key, { body: [], bases })
+			continue
+		}
 
 		for (let close = head.end + 1; close < projected.length; close += 1) {
 			if (projected[close] !== '}') continue

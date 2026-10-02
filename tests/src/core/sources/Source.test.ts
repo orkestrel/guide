@@ -835,6 +835,39 @@ describe('Source', () => {
 		expect(source.methods('StoreInterface').map((entry) => entry.name)).toEqual(['read'])
 	})
 
+	it('methods() reports the inherited members of a one-line empty declaration and reads the next declaration whole', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': [
+					'export interface TipInterface {',
+					'\tshow(): void',
+					'}',
+					'export interface TooltipInterface extends TipInterface {}',
+					'export interface ScrollspyInterface {',
+					'\trefresh(): void',
+					'}',
+					'',
+				].join('\n'),
+			},
+			module: 'module',
+		})
+		expect({
+			tooltip: source.methods('TooltipInterface').map((entry) => entry.name),
+			scrollspy: source.methods('ScrollspyInterface').map((entry) => entry.name),
+		}).toEqual({ tooltip: ['show'], scrollspy: ['refresh'] })
+	})
+
+	it('methods() skips a one-line empty interface head with no bases and reads the same-named class', () => {
+		const source = new Source({
+			files: {
+				'module/types.ts': ['export interface Widget {}', ''].join('\n'),
+				'module/Widget.ts': ['export class Widget {', '\trender(): void {}', '}', ''].join('\n'),
+			},
+			module: 'module',
+		})
+		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['render'])
+	})
+
 	it('methods() walks a transitive chain and visits a diamond base once', () => {
 		const source = new Source({
 			files: {

@@ -1577,6 +1577,66 @@ describe('joinHead', () => {
 		const lines = ['export const X = 1', 'export const Y = 2']
 		expect(joinHead(lines, 0)).toBeUndefined()
 	})
+
+	it('ends at a head whose line closes its own empty body', () => {
+		const lines = [
+			"export interface TooltipInterface extends TipInterface<'tooltip'> {}",
+			'export interface ScrollspyInterface {',
+			'\trefresh(): void',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: "export interface TooltipInterface extends TipInterface<'tooltip'> {}",
+			end: 0,
+		})
+	})
+
+	it('ends at an empty body written with a space between its braces', () => {
+		const lines = ['export class Empty extends Base { }', 'export class Next {', '}']
+		expect(joinHead(lines, 0)).toEqual({ text: 'export class Empty extends Base { }', end: 0 })
+	})
+
+	it('reads an empty object type inside a wrapped parameter list as a type, not a body', () => {
+		const lines = [
+			'export interface BoxInterface<',
+			'\tT = {}',
+			'> {',
+			'\treadonly count: number',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: 'export interface BoxInterface< T = {} > {',
+			end: 2,
+		})
+	})
+
+	it('reads an arrow inside a wrapped parameter list as no close of that list', () => {
+		const lines = [
+			'export interface HandlerInterface<',
+			'\tT = () => {}',
+			'> {',
+			'\thandle(): void',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: 'export interface HandlerInterface< T = () => {} > {',
+			end: 2,
+		})
+	})
+
+	it('ends a wrapped head at the line that closes its empty body', () => {
+		const lines = [
+			'export interface BoxInterface<',
+			'\tT = string,',
+			'> {}',
+			'export interface NextInterface {',
+			'}',
+		]
+		expect(joinHead(lines, 0)).toEqual({
+			text: 'export interface BoxInterface< T = string, > {}',
+			end: 2,
+		})
+	})
 })
 
 describe('escapeRegExp', () => {
@@ -1791,6 +1851,32 @@ describe('collectDeclarations', () => {
 	it('records nothing for a head that opens no column-zero close', () => {
 		const source = ['export interface B extends A {', '\twalk(): void', ''].join('\n')
 		expect(Object.fromEntries(collectDeclarations(source))).toEqual({})
+	})
+
+	it('records an empty body for a head that closes its own body and reads the next head whole', () => {
+		const source = [
+			'export interface TipInterface {',
+			'\tshow(): void',
+			'}',
+			"export interface TooltipInterface extends TipInterface<'tooltip'> {}",
+			"export interface PopoverInterface extends TipInterface<'popover'> { }",
+			'export interface BoxInterface<',
+			'\tT = string,',
+			'> {}',
+			'export class Tip implements TipInterface {}',
+			'export interface ScrollspyInterface extends TipInterface {',
+			'\trefresh(): void',
+			'}',
+			'',
+		].join('\n')
+		expect(Object.fromEntries(collectDeclarations(source))).toEqual({
+			'interface TipInterface': { body: ['\tshow(): void'], bases: [] },
+			'interface TooltipInterface': { body: [], bases: ['TipInterface'] },
+			'interface PopoverInterface': { body: [], bases: ['TipInterface'] },
+			'interface BoxInterface': { body: [], bases: [] },
+			'class Tip': { body: [], bases: [] },
+			'interface ScrollspyInterface': { body: ['\trefresh(): void'], bases: ['TipInterface'] },
+		})
 	})
 
 	it('keeps the first complete head of a key and drops a later one of the same key', () => {

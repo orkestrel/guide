@@ -646,7 +646,7 @@ export interface SourceManagerInterface {
 export interface DeclarationHead {
 	/** Holds the joined, space-separated head text. */
 	readonly text: string
-	/** Holds the index (within the source `lines`) of the line ending in `{`. */
+	/** Holds the index (within the source `lines`) of the line that carries the opening `{`. */
 	readonly end: number
 }
 
@@ -657,7 +657,7 @@ export interface DeclarationHead {
  * {@link collectDeclarations}).
  */
 export interface Declaration {
-	/** Holds the declaration's raw body lines, between the head and the column-zero closing `}`. */
+	/** Holds the declaration's raw body lines, between the head and the column-zero closing `}`; empty when the head's last line closes its own body. */
 	readonly body: readonly string[]
 	/** Lists the base identifiers its head extends, in head order. */
 	readonly bases: readonly string[]
