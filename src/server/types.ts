@@ -1,4 +1,4 @@
-import type { GuideModule, ParityResult, ParityRow } from '../core/types.js'
+import type { GuideModule, ParityResult, ParityRow } from '@src/core'
 
 /**
  * Reads a workspace inventory through the consumer's host reader.

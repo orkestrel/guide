@@ -6,13 +6,12 @@ import type {
 	GuideReadFunction,
 	GuideRunnerFunction,
 } from './types.js'
-import type { GuideModule, ParityFinding, ParityOptions } from '../core/types.js'
+import type { GuideModule, ParityFinding, ParityOptions } from '@src/core'
 import { isError, isFiniteNumber, isFunction, isObject, isString } from '@orkestrel/contract'
 import { globSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { Parity } from '../core/Parity.js'
-import { parseManifest } from '../core/parsers.js'
+import { Parity, parseManifest } from '@src/core'
 import { GUIDE_INDEX, GUIDE_MANIFEST, GUIDE_README, GUIDE_USAGE } from './constants.js'
 import {
 	formatGuideFinding,

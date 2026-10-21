@@ -1,4 +1,4 @@
-import type { ParityDirection } from '../core/types.js'
+import type { ParityDirection } from '@src/core'
 import { isNonEmptyString, isRecord, parseEnum, parseJSONAs } from '@orkestrel/contract'
 
 /**

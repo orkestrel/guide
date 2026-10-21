@@ -1,4 +1,4 @@
-import type { ManifestEntry, ParityFinding } from '../core/types.js'
+import type { ManifestEntry, ParityFinding } from '@src/core'
 import { isArray, isFunction, isInstance, isObject } from '@orkestrel/contract'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
