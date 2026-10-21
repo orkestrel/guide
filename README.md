@@ -18,7 +18,7 @@ npm install -D @orkestrel/guide
 
 ## Requirements
 
-- Node.js >= 22.12.0
+- Node.js >= 22.18.0
 - ESM and CommonJS
 
 ## Usage
