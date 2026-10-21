@@ -3270,7 +3270,7 @@ describe('findDrift', () => {
 	})
 
 	// A titled block on a declaration head that is not a function enters the comparison the
-	// same way a member's block does, so the `class` head below pairs with the guide fence of
+	// same way a member's block does, so the following `class` head pairs with the guide fence of
 	// its title.
 	const HEAD_GUIDE = [
 		'# Widget',
