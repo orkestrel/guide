@@ -100,6 +100,41 @@ export interface SourceLine {
 	readonly jsdoc: string | undefined
 }
 
+/** Represents one parenthesis frame in the source projector's lexical stack. */
+export interface SourceParenthesis {
+	readonly role: string
+	readonly phase: string
+	readonly binding: boolean
+	readonly previous: SourceParenthesis | undefined
+}
+
+/** Represents one template frame in the source projector's lexical stack. */
+export interface SourceTemplate {
+	readonly depth: number
+	readonly previous: SourceTemplate | undefined
+}
+
+/** Represents the immutable continuation of a source-character projection. */
+export interface SourceProjection {
+	readonly offset: number
+	readonly start: number
+	readonly token: number
+	readonly mode: string
+	readonly escaped: boolean
+	readonly regex: boolean
+	readonly operand: boolean
+	readonly member: boolean
+	readonly role: string | undefined
+	readonly restricted: string | undefined
+	readonly separated: boolean
+	readonly block: boolean
+	readonly line: boolean
+	readonly jsdoc: boolean
+	readonly present: boolean
+	readonly parentheses: SourceParenthesis | undefined
+	readonly templates: SourceTemplate | undefined
+}
+
 /**
  * Represents one eligible genuine JSDoc block paired with the physical record it documents —
  * the block's unwrapped body and the {@link SourceLine} that follows its chain.

@@ -131,17 +131,13 @@ describe('manifestEntryShape', () => {
 	})
 
 	it('generate: the GuideModule union produces either a string or an array, and is() holds either way', () => {
-		let sawString = false
-		let sawArray = false
-
-		for (let seed = TEST_SEED; seed < TEST_SEED + 50; seed += 1) {
-			const value = contract.generate(seededRandom(seed))
+		const observations = Array.from({ length: 50 }, (_, index) => {
+			const value = contract.generate(seededRandom(TEST_SEED + index))
 			expect(contract.is(value)).toBe(true)
-			if (isString(value.source)) sawString = true
-			if (isArray(value.source)) sawArray = true
-		}
+			return { string: isString(value.source), array: isArray(value.source) }
+		})
 
-		expect(sawString || sawArray).toBe(true)
+		expect(observations.some((value) => value.string || value.array)).toBe(true)
 	})
 
 	it('generate: is deterministic per seed', () => {

@@ -9,35 +9,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-class ChangingResult {
-	#reads = 0
-
-	get testModules(): ReadonlyArray<{ readonly state: () => string }> {
-		this.#reads += 1
-		return this.#reads === 1 ? [{ state: () => 'failed' }] : []
-	}
-
-	get unhandledErrors(): readonly unknown[] {
-		return []
-	}
-
-	get reads(): number {
-		return this.#reads
-	}
-}
-
-class ResultModule {
-	readonly extra = 'retained'
-	readonly #status: string
-
-	constructor(status: string) {
-		this.#status = status
-	}
-
-	state(): string {
-		return this.#status
-	}
-}
+import { ChangingResult, ResultModule } from '../../setupServer.js'
 
 describe('matchesGuideResult', () => {
 	it('owns foreign result collections before inspection', () => {

@@ -77,7 +77,8 @@ import {
 	computeSymbolKey,
 } from '@src/core'
 import { createMarkdown, isTableNode, renderMarkdown } from '@orkestrel/markdown'
-import { parseSync } from 'vite'
+import { readParsedSummaries } from '../../setupServer.js'
+import { extractBlocks, extractSummary, readTextSummaries } from '../../setup.js'
 import { describe, expect, it } from 'vitest'
 import {
 	DEMONSTRATION_HEADING_GUIDE,
@@ -86,6 +87,106 @@ import {
 	requireText,
 } from '../../setup.js'
 import { readInventory } from '@orkestrel/test/server'
+
+describe('scanner rewrite base readings', () => {
+	// Base 604e67a, src/core/helpers.ts:86: physical records retain CRLF offsets and template masking.
+	it('pins the base source projection across a doc block, template, and trailing line', () => {
+		const declaration = 'export const value = `a${1}` // x'
+		expect(extractSourceLines('/** One. */\r\n' + declaration + '\n')).toEqual([
+			{ source: '/** One. */', code: ' '.repeat(11), jsdoc: '/** One. */' },
+			{ source: declaration, code: 'export const value = ' + ' '.repeat(12), jsdoc: undefined },
+			{ source: '', code: '', jsdoc: undefined },
+		])
+	})
+
+	// Base 604e67a, src/core/helpers.ts:1210: reads start through the opening brace, including holes.
+	it('pins the base head answer and refuses reads outside its indexed scan', () => {
+		const rows = ['ignored', 'export interface Box<', ' T> extends Parent {', 'unread']
+		Object.defineProperty(rows, 0, {
+			get: () => {
+				throw new Error('read before start')
+			},
+		})
+		Object.defineProperty(rows, 3, {
+			get: () => {
+				throw new Error('read after head')
+			},
+		})
+		expect(joinHead(rows, 1)).toEqual({ text: 'export interface Box< T> extends Parent {', end: 2 })
+		const sparse = new Array<string>(3)
+		sparse[0] = 'export interface Box<'
+		sparse[2] = ' T> {'
+		expect(joinHead(sparse, 0)).toBeUndefined()
+	})
+
+	// Base 604e67a, src/core/helpers.ts:1286: an empty declaration yields to its later body and bases.
+	it('pins the base declaration replacement and nested generic erasure', () => {
+		const source =
+			'export interface Empty {}\nexport interface Empty extends A<X<Y>>, B {\n\tread(): void\n}\n'
+		expect([...collectDeclarations(source)]).toEqual([
+			['interface Empty', { body: ['\tread(): void'], bases: ['A', 'B'] }],
+		])
+		const declarations = Array.from(
+			{ length: 4_000 },
+			(_, index) => `export interface Item${index} {\n}\n`,
+		).join('')
+		const started = performance.now()
+		expect(collectDeclarations(declarations).size).toBe(4_000)
+		expect(performance.now() - started).toBeLessThan(2_000)
+	})
+
+	// Base 604e67a, src/core/helpers.ts:1436: follows the caller's iterator and closes at the boundary.
+	it('pins the base section answer and iterator closing without reading the next section', () => {
+		const parsed = createMarkdown('# Intro\n\n## Surface\n\nBody\n\n## Stop\n\nTrailing').document
+		const trace: Array<number | string> = []
+		const children: typeof parsed.children = []
+		Object.defineProperty(children, Symbol.iterator, {
+			value: function* () {
+				try {
+					for (const [index, block] of parsed.children.entries()) {
+						trace.push(index)
+						if (index === 4) throw new Error('read past section')
+						yield block
+					}
+				} finally {
+					trace.push('closed')
+				}
+			},
+		})
+		expect(selectSectionBlocks({ ...parsed, children }, 'Surface')).toEqual([parsed.children[2]])
+		expect(trace).toEqual([0, 1, 2, 3, 'closed'])
+	})
+
+	// Base 604e67a, src/core/helpers.ts:1967: a following eligible span supersedes the pending span.
+	it('pins the base comment chain and attaches only its final eligible span', () => {
+		const lines = extractSourceLines(
+			'/** First. */\n/** Second. */ /** Last. */\nexport const value = 1\n',
+		)
+		expect(extractSourceComments(lines)).toEqual([{ text: 'Last.', line: lines[2] }])
+	})
+
+	// Base 604e67a, src/core/helpers.ts:2367: returns the first quote after H1 without reading ahead.
+	it('pins the base tagline answer and stops at the selected quote', () => {
+		const document = createMarkdown('# Title\n\nParagraph\n\n> Pitch.\n\n## Stop').document
+		Object.defineProperty(document.children, 3, {
+			get: () => {
+				throw new Error('read past tagline')
+			},
+		})
+		expect(extractTagline(document)).toBe('Pitch.')
+	})
+
+	// Base 604e67a, src/core/helpers.ts:3102: starts at indentation and counts the source's CRLF bytes.
+	it('pins the base comment region across indentation and CRLF boundaries', () => {
+		const text = '// prefix\r\n\t/** Label. */\r\nexport function run(): void {}\r\n'
+		expect(locateComment(text, 'function run')).toEqual({ start: 11, end: 25 })
+		const nested = '/** outer\n * /** inner\n */\nexport const value = 1\n'
+		expect(locateComment(nested, 'const value')).toEqual({
+			start: 0,
+			end: nested.indexOf('*/') + 2,
+		})
+	})
+})
 
 const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'])
 
@@ -362,7 +463,7 @@ describe('extractSourceLines', () => {
 			const original = source.split(/\r?\n/)
 			const projected = extractSourceLines(source)
 			expect(projected).toHaveLength(original.length)
-			for (let index = 0; index < original.length; index += 1) {
+			for (const [index] of original.entries()) {
 				expect(projected[index]?.code.length).toBe(original[index]?.length)
 			}
 		}
@@ -3399,70 +3500,6 @@ describe('collectTitles', () => {
 // development dependency and this import never reaches `src/**`, which stays
 // free of a compiler and a parser.
 
-/** The parser's reading: each block comment's description against the export it precedes. */
-function readParsedSummaries(source: string): ReadonlyMap<string, string> {
-	const parsed = parseSync('control.ts', source)
-	const summaries = new Map<string, string>()
-
-	for (const statement of parsed.program.body) {
-		if (statement.type !== 'ExportNamedDeclaration') continue
-		const declaration = statement.declaration
-		if (declaration === null || declaration === undefined) continue
-
-		const names =
-			declaration.type === 'VariableDeclaration'
-				? declaration.declarations.map((entry) =>
-						entry.id.type === 'Identifier' ? entry.id.name : '',
-					)
-				: declaration.type === 'FunctionDeclaration' ||
-					  declaration.type === 'TSDeclareFunction' ||
-					  declaration.type === 'ClassDeclaration' ||
-					  declaration.type === 'TSInterfaceDeclaration' ||
-					  declaration.type === 'TSTypeAliasDeclaration'
-					? [declaration.id?.name ?? '']
-					: []
-
-		const preceding = parsed.comments.filter(
-			(comment) =>
-				comment.type === 'Block' &&
-				comment.value.startsWith('*') &&
-				comment.end <= statement.start &&
-				source.slice(comment.end, statement.start).trim() === '',
-		)
-		const attached = preceding[preceding.length - 1]
-		if (attached === undefined) continue
-
-		// The control's own unwrapping, deliberately independent of the reader's.
-		const body = attached.value
-			.replace(/^\*/, '')
-			.split('\n')
-			.map((line) => line.replace(/^\s*\*\s?/, ''))
-			.join('\n')
-		const tag = body.search(/(?:^|\n)@\w/)
-		const description = (tag < 0 ? body : body.slice(0, tag)).replace(/\s+/g, ' ').trim()
-
-		// An overload set declares one name several times; the first declaration
-		// answers for it, which is the reader's rule too.
-		for (const name of names) {
-			if (name.length === 0 || summaries.has(name)) continue
-			if (description.length > 0) summaries.set(name, description)
-		}
-	}
-
-	return summaries
-}
-
-/** The text reader's reading, over the same source. */
-function readTextSummaries(source: string): ReadonlyMap<string, string> {
-	const summaries = new Map<string, string>()
-	for (const symbol of extractExports(source)) {
-		if (symbol.summary !== undefined && !summaries.has(symbol.name)) {
-			summaries.set(symbol.name, symbol.summary)
-		}
-	}
-	return summaries
-}
-
 // The control fixtures both key readings and the locator run against: an overload set, a block a
 // blank line separates from its declaration, a block written inside a template literal, a
 // re-export-only barrel, and an owner carrying documented members followed by a declaration
@@ -3587,30 +3624,6 @@ const SOURCE = readInventory(new URL('../../../src/', import.meta.url), ['.'], {
 // string or a template literal; a scan of the file text cannot tell those apart. The case
 // `covers every doc block extractSourceComments attaches` is what proves this walk and the
 // reader that attaches blocks agree on the population.
-function extractBlocks(text: string): readonly string[] {
-	const blocks: string[] = []
-	const lines = extractSourceLines(text)
-	let open = -1
-
-	for (let index = 0; index < lines.length; index += 1) {
-		const projection = lines[index]?.jsdoc
-		if (projection === undefined) {
-			open = -1
-			continue
-		}
-		if (open < 0) open = index
-		if (!projection.includes('*/')) continue
-		blocks.push(
-			lines
-				.slice(open, index + 1)
-				.map((line) => line.source)
-				.join('\n'),
-		)
-		open = -1
-	}
-
-	return blocks
-}
 
 const CORPUS = Object.values(SOURCE).flatMap((text) => extractBlocks(text))
 
@@ -3625,13 +3638,6 @@ const DESCRIBED_FLOOR = 150
 // `extractMemberMethods` report over `src/`, which is the population the member half of the
 // locator's control runs over. The run that set it read 16 such members.
 const MEMBER_FLOOR = 12
-
-function extractSummary(comment: string): string {
-	const content = unwrapComment(comment)
-	const masked = maskFences(content.join('\n')).split('\n')
-	const tag = masked.findIndex((line) => /^[ \t]*@\w/.test(line))
-	return normalizeSummary(content.slice(0, tag < 0 ? content.length : tag).join('\n'))
-}
 
 // A column-aligned copy of `@orkestrel/scaffold`'s committed guide: the head of its
 // `## Surface` types table and its whole `CompilerInterface` methods table, with the prose

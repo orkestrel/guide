@@ -424,13 +424,11 @@ export class Parity implements ParityInterface {
 			files: this.#options.files,
 			modules: this.#options.modules,
 		})
-		let compared = false
-		for (const fence of row.guide.fences()) {
-			if (fence.language !== this.#options.language) continue
-			for (const imported of extractFenceImports(fence.code)) {
+		const compared = Iterator.from(row.guide.fences()).reduce((previous, fence) => {
+			if (fence.language !== this.#options.language) return previous
+			return Iterator.from(extractFenceImports(fence.code)).reduce((matched, imported) => {
 				const source = sources.source(imported.specifier)
-				if (source === undefined) continue
-				compared = true
+				if (source === undefined) return matched
 				const surface = source.surface().map((symbol) => symbol.name)
 				for (const name of findMissing(imported.names, surface)) {
 					findings.push({
@@ -438,8 +436,9 @@ export class Parity implements ParityInterface {
 						text: `${row.entry.spec} imports missing ${name} from ${imported.specifier}.`,
 					})
 				}
-			}
-		}
+				return true
+			}, previous)
+		}, false)
 		if (!compared) {
 			findings.push({ spec: row.entry.spec, text: `${row.entry.spec} has no mapped self import.` })
 		}
@@ -569,15 +568,18 @@ export class Parity implements ParityInterface {
 		for (const path of selectModuleKeys(inventory, normalizeDirectories(row.entry.source))) {
 			const text = files.get(path)
 			if (text === undefined) continue
-			let selected: { readonly span: MarkdownSpan; readonly example: SourceExample } | undefined
-			for (const key of keys) {
+			const selected = keys.reduce<
+				{ readonly span: MarkdownSpan; readonly example: SourceExample } | undefined
+			>((previous, key) => {
 				const span = locateComment(text, key)
-				if (span === undefined) continue
+				if (span === undefined) return previous
 				const comment = normalizeComment(text.slice(span.start, span.end))
 				const example = collectExamples(comment, target.name).find((entry) => entry.title === title)
-				if (example === undefined) continue
-				if (selected === undefined || span.start < selected.span.start) selected = { span, example }
-			}
+				if (example === undefined) return previous
+				return previous === undefined || span.start < previous.span.start
+					? { span, example }
+					: previous
+			}, undefined)
 			if (selected !== undefined) return { path, text, ...selected }
 		}
 		return undefined

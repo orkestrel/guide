@@ -1,4 +1,5 @@
 import type { SpawnSyncReturns } from 'node:child_process'
+import { parseSync } from 'vite'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { unlinkSync, writeFileSync } from 'node:fs'
@@ -47,5 +48,87 @@ process.stdout.write(JSON.stringify({ events, exitCode: process.exitCode ?? 0 })
 		})
 	} finally {
 		unlinkSync(entry)
+	}
+}
+
+export class ChangingResult {
+	#reads = 0
+
+	get testModules(): ReadonlyArray<{ readonly state: () => string }> {
+		this.#reads += 1
+		return this.#reads === 1 ? [new ResultModule('failed')] : []
+	}
+
+	get unhandledErrors(): readonly unknown[] {
+		return []
+	}
+
+	get reads(): number {
+		return this.#reads
+	}
+}
+
+export function readParsedSummaries(source: string): ReadonlyMap<string, string> {
+	const parsed = parseSync('control.ts', source)
+	const summaries = new Map<string, string>()
+
+	for (const statement of parsed.program.body) {
+		if (statement.type !== 'ExportNamedDeclaration') continue
+		const declaration = statement.declaration
+		if (declaration === null || declaration === undefined) continue
+
+		const names =
+			declaration.type === 'VariableDeclaration'
+				? declaration.declarations.map((entry) =>
+						entry.id.type === 'Identifier' ? entry.id.name : '',
+					)
+				: declaration.type === 'FunctionDeclaration' ||
+					  declaration.type === 'TSDeclareFunction' ||
+					  declaration.type === 'ClassDeclaration' ||
+					  declaration.type === 'TSInterfaceDeclaration' ||
+					  declaration.type === 'TSTypeAliasDeclaration'
+					? [declaration.id?.name ?? '']
+					: []
+
+		const preceding = parsed.comments.filter(
+			(comment) =>
+				comment.type === 'Block' &&
+				comment.value.startsWith('*') &&
+				comment.end <= statement.start &&
+				source.slice(comment.end, statement.start).trim() === '',
+		)
+		const attached = preceding[preceding.length - 1]
+		if (attached === undefined) continue
+
+		// The control's own unwrapping, deliberately independent of the reader's.
+		const body = attached.value
+			.replace(/^\*/, '')
+			.split('\n')
+			.map((line) => line.replace(/^\s*\*\s?/, ''))
+			.join('\n')
+		const tag = body.search(/(?:^|\n)@\w/)
+		const description = (tag < 0 ? body : body.slice(0, tag)).replace(/\s+/g, ' ').trim()
+
+		// An overload set declares one name several times; the first declaration
+		// answers for it, which is the reader's rule too.
+		for (const name of names) {
+			if (name.length === 0 || summaries.has(name)) continue
+			if (description.length > 0) summaries.set(name, description)
+		}
+	}
+
+	return summaries
+}
+
+export class ResultModule {
+	readonly extra = 'retained'
+	readonly #status: string
+
+	constructor(status: string) {
+		this.#status = status
+	}
+
+	state(): string {
+		return this.#status
 	}
 }

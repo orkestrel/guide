@@ -2,6 +2,13 @@ import type { TableNode } from '@orkestrel/markdown'
 import type { ParityOptions, SourceInterface, SurfaceSymbol } from '@src/core'
 import { parseDocument } from '@orkestrel/markdown'
 import { requireValue } from '@orkestrel/test'
+import {
+	extractExports,
+	extractSourceLines,
+	maskFences,
+	normalizeSummary,
+	unwrapComment,
+} from '@src/core'
 
 // ── Deterministic randomness ──────────────────────────────────────────────────
 // The single house seed for tests that need generated/random input (contract
@@ -275,4 +282,40 @@ export function readStoreReadings(source: SourceInterface): StoreReadings {
 		base: source.methods('ReadInterface').map((entry) => entry.name),
 		absent: source.methods('AbsentInterface').map((entry) => entry.name),
 	}
+}
+
+export function readTextSummaries(source: string): ReadonlyMap<string, string> {
+	const summaries = new Map<string, string>()
+	for (const symbol of extractExports(source)) {
+		if (symbol.summary !== undefined && !summaries.has(symbol.name)) {
+			summaries.set(symbol.name, symbol.summary)
+		}
+	}
+	return summaries
+}
+
+export function extractBlocks(text: string): readonly string[] {
+	const blocks: string[] = []
+	const lines = extractSourceLines(text)
+	lines.reduce<number | undefined>((open, line, index) => {
+		const projection = line.jsdoc
+		if (projection === undefined) return undefined
+		const start = open ?? index
+		if (!projection.includes('*/')) return start
+		blocks.push(
+			lines
+				.slice(start, index + 1)
+				.map((record) => record.source)
+				.join('\n'),
+		)
+		return undefined
+	}, undefined)
+	return blocks
+}
+
+export function extractSummary(comment: string): string {
+	const content = unwrapComment(comment)
+	const masked = maskFences(content.join('\n')).split('\n')
+	const tag = masked.findIndex((line) => /^[ \t]*@\w/.test(line))
+	return normalizeSummary(content.slice(0, tag < 0 ? content.length : tag).join('\n'))
 }

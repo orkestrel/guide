@@ -1,5 +1,6 @@
 import type {
 	BlockNode,
+	BlockquoteNode,
 	CodeBlockNode,
 	InlineNode,
 	MarkdownDocument,
@@ -22,6 +23,7 @@ import type {
 	SourceExample,
 	SourceInterface,
 	SourceLine,
+	SourceProjection,
 	SurfaceSymbol,
 } from './types.js'
 import {
@@ -85,495 +87,432 @@ import { isExportKeyword } from './validators.js'
  */
 export function extractSourceLines(source: string): readonly SourceLine[] {
 	const lines: SourceLine[] = []
-	let characters: string[] = []
-	let jsdocCharacters: string[] = []
+	const tokens: Array<{ readonly code: string; readonly jsdoc?: string }> = []
 	const identifier = /#?[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*/uy
-	const templates: number[] = []
-	const parentheses: Array<{ role: string; phase: string; binding: boolean }> = []
-	let start = 0
-	let mode = 'code'
-	let escaped = false
-	let regexClass = false
-	let operandExpected = true
-	let memberExpected = false
-	let pendingRole: string | undefined
-	let restricted: string | undefined
-	let separated = false
-	let blockTemplate = false
-	let lineTemplate = false
-	let jsdoc = false
-	let jsdocPresent = false
-
-	for (let offset = 0; offset < source.length; offset += 1) {
-		const character = source[offset]
-		if (character === undefined) continue
-		const next = source[offset + 1]
-		const crlf = character === '\r' && next === '\n'
-		if (character === '\n' || crlf) {
-			const code = characters.join('')
-			const present = jsdocPresent || jsdoc
-			lines.push({
-				source: source.slice(start, offset),
-				code,
-				jsdoc: present ? jsdocCharacters.join('').padEnd(code.length, ' ') : undefined,
-			})
-			characters = []
-			jsdocCharacters = []
-			jsdocPresent = jsdoc
-			if (mode !== 'template') separated = true
-			if (restricted !== undefined) {
-				operandExpected = true
-				memberExpected = false
-				pendingRole = undefined
-				restricted = undefined
-			}
-			if (crlf) offset += 1
-			start = offset + 1
-
-			if (mode === 'line') mode = lineTemplate ? 'templateCode' : 'code'
-			else if (mode === 'regex') {
-				mode = 'code'
-				operandExpected = true
-				regexClass = false
-			} else if (mode === 'templateLine' || mode === 'templateRegex') {
-				mode = 'templateCode'
-				operandExpected = true
-				regexClass = false
-			} else if (mode === 'single' || mode === 'double') {
-				if (!escaped) {
-					mode = 'code'
-					operandExpected = true
-				}
-			} else if (mode === 'templateSingle' || mode === 'templateDouble') {
-				if (!escaped) {
-					mode = 'templateCode'
-					operandExpected = true
+	const numeric = /[A-Za-z0-9_$.]+/y
+	const final = source.split('').reduce<SourceProjection>(
+		(state, character, offset) => {
+			if (offset < state.offset) return state
+			const next = source[offset + 1]
+			const crlf = character === '\r' && next === '\n'
+			if (character === '\n' || crlf) {
+				const parts = tokens.slice(state.token)
+				const code = parts.map((part) => part.code).join('')
+				lines.push({
+					source: source.slice(state.start, offset),
+					code,
+					jsdoc:
+						state.present || state.jsdoc
+							? parts.map((part) => part.jsdoc ?? ' '.repeat(part.code.length)).join('')
+							: undefined,
+				})
+				const regular = state.mode === 'single' || state.mode === 'double'
+				const quoted = state.mode === 'templateSingle' || state.mode === 'templateDouble'
+				const reset =
+					state.mode === 'regex' || state.mode === 'templateLine' || state.mode === 'templateRegex'
+				const mode =
+					state.mode === 'line'
+						? state.line
+							? 'templateCode'
+							: 'code'
+						: state.mode === 'regex'
+							? 'code'
+							: state.mode === 'templateLine' || state.mode === 'templateRegex'
+								? 'templateCode'
+								: regular && !state.escaped
+									? 'code'
+									: quoted && !state.escaped
+										? 'templateCode'
+										: state.mode
+				return {
+					...state,
+					offset: offset + (crlf ? 2 : 1),
+					start: offset + (crlf ? 2 : 1),
+					token: tokens.length,
+					mode,
+					escaped: false,
+					regex: reset ? false : state.regex,
+					operand:
+						state.restricted !== undefined || reset || ((regular || quoted) && !state.escaped)
+							? true
+							: state.operand,
+					member: state.restricted !== undefined ? false : state.member,
+					role: state.restricted !== undefined ? undefined : state.role,
+					restricted: undefined,
+					separated: state.mode !== 'template' ? true : state.separated,
+					present: state.jsdoc,
 				}
 			}
-			escaped = false
-			continue
-		}
-
-		if (mode === 'line' || mode === 'templateLine') {
-			characters.push(' ')
-			continue
-		}
-
-		if (mode === 'block' || mode === 'templateBlock') {
-			characters.push(' ')
-			if (jsdoc) jsdocCharacters.push(character)
-			if (character === '*' && next === '/') {
-				characters.push(' ')
-				if (jsdoc) {
-					jsdocCharacters.push('/')
-					jsdoc = false
-				}
-				offset += 1
-				mode = blockTemplate ? 'templateCode' : 'code'
+			if (state.mode === 'line' || state.mode === 'templateLine') {
+				tokens.push({ code: ' ' })
+				return state
 			}
-			continue
-		}
-
-		if (mode === 'single' || mode === 'double') {
-			characters.push(character)
-			if (escaped) {
-				escaped = false
-				continue
-			}
-			if (character === '\\') {
-				escaped = true
-				continue
-			}
-			if ((mode === 'single' && character === "'") || (mode === 'double' && character === '"')) {
-				mode = 'code'
-				operandExpected = false
-			}
-			continue
-		}
-
-		if (mode === 'regex') {
-			characters.push(character)
-			if (escaped) {
-				escaped = false
-				continue
-			}
-			if (character === '\\') {
-				escaped = true
-				continue
-			}
-			if (character === '[') regexClass = true
-			else if (character === ']') regexClass = false
-			else if (character === '/' && !regexClass) {
-				mode = 'code'
-				operandExpected = false
-			}
-			continue
-		}
-
-		if (mode === 'templateSingle' || mode === 'templateDouble') {
-			characters.push(' ')
-			if (escaped) {
-				escaped = false
-				continue
-			}
-			if (character === '\\') {
-				escaped = true
-				continue
+			if (state.mode === 'block' || state.mode === 'templateBlock') {
+				const closes = character === '*' && next === '/'
+				tokens.push({
+					code: closes ? '  ' : ' ',
+					...(state.jsdoc ? { jsdoc: closes ? '*/' : character } : {}),
+				})
+				return closes
+					? {
+							...state,
+							offset: offset + 2,
+							jsdoc: false,
+							mode: state.block ? 'templateCode' : 'code',
+						}
+					: state
 			}
 			if (
-				(mode === 'templateSingle' && character === "'") ||
-				(mode === 'templateDouble' && character === '"')
+				state.mode === 'single' ||
+				state.mode === 'double' ||
+				state.mode === 'templateSingle' ||
+				state.mode === 'templateDouble'
 			) {
-				mode = 'templateCode'
-				operandExpected = false
+				const template = state.mode === 'templateSingle' || state.mode === 'templateDouble'
+				tokens.push({ code: template ? ' ' : character })
+				if (state.escaped) return { ...state, escaped: false }
+				if (character === '\\') return { ...state, escaped: true }
+				const closes =
+					state.mode === 'single' || state.mode === 'templateSingle'
+						? character === "'"
+						: character === '"'
+				return closes
+					? { ...state, mode: template ? 'templateCode' : 'code', operand: false }
+					: state
 			}
-			continue
-		}
-
-		if (mode === 'templateRegex') {
-			characters.push(' ')
-			if (escaped) {
-				escaped = false
-				continue
+			if (state.mode === 'regex' || state.mode === 'templateRegex') {
+				tokens.push({ code: state.mode === 'templateRegex' ? ' ' : character })
+				if (state.escaped) return { ...state, escaped: false }
+				if (character === '\\') return { ...state, escaped: true }
+				if (character === '[') return { ...state, regex: true }
+				if (character === ']') return { ...state, regex: false }
+				if (character === '/' && !state.regex)
+					return {
+						...state,
+						mode: state.mode === 'templateRegex' ? 'templateCode' : 'code',
+						operand: false,
+					}
+				return state
 			}
-			if (character === '\\') {
-				escaped = true
-				continue
+			if (state.mode === 'template') {
+				const interpolation = !state.escaped && character === '$' && next === '{'
+				tokens.push({ code: interpolation ? '  ' : ' ' })
+				if (state.escaped) return { ...state, escaped: false }
+				if (character === '\\') return { ...state, escaped: true }
+				if (interpolation)
+					return {
+						...state,
+						offset: offset + 2,
+						templates: state.templates === undefined ? undefined : { ...state.templates, depth: 1 },
+						mode: 'templateCode',
+						operand: true,
+						member: false,
+						role: undefined,
+					}
+				if (character === '\x60') {
+					const templates = state.templates?.previous
+					return {
+						...state,
+						templates,
+						mode: templates === undefined ? 'code' : 'templateCode',
+						operand: false,
+					}
+				}
+				return state
 			}
-			if (character === '[') regexClass = true
-			else if (character === ']') regexClass = false
-			else if (character === '/' && !regexClass) {
-				mode = 'templateCode'
-				operandExpected = false
+			const template = state.mode === 'templateCode'
+			if (character === '/' && next === '/') {
+				tokens.push({ code: '  ' })
+				return {
+					...state,
+					offset: offset + 2,
+					line: template,
+					mode: template ? 'templateLine' : 'line',
+				}
 			}
-			continue
-		}
-
-		if (mode === 'template') {
-			characters.push(' ')
-			if (escaped) {
-				escaped = false
-				continue
+			if (character === '/' && next === '*') {
+				const jsdoc = !template && source[offset + 2] === '*'
+				tokens.push({ code: '  ', ...(jsdoc ? { jsdoc: '/*' } : {}) })
+				return {
+					...state,
+					offset: offset + 2,
+					block: template,
+					mode: template ? 'templateBlock' : 'block',
+					jsdoc: jsdoc || state.jsdoc,
+					present: jsdoc || state.present,
+				}
 			}
-			if (character === '\\') {
-				escaped = true
-				continue
+			if (character === "'" || character === '"' || character === '\x60') {
+				tokens.push({ code: template || character === '\x60' ? ' ' : character })
+				return {
+					...state,
+					mode:
+						character === '\x60'
+							? 'template'
+							: character === "'"
+								? template
+									? 'templateSingle'
+									: 'single'
+								: template
+									? 'templateDouble'
+									: 'double',
+					templates:
+						character === '\x60' ? { depth: 0, previous: state.templates } : state.templates,
+					escaped: false,
+					separated: false,
+					restricted: undefined,
+				}
 			}
-			if (character === '$' && next === '{') {
-				characters.push(' ')
-				offset += 1
-				const index = templates.length - 1
-				if (index >= 0) templates[index] = 1
-				mode = 'templateCode'
-				operandExpected = true
-				memberExpected = false
-				pendingRole = undefined
-				continue
+			const visible = template ? ' ' : character
+			if (character === '/' && next === '=' && !state.operand) {
+				tokens.push({ code: template ? '  ' : '/=' })
+				return {
+					...state,
+					offset: offset + 2,
+					operand: true,
+					member: false,
+					role: undefined,
+					separated: false,
+					restricted: undefined,
+				}
 			}
-			if (character === '`') {
-				templates.pop()
-				mode = templates.length === 0 ? 'code' : 'templateCode'
-				operandExpected = false
+			if (character === '/') {
+				tokens.push({ code: visible })
+				return state.operand
+					? {
+							...state,
+							mode: template ? 'templateRegex' : 'regex',
+							escaped: false,
+							regex: false,
+							separated: false,
+							restricted: undefined,
+						}
+					: {
+							...state,
+							operand: true,
+							member: false,
+							role: undefined,
+							separated: false,
+							restricted: undefined,
+						}
 			}
-			continue
-		}
-
-		const templateCode = mode === 'templateCode'
-		if (character === '/' && next === '/') {
-			characters.push(' ', ' ')
-			offset += 1
-			lineTemplate = templateCode
-			mode = templateCode ? 'templateLine' : 'line'
-			continue
-		}
-		if (character === '/' && next === '*') {
-			characters.push(' ', ' ')
-			if (!templateCode && source[offset + 2] === '*') {
-				const column = offset - start
-				const width = jsdocCharacters.join('').length
-				jsdocCharacters.push(' '.repeat(column - width), '/', '*')
-				jsdoc = true
-				jsdocPresent = true
+			identifier.lastIndex = offset
+			const matched = identifier.exec(source)
+			if (matched !== null) {
+				const token = matched[0]
+				tokens.push({ code: template ? ' '.repeat(token.length) : token })
+				const stepped = {
+					...state,
+					offset: offset + token.length,
+					restricted: undefined,
+					separated: false,
+				}
+				const frame = state.parentheses
+				if (token.startsWith('#'))
+					return { ...stepped, operand: false, member: false, role: undefined }
+				if (state.member) return { ...stepped, member: false, operand: false, role: undefined }
+				if (state.restricted === 'label')
+					return { ...stepped, operand: false, role: undefined, restricted: 'complete' }
+				if (/^(?:if|while|with)$/.test(token))
+					return { ...stepped, role: 'statement', operand: true }
+				if (token === 'for') return { ...stepped, role: 'for', operand: true }
+				if (token === 'export') return { ...stepped, role: 'export', operand: true }
+				if (token === 'default' && state.role === 'export')
+					return { ...stepped, role: undefined, operand: true }
+				if (/^(?:switch|catch)$/.test(token)) return { ...stepped, role: 'block', operand: true }
+				if (token === 'await' && state.role === 'for') return { ...stepped, operand: true }
+				if (
+					/^(?:return|throw|case|delete|void|typeof|new|await|yield|else|do|extends|in|instanceof)$/.test(
+						token,
+					)
+				)
+					return { ...stepped, role: undefined, operand: true }
+				if (/^(?:break|continue)$/.test(token))
+					return { ...stepped, role: undefined, operand: false, restricted: 'label' }
+				if (token === 'debugger')
+					return { ...stepped, role: undefined, operand: false, restricted: 'complete' }
+				if (
+					token === 'of' &&
+					frame?.role === 'for' &&
+					frame.phase === 'left' &&
+					!frame.binding &&
+					!state.operand
+				)
+					return {
+						...stepped,
+						parentheses: { ...frame, phase: 'right' },
+						operand: true,
+						role: undefined,
+					}
+				if (/^(?:const|let|var)$/.test(token) && frame?.role === 'for' && frame.phase === 'left')
+					return {
+						...stepped,
+						parentheses: { ...frame, binding: true },
+						operand: true,
+						role: undefined,
+					}
+				return {
+					...stepped,
+					parentheses: frame?.binding === true ? { ...frame, binding: false } : frame,
+					operand: false,
+					role: undefined,
+				}
 			}
-			offset += 1
-			blockTemplate = templateCode
-			mode = templateCode ? 'templateBlock' : 'block'
-			continue
-		}
-
-		if (character === "'") {
-			characters.push(templateCode ? ' ' : character)
-			mode = templateCode ? 'templateSingle' : 'single'
-			escaped = false
-			separated = false
-			restricted = undefined
-			continue
-		}
-		if (character === '"') {
-			characters.push(templateCode ? ' ' : character)
-			mode = templateCode ? 'templateDouble' : 'double'
-			escaped = false
-			separated = false
-			restricted = undefined
-			continue
-		}
-		if (character === '`') {
-			characters.push(' ')
-			templates.push(0)
-			mode = 'template'
-			escaped = false
-			separated = false
-			restricted = undefined
-			continue
-		}
-
-		const visible = templateCode ? ' ' : character
-		if (character === '/' && next === '=' && !operandExpected) {
-			characters.push(visible, templateCode ? ' ' : '=')
-			offset += 1
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			separated = false
-			restricted = undefined
-			continue
-		}
-		if (character === '/') {
-			characters.push(visible)
-			if (operandExpected) {
-				mode = templateCode ? 'templateRegex' : 'regex'
-				escaped = false
-				regexClass = false
-			} else {
-				operandExpected = true
-				memberExpected = false
-				pendingRole = undefined
+			if (/[0-9]/.test(character)) {
+				numeric.lastIndex = offset
+				const token = numeric.exec(source)?.[0] ?? character
+				tokens.push({ code: template ? ' '.repeat(token.length) : token })
+				return {
+					...state,
+					offset: offset + token.length,
+					operand: false,
+					member: false,
+					role: undefined,
+					restricted: undefined,
+					separated: false,
+				}
 			}
-			separated = false
-			restricted = undefined
-			continue
-		}
-
-		identifier.lastIndex = offset
-		const identifierMatch = identifier.exec(source)
-		if (identifierMatch !== null) {
-			const token = identifierMatch[0]
-			characters.push(templateCode ? ' '.repeat(token.length) : token)
-			if (token.startsWith('#')) {
-				operandExpected = false
-				memberExpected = false
-				pendingRole = undefined
-				restricted = undefined
-				separated = false
-				offset += token.length - 1
-				continue
+			if ((character === '!' || character === '=') && next === '=') {
+				const width = source[offset + 2] === '=' ? 3 : 2
+				tokens.push({ code: template ? ' '.repeat(width) : source.slice(offset, offset + width) })
+				return {
+					...state,
+					offset: offset + width,
+					operand: true,
+					member: false,
+					role: undefined,
+					restricted: undefined,
+					separated: false,
+				}
 			}
-			const frame = parentheses[parentheses.length - 1]
-			const label = restricted === 'label'
-			restricted = undefined
-			separated = false
-			if (memberExpected) {
-				memberExpected = false
-				operandExpected = false
-				pendingRole = undefined
-			} else if (label) {
-				operandExpected = false
-				pendingRole = undefined
-				restricted = 'complete'
-			} else if (/^(?:if|while|with)$/.test(token)) {
-				pendingRole = 'statement'
-				operandExpected = true
-			} else if (token === 'for') {
-				pendingRole = 'for'
-				operandExpected = true
-			} else if (token === 'export') {
-				pendingRole = 'export'
-				operandExpected = true
-			} else if (token === 'default' && pendingRole === 'export') {
-				pendingRole = undefined
-				operandExpected = true
-			} else if (/^(?:switch|catch)$/.test(token)) {
-				pendingRole = 'block'
-				operandExpected = true
-			} else if (token === 'await' && pendingRole === 'for') {
-				operandExpected = true
-			} else if (
-				/^(?:return|throw|case|delete|void|typeof|new|await|yield|else|do|extends)$/.test(token)
-			) {
-				pendingRole = undefined
-				operandExpected = true
-			} else if (/^(?:in|instanceof)$/.test(token)) {
-				pendingRole = undefined
-				operandExpected = true
-			} else if (/^(?:break|continue)$/.test(token)) {
-				pendingRole = undefined
-				operandExpected = false
-				restricted = 'label'
-			} else if (token === 'debugger') {
-				pendingRole = undefined
-				operandExpected = false
-				restricted = 'complete'
-			} else if (
-				token === 'of' &&
+			if ((character === '+' && next === '+') || (character === '-' && next === '-')) {
+				tokens.push({ code: template ? '  ' : character + next })
+				return {
+					...state,
+					offset: offset + 2,
+					operand: state.separated ? true : state.operand,
+					member: false,
+					role: undefined,
+					restricted: undefined,
+					separated: false,
+				}
+			}
+			if (character === '.' && next === '.' && source[offset + 2] === '.') {
+				tokens.push({ code: template ? '   ' : '...' })
+				return {
+					...state,
+					offset: offset + 3,
+					operand: true,
+					member: false,
+					role: undefined,
+					restricted: undefined,
+					separated: false,
+				}
+			}
+			if (character === '?' && next === '.') {
+				tokens.push({ code: template ? '  ' : '?.' })
+				return {
+					...state,
+					offset: offset + 2,
+					operand: false,
+					member: true,
+					role: undefined,
+					restricted: undefined,
+					separated: false,
+				}
+			}
+			tokens.push({ code: visible })
+			if (/\s/.test(character)) return state
+			const stepped = {
+				...state,
+				separated: false,
+				restricted: undefined,
+				role: undefined,
+				member: false,
+			}
+			const frame = state.parentheses
+			if (character === '(')
+				return {
+					...stepped,
+					parentheses: {
+						role: state.role ?? 'plain',
+						phase: 'left',
+						binding: false,
+						previous: frame,
+					},
+					operand: true,
+				}
+			if (character === ')')
+				return {
+					...stepped,
+					parentheses: frame?.previous,
+					operand: frame?.role === 'statement' || frame?.role === 'for',
+				}
+			if (character === ';')
+				return {
+					...stepped,
+					parentheses:
+						frame?.role === 'for' && frame.phase === 'left'
+							? { ...frame, phase: 'classic' }
+							: frame,
+					operand: true,
+				}
+			if (character === '.') return { ...stepped, operand: false, member: true }
+			const parentheses =
+				(character === ']' || character === '}') &&
 				frame?.role === 'for' &&
 				frame.phase === 'left' &&
-				!frame.binding &&
-				!operandExpected
-			) {
-				frame.phase = 'right'
-				operandExpected = true
-				pendingRole = undefined
-			} else if (
-				/^(?:const|let|var)$/.test(token) &&
-				frame?.role === 'for' &&
-				frame.phase === 'left'
-			) {
-				frame.binding = true
-				operandExpected = true
-				pendingRole = undefined
-			} else {
-				if (frame?.binding === true) frame.binding = false
-				operandExpected = false
-				pendingRole = undefined
-			}
-			offset += token.length - 1
-			continue
-		}
-		if (/[0-9]/.test(character)) {
-			let end = offset + 1
-			while (end < source.length) {
-				const part = source[end]
-				if (part === undefined || !/[A-Za-z0-9_$.]/.test(part)) break
-				end += 1
-			}
-			const token = source.slice(offset, end)
-			characters.push(templateCode ? ' '.repeat(token.length) : token)
-			operandExpected = false
-			memberExpected = false
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			offset = end - 1
-			continue
-		}
-
-		if (
-			(character === '!' && next === '=' && source[offset + 2] === '=') ||
-			(character === '=' && next === '=' && source[offset + 2] === '=')
-		) {
-			characters.push(visible, templateCode ? '  ' : source.slice(offset + 1, offset + 3))
-			offset += 2
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			continue
-		}
-		if ((character === '!' || character === '=') && next === '=') {
-			characters.push(visible, templateCode ? ' ' : '=')
-			offset += 1
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			continue
-		}
-		if ((character === '+' && next === '+') || (character === '-' && next === '-')) {
-			characters.push(visible, templateCode ? ' ' : next)
-			offset += 1
-			if (separated) operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			continue
-		}
-		if (character === '.' && next === '.' && source[offset + 2] === '.') {
-			characters.push(visible, templateCode ? '  ' : '..')
-			offset += 2
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			continue
-		}
-		if (character === '?' && next === '.') {
-			characters.push(visible, templateCode ? ' ' : '.')
-			offset += 1
-			operandExpected = false
-			memberExpected = true
-			pendingRole = undefined
-			restricted = undefined
-			separated = false
-			continue
-		}
-
-		characters.push(visible)
-		if (/\s/.test(character)) continue
-		separated = false
-		restricted = undefined
-		if (character === '(') {
-			parentheses.push({ role: pendingRole ?? 'plain', phase: 'left', binding: false })
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			continue
-		}
-		if (character === ')') {
-			const frame = parentheses.pop()
-			operandExpected = frame?.role === 'statement' || frame?.role === 'for'
-			memberExpected = false
-			pendingRole = undefined
-			continue
-		}
-		if (character === ';') {
-			const frame = parentheses[parentheses.length - 1]
-			if (frame?.role === 'for' && frame.phase === 'left') frame.phase = 'classic'
-			operandExpected = true
-			memberExpected = false
-			pendingRole = undefined
-			continue
-		}
-		if (character === '.') {
-			operandExpected = false
-			memberExpected = true
-			pendingRole = undefined
-			continue
-		}
-		if (character === ']' || character === '}') {
-			const frame = parentheses[parentheses.length - 1]
-			if (frame?.role === 'for' && frame.phase === 'left' && frame.binding) {
-				frame.binding = false
-			}
-		}
-		if (character === ']') operandExpected = false
-		else if (character === '}') {
-			const index = templates.length - 1
-			const depth = templates[index]
-			if (templateCode && index >= 0 && depth !== undefined) {
-				templates[index] = depth - 1
-				if (depth === 1) mode = 'template'
-			}
-			operandExpected = false
-		} else if (character === '{') {
-			const index = templates.length - 1
-			const depth = templates[index]
-			if (templateCode && index >= 0 && depth !== undefined) templates[index] = depth + 1
-			operandExpected = true
-		} else if (character !== '!') operandExpected = true
-		memberExpected = false
-		pendingRole = undefined
-	}
-
-	const code = characters.join('')
-	const present = jsdocPresent || jsdoc
+				frame.binding
+					? { ...frame, binding: false }
+					: frame
+			if (character === ']') return { ...stepped, parentheses, operand: false }
+			const top = state.templates
+			if (character === '}')
+				return {
+					...stepped,
+					parentheses,
+					operand: false,
+					templates: template && top !== undefined ? { ...top, depth: top.depth - 1 } : top,
+					mode: template && top?.depth === 1 ? 'template' : state.mode,
+				}
+			if (character === '{')
+				return {
+					...stepped,
+					parentheses,
+					operand: true,
+					templates: template && top !== undefined ? { ...top, depth: top.depth + 1 } : top,
+				}
+			return { ...stepped, parentheses, operand: character !== '!' ? true : state.operand }
+		},
+		{
+			offset: 0,
+			start: 0,
+			token: 0,
+			mode: 'code',
+			escaped: false,
+			regex: false,
+			operand: true,
+			member: false,
+			role: undefined,
+			restricted: undefined,
+			separated: false,
+			block: false,
+			line: false,
+			jsdoc: false,
+			present: false,
+			parentheses: undefined,
+			templates: undefined,
+		},
+	)
+	const parts = tokens.slice(final.token)
+	const code = parts.map((part) => part.code).join('')
 	lines.push({
-		source: source.slice(start),
+		source: source.slice(final.start),
 		code,
-		jsdoc: present ? jsdocCharacters.join('').padEnd(code.length, ' ') : undefined,
+		jsdoc:
+			final.present || final.jsdoc
+				? parts.map((part) => part.jsdoc ?? ' '.repeat(part.code.length)).join('')
+				: undefined,
 	})
 	return lines
 }
@@ -832,8 +771,7 @@ export function extractFenceImports(fence: string): readonly FenceImport[] {
 	const results: FenceImport[] = []
 	const pattern = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/gs
 
-	let match: RegExpExecArray | null
-	while ((match = pattern.exec(fence)) !== null) {
+	for (const match of fence.matchAll(pattern)) {
 		const body = match[1]
 		const specifier = match[2]
 		if (body === undefined || specifier === undefined) continue
@@ -1007,14 +945,16 @@ export function normalizeIdentifier(code: string): string {
  * ```
  */
 export function extractCellText(cell: readonly InlineNode[]): string {
-	let text = ''
-	for (const node of cell) {
-		if (isCodeSpanNode(node)) text += `\`${node.value}\``
-		else if (isEmphasisNode(node) || isLinkNode(node) || isImageNode(node)) {
-			text += extractCellText(node.children)
-		} else text += flattenText(node)
-	}
-	return text
+	return Iterator.from(cell)
+		.map((node) => {
+			if (isCodeSpanNode(node)) return `\`${node.value}\``
+			if (isEmphasisNode(node) || isLinkNode(node) || isImageNode(node)) {
+				return extractCellText(node.children)
+			}
+			return flattenText(node)
+		})
+		.toArray()
+		.join('')
 }
 
 /**
@@ -1044,20 +984,18 @@ export function extractCellText(cell: readonly InlineNode[]): string {
  */
 export function buildCell(text: string): readonly InlineNode[] {
 	const nodes: InlineNode[] = []
-	const spans = /`([^`]+)`/g
-	let cursor = 0
-	let span: RegExpExecArray | null
-
-	while ((span = spans.exec(text)) !== null) {
+	const cursor = Iterator.from(text.matchAll(/`([^`]+)`/g)).reduce((previous, span) => {
 		const value = span[1]
-		if (value === undefined) continue
-		if (span.index > cursor) nodes.push({ element: 'text', value: text.slice(cursor, span.index) })
-		if (value.trim() === value) nodes.push({ element: 'codeSpan', value })
-		else nodes.push({ element: 'text', value: span[0] })
-		cursor = span.index + span[0].length
-	}
+		if (value === undefined) return previous
+		if (span.index > previous) {
+			nodes.push({ element: 'text', value: text.slice(previous, span.index) })
+		}
+		nodes.push(
+			value.trim() === value ? { element: 'codeSpan', value } : { element: 'text', value: span[0] },
+		)
+		return span.index + span[0].length
+	}, 0)
 	if (cursor < text.length) nodes.push({ element: 'text', value: text.slice(cursor) })
-
 	return coalesceText(nodes)
 }
 
@@ -1078,7 +1016,7 @@ export function buildCell(text: string): readonly InlineNode[] {
  * ```
  */
 export function findColumnIndex(table: TableNode, header: string): number | undefined {
-	for (let index = 0; index < table.header.length; index += 1) {
+	for (const index of table.header.keys()) {
 		const cell = table.header[index]
 		if (
 			cell !== undefined &&
@@ -1209,12 +1147,15 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
  */
 export function joinHead(lines: readonly string[], start: number): DeclarationHead | undefined {
 	const parts: string[] = []
-
-	for (let index = start; index < lines.length; index += 1) {
+	for (const distance of Array.prototype.keys.call({
+		get length() {
+			return Math.max(0, Math.ceil(lines.length - start))
+		},
+	})) {
+		const index = start + distance
 		const line = lines[index]
 		if (line === undefined) break
 		const text = line.trimEnd()
-		// A wrapped head never continues on an exported declaration, so reaching one means no body opened.
 		if (index > start && text.startsWith('export ')) return undefined
 		parts.push(index === start ? text : text.trimStart())
 		if (text.endsWith('{')) return { text: parts.join(' '), end: index }
@@ -1225,7 +1166,6 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 			(bare.match(/\[/g)?.length ?? 0) <= (bare.match(/\]/g)?.length ?? 0)
 		if (closed && /\{\s*\}$/.test(text)) return { text: parts.join(' '), end: index }
 	}
-
 	return undefined
 }
 
@@ -1290,7 +1230,7 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 	const lines = extractSourceLines(source)
 	const projected = lines.map((line) => line.code)
 
-	for (let index = 0; index < projected.length; index += 1) {
+	for (const index of projected.keys()) {
 		const line = projected[index]
 		if (line === undefined || !opener.test(line)) continue
 
@@ -1306,13 +1246,17 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 		// A head with neither a body nor bases declares nothing, as Source reads it, so a later head answers.
 		if (known !== undefined && (known.body.length > 0 || known.bases.length > 0)) continue
 
-		let depth = 0
-		let flat = ''
-		for (const character of head.text.slice(`export ${key}`.length, head.text.lastIndexOf('{'))) {
-			if (character === '<') depth += 1
-			else if (character === '>') depth = Math.max(0, depth - 1)
-			else if (depth === 0) flat += character
-		}
+		const visible: string[] = []
+		Iterator.from(head.text.slice(`export ${key}`.length, head.text.lastIndexOf('{'))).reduce(
+			(depth, character) => {
+				if (character === '<') return depth + 1
+				if (character === '>') return Math.max(0, depth - 1)
+				if (depth === 0) visible.push(character)
+				return depth
+			},
+			0,
+		)
+		const flat = visible.join('')
 		const clause = flat.replace(/\bimplements\b[\s\S]*$/, '').match(/\bextends\b([\s\S]*)$/)?.[1]
 		const bases =
 			clause === undefined
@@ -1328,14 +1272,15 @@ export function collectDeclarations(source: string): ReadonlyMap<string, Declara
 			continue
 		}
 
-		for (let close = head.end + 1; close < projected.length; close += 1) {
-			if (projected[close] !== '}') continue
+		const close = Array.prototype.keys
+			.call({ length: projected.length - head.end - 1 })
+			.map((distance) => head.end + 1 + distance)
+			.find((candidate) => projected[candidate] === '}')
+		if (close !== undefined)
 			declarations.set(key, {
 				body: lines.slice(head.end + 1, close).map((record) => record.source),
 				bases,
 			})
-			break
-		}
 
 		// An unterminated body records nothing — keep scanning in case a later head closes.
 	}
@@ -1437,22 +1382,23 @@ export function selectSectionBlocks(
 	document: MarkdownDocument,
 	heading: string,
 ): readonly BlockNode[] {
-	const blocks: BlockNode[] = []
-	let active = false
-
+	const scanned: Array<{
+		readonly block: BlockNode
+		readonly active: boolean
+		readonly heading: boolean
+	}> = []
 	for (const block of document.children) {
+		const active = scanned.at(-1)?.active ?? false
 		if (isHeadingNode(block) && block.level <= 2) {
 			if (block.level === 2 && flattenText(block).trim() === heading) {
-				active = true
+				scanned.push({ block, active: true, heading: true })
 				continue
 			}
 			if (active) break
 		}
-
-		if (active) blocks.push(block)
+		scanned.push({ block, active, heading: false })
 	}
-
-	return blocks
+	return scanned.filter((entry) => entry.active && !entry.heading).map((entry) => entry.block)
 }
 
 /**
@@ -1571,7 +1517,7 @@ export function extractSurface(document: MarkdownDocument): readonly SurfaceSymb
 
 	for (const block of selectSectionBlocks(document, SURFACE)) {
 		if (isTableNode(block)) {
-			for (let row = 0; row < block.rows.length; row += 1) {
+			for (const row of block.rows.keys()) {
 				const symbol = extractRowSymbol(block, row)
 				if (symbol === undefined) continue
 				const key = computeSymbolKey(symbol)
@@ -1619,7 +1565,7 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
 
 	for (const [table, name] of collectGroups(document)) {
 		const methods: MethodEntry[] = []
-		for (let row = 0; row < table.rows.length; row += 1) {
+		for (const row of table.rows.keys()) {
 			const entry = extractRowEntry(table, row)
 			if (entry !== undefined) methods.push(entry)
 		}
@@ -1645,23 +1591,19 @@ export function extractMethods(document: MarkdownDocument): readonly MethodGroup
  * ```
  */
 export function collectGroups(document: MarkdownDocument): ReadonlyMap<TableNode, string> {
-	const groups = new Map<TableNode, string>()
-	let current: string | undefined
-
-	for (const block of selectSectionBlocks(document, METHODS)) {
+	const groups: Array<readonly [TableNode, string]> = []
+	selectSectionBlocks(document, METHODS).reduce<string | undefined>((current, block) => {
 		if (isHeadingNode(block) && block.level === 4) {
-			const rawInterface = findFirstCode(block.children)
-			current = rawInterface === undefined ? undefined : normalizeIdentifier(rawInterface)
-			continue
+			const name = findFirstCode(block.children)
+			return name === undefined ? undefined : normalizeIdentifier(name)
 		}
-
 		if (isTableNode(block) && current !== undefined) {
-			groups.set(block, current)
-			current = undefined
+			groups.push([block, current])
+			return undefined
 		}
-	}
-
-	return groups
+		return current
+	}, undefined)
+	return new Map(groups)
 }
 
 /**
@@ -1831,21 +1773,21 @@ export function unwrapComment(comment: string): readonly string[] {
  * ```
  */
 export function normalizeSummary(text: string): string {
-	const parts = text.split(/((?<!`)`[^`]+`(?!`))/)
-	let normalized = ''
-
-	for (let index = 0; index < parts.length; index += 1) {
-		const part = parts[index] ?? ''
-		if (index % 2 === 0) {
-			normalized += part
-				.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
-				.replace(/\{@link\s+(?:import\([^)]*\)\.|[^}|#\s]*[@/][^}|#\s]*#)?([^}|]*?)\s*\}/g, '`$1`')
-			continue
-		}
-		const value = part.slice(1, -1).replace(/\s+/g, ' ').trim()
-		normalized += `\`${value.length === 0 ? ' ' : value}\``
-	}
-
+	const normalized = text
+		.split(/((?<!`)`[^`]+`(?!`))/)
+		.map((part, index) => {
+			if (index % 2 === 0) {
+				return part
+					.replace(/\{@link\s+[^}|]*\|\s*([^}]*?)\s*\}/g, '`$1`')
+					.replace(
+						/\{@link\s+(?:import\([^)]*\)\.|[^}|#\s]*[@/][^}|#\s]*#)?([^}|]*?)\s*\}/g,
+						'`$1`',
+					)
+			}
+			const value = part.slice(1, -1).replace(/\s+/g, ' ').trim()
+			return `\`${value.length === 0 ? ' ' : value}\``
+		})
+		.join('')
 	return normalized.replace(/\s+/g, ' ').trim()
 }
 
@@ -1864,20 +1806,20 @@ export function normalizeSummary(text: string): string {
  * ```
  */
 export function wrapText(text: string, width: number): readonly string[] {
+	const words = text.split(/\s+/).filter((word) => word.length > 0)
 	const lines: string[] = []
-	let current = ''
-
-	for (const word of text.split(/\s+/)) {
-		if (word.length === 0) continue
-		if (current.length === 0) current = word
-		else if (current.length + 1 + word.length <= width) current += ` ${word}`
-		else {
-			lines.push(current)
-			current = word
-		}
-	}
-	if (current.length > 0) lines.push(current)
-
+	const final = words.reduce(
+		(previous, word, index) => {
+			if (index === previous.start) return { start: index, length: word.length }
+			if (previous.length + 1 + word.length <= width) {
+				return { start: previous.start, length: previous.length + 1 + word.length }
+			}
+			lines.push(words.slice(previous.start, index).join(' '))
+			return { start: index, length: word.length }
+		},
+		{ start: 0, length: 0 },
+	)
+	if (words.length > 0) lines.push(words.slice(final.start).join(' '))
 	return lines
 }
 
@@ -1926,20 +1868,16 @@ export function buildComment(lines: readonly string[], indent: string): string {
  */
 export function maskFences(text: string): string {
 	const masked: string[] = []
-	let marker: string | undefined
-
-	for (const line of text.split('\n')) {
+	text.split('\n').reduce<string | undefined>((marker, line) => {
 		const fence = /^[ \t]*(`{3,}|~{3,})/.exec(line)?.[1]
 		if (marker === undefined) {
 			masked.push(line)
-			marker = fence
-			continue
+			return fence
 		}
-		const closing = fence !== undefined && fence.startsWith(marker)
-		masked.push(closing ? line : ' '.repeat(line.length))
-		if (closing) marker = undefined
-	}
-
+		const closed = fence !== undefined && fence.startsWith(marker)
+		masked.push(closed ? line : ' '.repeat(line.length))
+		return closed ? undefined : marker
+	}, undefined)
 	return masked.join('\n')
 }
 
@@ -1966,75 +1904,66 @@ export function maskFences(text: string): string {
  */
 export function extractSourceComments(lines: readonly SourceLine[]): readonly SourceComment[] {
 	const comments: SourceComment[] = []
-	let block = false
-	let eligible = false
-	let span: string[] = []
-	let pending: string | undefined
-
-	for (const line of lines) {
-		const projection = line.jsdoc
-		const first = projection?.indexOf('/**') ?? -1
-
-		if (pending !== undefined) {
-			if (!block && first >= 0 && line.source.slice(0, first).trim() === '') pending = undefined
-			else {
-				comments.push({ text: pending, line })
-				pending = undefined
+	Iterator.from(lines).reduce<{
+		readonly block: boolean
+		readonly eligible: boolean
+		readonly span: string[]
+		readonly pending: string | undefined
+	}>(
+		(previous, line) => {
+			const projection = line.jsdoc
+			const first = projection?.indexOf('/**') ?? -1
+			if (
+				previous.pending !== undefined &&
+				!(!previous.block && first >= 0 && line.source.slice(0, first).trim() === '')
+			) {
+				comments.push({ text: previous.pending, line })
 			}
-		}
-
-		if (projection === undefined) continue
-
-		let cursor = 0
-		if (block) {
-			const close = projection.indexOf('*/')
+			const state = { ...previous, pending: undefined }
+			if (projection === undefined) return state
+			const close = state.block ? projection.indexOf('*/') : -1
 			const end = close < 0 ? projection.length : close + 2
-			span.push(projection.slice(0, end))
-			if (close < 0) continue
-
-			block = false
-			const opener = projection.indexOf('/**', close + 2)
-			const endOfGap = opener < 0 ? line.source.length : opener
-			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
-			if (opener < 0) {
-				pending = eligible && whitespace ? normalizeComment(span.join('\n')) : undefined
-				continue
-			}
-
-			eligible = eligible && whitespace
-			span = []
-			cursor = opener
-		} else {
-			if (first < 0) continue
-			eligible = line.source.slice(0, first).trim() === ''
-			span = []
-			cursor = first
-		}
-
-		while (cursor < projection.length) {
-			const close = projection.indexOf('*/', cursor + 2)
-			const end = close < 0 ? projection.length : close + 2
-			span.push(projection.slice(cursor, end))
-
-			if (close < 0) {
-				block = true
-				break
-			}
-
-			const opener = projection.indexOf('/**', close + 2)
-			const endOfGap = opener < 0 ? line.source.length : opener
-			const whitespace = line.source.slice(close + 2, endOfGap).trim() === ''
-			if (opener < 0) {
-				pending = eligible && whitespace ? normalizeComment(span.join('\n')) : undefined
-				break
-			}
-
-			eligible = eligible && whitespace
-			span = []
-			cursor = opener
-		}
-	}
-
+			if (state.block) state.span.push(projection.slice(0, end))
+			if (state.block && close < 0) return state
+			const opener = state.block ? projection.indexOf('/**', close + 2) : first
+			const whitespace = state.block
+				? line.source.slice(close + 2, opener < 0 ? line.source.length : opener).trim() === ''
+				: line.source.slice(0, first).trim() === ''
+			const eligible = state.block ? state.eligible && whitespace : whitespace
+			if (opener < 0)
+				return state.block
+					? {
+							...state,
+							block: false,
+							pending: eligible ? normalizeComment(state.span.join('\n')) : undefined,
+						}
+					: state
+			const spans = /\/\*(?=\*)[\s\S]*?(?:\*\/|$)/g
+			spans.lastIndex = opener
+			return Iterator.from(projection.matchAll(spans)).reduce<typeof previous>(
+				(current, match) => {
+					const cursor = match.index
+					const closing = projection.indexOf('*/', cursor + 2)
+					const finish = closing < 0 ? projection.length : closing + 2
+					const span = [projection.slice(cursor, finish)]
+					if (closing < 0) return { ...current, span, block: true }
+					const next = projection.indexOf('/**', closing + 2)
+					const gap =
+						line.source.slice(closing + 2, next < 0 ? line.source.length : next).trim() === ''
+					if (next < 0)
+						return {
+							...current,
+							span,
+							block: false,
+							pending: current.eligible && gap ? normalizeComment(span.join('\n')) : undefined,
+						}
+					return { ...current, span, block: false, eligible: current.eligible && gap }
+				},
+				{ ...state, block: false, eligible },
+			)
+		},
+		{ block: false, eligible: false, span: [], pending: undefined },
+	)
 	return comments
 }
 
@@ -2141,10 +2070,8 @@ export function extractBodyLines(lines: readonly string[]): readonly SourceLine[
  * ```
  */
 export function collectKeys(lines: readonly SourceLine[]): ReadonlyMap<SourceLine, string> {
-	const keys = new Map<SourceLine, string>()
-	let owner: string | undefined
-
-	for (const line of lines) {
+	const keys: Array<readonly [SourceLine, string]> = []
+	Iterator.from(lines).reduce<string | undefined>((owner, line) => {
 		const head =
 			/^export (?:async )?(?:abstract )?(function\*?|class|const|interface|type) (\w+)/.exec(
 				line.code,
@@ -2152,19 +2079,15 @@ export function collectKeys(lines: readonly SourceLine[]): ReadonlyMap<SourceLin
 		const keyword = head?.[1]?.replace(/\*$/, '')
 		const name = head?.[2]
 		if (isNonEmptyString(keyword) && isNonEmptyString(name) && isExportKeyword(keyword)) {
-			keys.set(line, computeSymbolKey({ name, keyword }))
-			owner = keyword === 'class' || keyword === 'interface' ? name : undefined
-			continue
+			keys.push([line, computeSymbolKey({ name, keyword })])
+			return keyword === 'class' || keyword === 'interface' ? name : undefined
 		}
-		if (line.code === '}') {
-			owner = undefined
-			continue
-		}
+		if (line.code === '}') return undefined
 		const member = /^\t(?:async )?\*?(\w+)\??(?:<.*>)?\(/.exec(line.code)?.[1]
-		if (owner !== undefined && isNonEmptyString(member)) keys.set(line, `${owner}.${member}`)
-	}
-
-	return keys
+		if (owner !== undefined && isNonEmptyString(member)) keys.push([line, `${owner}.${member}`])
+		return owner
+	}, undefined)
+	return new Map(keys)
 }
 
 /**
@@ -2188,8 +2111,7 @@ export function collectExamples(comment: string, name: string): readonly SourceE
 	const masked = maskFences(comment)
 	const tags = /^[ \t]*@example(?=[ \t]|$)[ \t]*(.*)$/gm
 
-	let tag: RegExpExecArray | null
-	while ((tag = tags.exec(masked)) !== null) {
+	for (const tag of masked.matchAll(tags)) {
 		const title = (tag[1] ?? '').trim()
 		const start = tag.index + tag[0].length
 		const rest = comment.slice(start).replace(/^\n/, '')
@@ -2331,24 +2253,22 @@ export function extractFences(document: MarkdownDocument): readonly GuideFence[]
  * ```
  */
 export function collectFences(document: MarkdownDocument): ReadonlyMap<CodeBlockNode, GuideFence> {
-	const fences = new Map<CodeBlockNode, GuideFence>()
-	let title = ''
-
-	for (const node of walkNodes(document)) {
-		if (isHeadingNode(node)) {
-			title = flattenText(node).trim()
-			continue
-		}
+	const fences: Array<readonly [CodeBlockNode, GuideFence]> = []
+	Iterator.from(walkNodes(document)).reduce((title, node) => {
+		if (isHeadingNode(node)) return flattenText(node).trim()
 		if (isCodeBlockNode(node)) {
-			fences.set(node, {
-				language: node.lang,
-				code: node.code,
-				...(title.length === 0 ? {} : { title }),
-			})
+			fences.push([
+				node,
+				{
+					language: node.lang,
+					code: node.code,
+					...(title.length === 0 ? {} : { title }),
+				},
+			])
 		}
-	}
-
-	return fences
+		return title
+	}, '')
+	return new Map(fences)
 }
 
 /**
@@ -2365,26 +2285,31 @@ export function collectFences(document: MarkdownDocument): ReadonlyMap<CodeBlock
  * ```
  */
 export function extractTagline(document: MarkdownDocument): string | undefined {
-	let opened = false
-
+	const scanned: Array<{
+		readonly block: BlockNode
+		readonly opened: boolean
+		readonly selected: BlockquoteNode | undefined
+	}> = []
 	for (const block of document.children) {
+		const opened = scanned.at(-1)?.opened ?? false
 		if (isHeadingNode(block)) {
-			if (opened) return undefined
-			opened = block.level === 1
+			if (opened) break
+			scanned.push({ block, opened: block.level === 1, selected: undefined })
 			continue
 		}
-		if (!opened || !isBlockquoteNode(block)) continue
-
-		const text = normalizeSummary(
-			block.children
-				.filter(isParagraphNode)
-				.map((paragraph) => extractCellText(paragraph.children))
-				.join(' '),
-		)
-		return text.length === 0 ? undefined : text
+		const selected = opened && isBlockquoteNode(block) ? block : undefined
+		scanned.push({ block, opened, selected })
+		if (selected !== undefined) break
 	}
-
-	return undefined
+	const selected = scanned.find((entry) => entry.selected !== undefined)?.selected
+	if (selected === undefined) return undefined
+	const text = normalizeSummary(
+		selected.children
+			.filter(isParagraphNode)
+			.map((paragraph) => extractCellText(paragraph.children))
+			.join(' '),
+	)
+	return text.length === 0 ? undefined : text
 }
 
 /**
@@ -2831,37 +2756,33 @@ export function renderExample(example: SourceExample): string {
 export function replaceCell(guide: string, key: string, summary: string): string | undefined {
 	const markdown = createMarkdown(guide)
 	const document = markdown.document
-	let located: TableNode | undefined
-	let index = -1
-
-	for (const block of selectSectionBlocks(document, SURFACE)) {
-		if (located !== undefined || !isTableNode(block)) continue
-		for (let row = 0; row < block.rows.length && located === undefined; row += 1) {
-			const symbol = extractRowSymbol(block, row)
-			if (symbol === undefined || computeSymbolKey(symbol) !== key) continue
-			located = block
-			index = row
-		}
-	}
-
-	for (const [table, owner] of collectGroups(document)) {
-		if (located !== undefined) break
-		for (let row = 0; row < table.rows.length && located === undefined; row += 1) {
-			const entry = extractRowEntry(table, row)
-			if (entry === undefined || `${owner}.${entry.name}` !== key) continue
-			located = table
-			index = row
-		}
-	}
-
-	if (located === undefined) return undefined
-	const column = findColumnIndex(located, SUMMARY)
+	const surface = Iterator.from(selectSectionBlocks(document, SURFACE))
+		.filter(isTableNode)
+		.flatMap((table) =>
+			table.rows.keys().map((index) => ({ table, index, symbol: extractRowSymbol(table, index) })),
+		)
+		.find((row) => row.symbol !== undefined && computeSymbolKey(row.symbol) === key)
+	const groups = collectGroups(document)
+	const selected =
+		surface ??
+		Iterator.from(groups)
+			.flatMap(([table, owner]) =>
+				table.rows.keys().map((index) => ({
+					table,
+					index,
+					owner,
+					entry: extractRowEntry(table, index),
+				})),
+			)
+			.find((row) => row.entry !== undefined && `${row.owner}.${row.entry.name}` === key)
+	if (selected === undefined) return undefined
+	const { table, index } = selected
+	const column = findColumnIndex(table, SUMMARY)
 	if (column === undefined) return undefined
-	if ((extractRowSummary(located, index) ?? '') === normalizeSummary(summary)) return guide
-
-	const span = markdown.span(located)
+	if ((extractRowSummary(table, index) ?? '') === normalizeSummary(summary)) return guide
+	const span = markdown.span(table)
 	if (span === undefined) return undefined
-	return spliceSpan(guide, span, renderMarkdown(buildTable(located, index, column, summary)))
+	return spliceSpan(guide, span, renderMarkdown(buildTable(table, index, column, summary)))
 }
 
 /**
@@ -2895,16 +2816,11 @@ export function replaceFence(
 	example: SourceExample,
 ): string | undefined {
 	const markdown = createMarkdown(guide)
-	let located: CodeBlockNode | undefined
-	let current: GuideFence | undefined
-
-	for (const [node, fence] of collectFences(markdown.document)) {
-		if (located !== undefined || fence.title !== title) continue
-		located = node
-		current = fence
-	}
-
-	if (located === undefined || current === undefined) return undefined
+	const selected = Iterator.from(collectFences(markdown.document)).find(
+		([, fence]) => fence.title === title,
+	)
+	if (selected === undefined) return undefined
+	const [located, current] = selected
 	if (current.code === example.code && current.language === example.language) return guide
 
 	const span = markdown.span(located)
@@ -2962,10 +2878,7 @@ export function replaceSummary(
 	if (wrapped.length === 0) return undefined
 
 	const masked = maskFences(content.join('\n')).split('\n')
-	let tag = -1
-	for (let index = 0; index < masked.length && tag < 0; index += 1) {
-		if (/^[ \t]*@\w/.test(masked[index] ?? '')) tag = index
-	}
+	const tag = masked.findIndex((line) => /^[ \t]*@\w/.test(line))
 
 	const described = content.slice(0, tag < 0 ? content.length : tag).join('\n')
 	if (normalizeSummary(described) === normalizeSummary(summary)) return comment
@@ -3027,12 +2940,10 @@ export function replaceExample(comment: string, example: SourceExample): string 
 	const content = unwrapComment(comment)
 	const masked = maskFences(content.join('\n')).split('\n')
 	const title = example.title ?? ''
-	let start = -1
-
-	for (let index = 0; index < masked.length && start < 0; index += 1) {
-		const tag = /^[ \t]*@example(?=[ \t]|$)[ \t]*(.*)$/.exec(masked[index] ?? '')
-		if (tag !== null && (tag[1] ?? '').trim() === title) start = index
-	}
+	const start = masked.findIndex((line) => {
+		const tag = /^[ \t]*@example(?=[ \t]|$)[ \t]*(.*)$/.exec(line)
+		return tag !== null && (tag[1] ?? '').trim() === title
+	})
 	if (start < 0) return undefined
 
 	const current = collectExamples(content.join('\n'), example.name).find(
@@ -3046,11 +2957,12 @@ export function replaceExample(comment: string, example: SourceExample): string 
 		return comment
 	}
 
-	let end = content.length
-	for (let index = start + 1; index < masked.length && end === content.length; index += 1) {
-		if (/^[ \t]*@\w/.test(masked[index] ?? '')) end = index
-	}
-	while (end > start + 1 && (content[end - 1] ?? '').length === 0) end -= 1
+	const next = masked.findIndex((line, index) => index > start && /^[ \t]*@\w/.test(line))
+	const boundary = next < 0 ? content.length : next
+	const last = content.findLastIndex(
+		(line, index) => index > start && index < boundary && line.length > 0,
+	)
+	const end = last < 0 ? start + 1 : last + 1
 
 	const indent = /^[ \t]*/.exec(comment)?.[0] ?? ''
 	const body = [`\`\`\`${example.language ?? ''}`, ...example.code.split('\n'), '```']
@@ -3102,55 +3014,58 @@ export function replaceExample(comment: string, example: SourceExample): string 
 export function locateComment(text: string, key: string): MarkdownSpan | undefined {
 	const lines = extractSourceLines(text)
 	const keys = collectKeys(lines)
-	const offsets: number[] = []
-	const positions = new Map<SourceLine, number>()
-	let offset = 0
-
-	for (let index = 0; index < lines.length; index += 1) {
-		const line = lines[index]
-		if (line === undefined) continue
-		offsets.push(offset)
-		positions.set(line, index)
+	const records: Array<{
+		readonly line: SourceLine
+		readonly index: number
+		readonly offset: number
+		readonly next: number
+	}> = []
+	for (const [index, line] of lines.entries()) {
+		const offset = records.at(-1)?.next ?? 0
 		const after = offset + line.source.length
-		offset = after + (text.startsWith('\r\n', after) ? 2 : 1)
+		records.push({ line, index, offset, next: after + (text.startsWith('\r\n', after) ? 2 : 1) })
 	}
-
+	const offsets = records.map((record) => record.offset)
+	const positions = new Map(records.map((record) => [record.line, record.index]))
 	for (const comment of extractSourceComments(lines)) {
 		if (keys.get(comment.line) !== key) continue
 		const close = (positions.get(comment.line) ?? 0) - 1
 		const closing = lines[close]?.jsdoc
 		const end = closing === undefined ? -1 : closing.lastIndexOf('*/')
 		if (end < 0) continue
-
-		let first = close
-		while (first > 0 && lines[first - 1]?.jsdoc !== undefined) first -= 1
-
-		// The run's spans are read forward, because an opener written inside a span — an
-		// `@example` quoting one — is body text rather than a second block, and a backward
-		// search would stop at it. The authoritative span is the last one the run opens.
-		let inside = false
-		let line = -1
-		let column = -1
-		for (let index = first; index <= close; index += 1) {
-			const projection = lines[index]?.jsdoc ?? ''
-			let cursor = 0
-			while (cursor < projection.length) {
-				const at = projection.indexOf(inside ? '*/' : '/**', cursor)
-				if (at < 0) break
-				if (!inside) {
-					line = index
-					column = at
-				}
-				cursor = at + (inside ? 2 : 3)
-				inside = !inside
-			}
-		}
-		if (line < 0) continue
-
-		const source = lines[line]?.source ?? ''
-		const start = source.slice(0, column).trim() === '' ? 0 : column
-		return { start: (offsets[line] ?? 0) + start, end: (offsets[close] ?? 0) + end + 2 }
+		const first =
+			lines
+				.keys()
+				.take(close)
+				.map((index) => close - index)
+				.find((index) => lines[index - 1]?.jsdoc === undefined) ?? 0
+		const found = Array.prototype.keys
+			.call({ length: close - first + 1 })
+			.map((distance) => first + distance)
+			.reduce(
+				(state, index) => {
+					const projection = lines[index]?.jsdoc ?? ''
+					return Iterator.from(projection.matchAll(/(?=\/\*\*|\*\/)/g)).reduce(
+						(current, match) => {
+							const at = match.index
+							if (at < current.cursor || !projection.startsWith(current.inside ? '*/' : '/**', at))
+								return current
+							return {
+								inside: !current.inside,
+								line: current.inside ? current.line : index,
+								column: current.inside ? current.column : at,
+								cursor: at + (current.inside ? 2 : 3),
+							}
+						},
+						{ ...state, cursor: 0 },
+					)
+				},
+				{ inside: false, line: -1, column: -1, cursor: 0 },
+			)
+		if (found.line < 0) continue
+		const source = lines[found.line]?.source ?? ''
+		const start = source.slice(0, found.column).trim() === '' ? 0 : found.column
+		return { start: (offsets[found.line] ?? 0) + start, end: (offsets[close] ?? 0) + end + 2 }
 	}
-
 	return undefined
 }

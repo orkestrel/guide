@@ -63,12 +63,13 @@ describe('isSurfaceSymbol', () => {
 	})
 
 	it('never throws on a hostile getter object', () => {
-		const hostile = {
-			get name(): string {
+		const hostile = Object.defineProperty({ keyword: 'class' }, 'name', {
+			enumerable: true,
+			configurable: true,
+			get(): string {
 				throw new Error('boom')
 			},
-			keyword: 'class',
-		}
+		})
 		expect(() => isSurfaceSymbol(hostile)).not.toThrow()
 	})
 })
@@ -105,12 +106,13 @@ describe('isMethodGroup', () => {
 	})
 
 	it('never throws on a hostile getter object', () => {
-		const hostile = {
-			interface: 'X',
-			get methods(): readonly string[] {
+		const hostile = Object.defineProperty({ interface: 'X' }, 'methods', {
+			enumerable: true,
+			configurable: true,
+			get(): readonly string[] {
 				throw new Error('boom')
 			},
-		}
+		})
 		expect(() => isMethodGroup(hostile)).not.toThrow()
 	})
 })
@@ -160,14 +162,13 @@ describe('isManifestEntry', () => {
 	})
 
 	it('never throws on a hostile getter object', () => {
-		const hostile = {
-			concept: 'X',
-			spec: 'x.md',
-			get source(): string {
+		const hostile = Object.defineProperty({ concept: 'X', spec: 'x.md', tests: 't' }, 'source', {
+			enumerable: true,
+			configurable: true,
+			get(): string {
 				throw new Error('boom')
 			},
-			tests: 't',
-		}
+		})
 		expect(() => isManifestEntry(hostile)).not.toThrow()
 	})
 })
