@@ -47,11 +47,15 @@ import {
 	EXTERNAL_SCHEMES,
 	KIND,
 	METHODS,
+	NAME,
+	SIGNATURE,
 	SUMMARY,
 	SURFACE,
+	SURFACE_HEADER,
 	TESTS,
 	WRAP_WIDTH,
 } from './constants.js'
+import { GuideError } from './errors.js'
 import { isExportKeyword } from './validators.js'
 
 /**
@@ -689,7 +693,7 @@ export function findUnlisted(
  *
  * @example
  * ```ts
- * findMissingSymbols([{ name: 'X', keyword: 'class' }], []) // ['class X']
+ * findMissingSymbols([{ name: 'X', keyword: 'class', signature: '`new () => X`' }], []) // ['class X']
  * ```
  */
 export function findMissingSymbols(
@@ -1125,6 +1129,346 @@ export function extractHidden(source: string): readonly SurfaceSymbol[] {
 }
 
 /**
+ * Computes the bracket depth of every character of projected declaration code: an opening `(`,
+ * `[`, `{`, or `<` and its closing partner carry the depth outside the pair, the characters
+ * between them one more, and every character of a quoted string, its quotes included, `-1`.
+ *
+ * @remarks
+ * The `>` of an `=>` arrow closes nothing. A backslash escapes the next character inside a
+ * quoted string. Template literal text is outside the reading, because
+ * {@link extractSourceLines} masks it to spaces in the code this function reads.
+ *
+ * @param code - The projected code of one declaration
+ * @returns One depth per UTF-16 code unit of `code`
+ *
+ * @example
+ * ```ts
+ * computeDepths("f(a, 'b')") // [0, 0, 1, 1, 1, -1, -1, -1, 0]
+ * ```
+ */
+export function computeDepths(code: string): readonly number[] {
+	const depths: number[] = []
+	code.split('').reduce<{
+		readonly depth: number
+		readonly quote: string | undefined
+		readonly escaped: boolean
+	}>(
+		(state, character, index) => {
+			if (state.quote !== undefined) {
+				depths.push(-1)
+				if (state.escaped) return { ...state, escaped: false }
+				if (character === '\\') return { ...state, escaped: true }
+				return character === state.quote ? { ...state, quote: undefined } : state
+			}
+			if (character === "'" || character === '"') {
+				depths.push(-1)
+				return { ...state, quote: character }
+			}
+			if (')]}'.includes(character) || (character === '>' && code[index - 1] !== '=')) {
+				const depth = Math.max(0, state.depth - 1)
+				depths.push(depth)
+				return { ...state, depth }
+			}
+			depths.push(state.depth)
+			return '([{<'.includes(character) ? { ...state, depth: state.depth + 1 } : state
+		},
+		{ depth: 0, quote: undefined, escaped: false },
+	)
+	return depths
+}
+
+/**
+ * Finds the index of the bracket closing the opener at `start`: the first later character whose
+ * {@link computeDepths} depth equals the opener's.
+ *
+ * @param depths - The depths {@link computeDepths} returned for the code
+ * @param start - The index of an opening `(`, `[`, `{`, or `<`
+ * @returns The closing bracket's index, or `undefined` when the opener never closes
+ *
+ * @example
+ * ```ts
+ * findClosing(computeDepths('<T>(x: T)'), 3) // 8
+ * ```
+ */
+export function findClosing(depths: readonly number[], start: number): number | undefined {
+	const depth = depths[start]
+	if (depth === undefined || depth < 0) return undefined
+	const index = depths.findIndex((value, position) => position > start && value === depth)
+	return index < 0 ? undefined : index
+}
+
+/**
+ * Finds every index at which `separator` sits at `depth` outside quoted text, in code order.
+ *
+ * @param code - The projected code to search
+ * @param depths - The depths {@link computeDepths} returned for `code`
+ * @param separator - The single character to find
+ * @param depth - The bracket depth the separator must sit at
+ * @returns The separator indices, in code order
+ *
+ * @example
+ * ```ts
+ * findSeparators('a, f(b, c)', computeDepths('a, f(b, c)'), ',', 0) // [1]
+ * ```
+ */
+export function findSeparators(
+	code: string,
+	depths: readonly number[],
+	separator: string,
+	depth: number,
+): readonly number[] {
+	return depths
+		.keys()
+		.filter((index) => depths[index] === depth && code[index] === separator)
+		.toArray()
+}
+
+/**
+ * Renders one emitted interface member as its signature entry: a property as its name, an
+ * optional one with `?`, a method as `name()` or `name?()`, an accessor as its name, and a call,
+ * construct, or index signature as its own text with whitespace collapsed.
+ *
+ * @remarks
+ * `code` is the member's projected code and `source` its text at the same columns, both without
+ * the terminating `;`. A leading `readonly` modifier never enters a name. A computed name keeps
+ * its brackets, and a quoted name keeps its quotes.
+ *
+ * @param code - The member's projected code
+ * @param source - The member's source text, aligned with `code`
+ * @returns The member's entry, or `undefined` when the member is empty
+ *
+ * @example
+ * ```ts
+ * renderMember('readonly name?: string', 'readonly name?: string') // 'name?'
+ * renderMember('walk(depth: number): void', 'walk(depth: number): void') // 'walk()'
+ * renderMember('[key: string]: number', '[key: string]: number') // '[key: string]: number'
+ * ```
+ */
+export function renderMember(code: string, source: string): string | undefined {
+	const text = source.replace(/\s+/g, ' ').trim()
+	if (text.length === 0) return undefined
+	const leading = code.length - code.trimStart().length
+	const modifier = leading + (/^readonly\s+/.exec(code.slice(leading))?.[0].length ?? 0)
+	const rest = code.slice(modifier)
+	if (/^(?:new\s*)?[(<]/.test(rest)) return text
+	const depths = computeDepths(rest)
+	const bracket = rest.startsWith('[') ? findClosing(depths, 0) : undefined
+	if (
+		bracket !== undefined &&
+		findSeparators(rest, depths, ':', 1).some((index) => index < bracket)
+	) {
+		return text
+	}
+
+	const accessor = /^(?:get|set)\s+(?=[^\s(:?<])/.exec(rest)?.[0].length ?? 0
+	const named = rest.slice(accessor)
+	const computed = named.startsWith('[') ? findClosing(computeDepths(named), 0) : undefined
+	const length =
+		computed === undefined
+			? (/^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s?(:<]+)/.exec(named)?.[0].length ?? 0)
+			: computed + 1
+	if (length === 0) return text
+
+	const offset = modifier + accessor
+	const tail = named.slice(length)
+	const optional = tail.startsWith('?')
+	const method = accessor === 0 && /^\??\s*[(<]/.test(tail)
+	return `${source.slice(offset, offset + length)}${optional ? '?' : ''}${method ? '()' : ''}`
+}
+
+/**
+ * Extracts one emitted declaration's signature: the symbol its column-zero `export` head names,
+ * carrying the type text the compiler emitted for it.
+ *
+ * @remarks
+ * `code` is the declaration's projected code and `source` its text at the same columns, each
+ * physical line trimmed and the lines joined with single spaces. The forms:
+ *
+ * - `function`: `<T>(params) => RET` from `NAME<T>(params): RET`.
+ * - `class`: `new <T>(params) => YIELD` per `constructor(params)`, several as an intersection of
+ *   parenthesized signatures, none as `new <T>() => YIELD`. `YIELD` is the first `implements`
+ *   type, else the class's own name with its type parameter names. Every other member is ignored.
+ * - `interface`: `{ entries }` from {@link renderMember} over its own members, in emitted order,
+ *   each entry once, or `{}` when it declares none. The `extends` clause is not read.
+ * - `type`: the text after `=` to the terminating `;`, type parameters omitted.
+ * - `const`: the text after `NAME:` to the `;`, or after `NAME =` for a literal the compiler
+ *   emitted as the constant's type.
+ *
+ * @param code - The declaration's projected code
+ * @param source - The declaration's source text, aligned with `code`
+ * @returns The declared symbol with its signature, or `undefined` when no supported head opens it
+ *
+ * @example
+ * ```ts
+ * const text = 'export declare function walk<T>(node: T): void;'
+ * extractSignature(text, text) // { name: 'walk', keyword: 'function', signature: '<T>(node: T) => void' }
+ * ```
+ */
+export function extractSignature(code: string, source: string): SurfaceSymbol | undefined {
+	const head =
+		/^export (?:declare )?(?:abstract )?(function|class|interface|type|const(?! enum\b)) ([^\s<(:=;{]+)/.exec(
+			code,
+		)
+	const keyword = head?.[1]
+	const name = head?.[2]
+	if (head === null || name === undefined || !isExportKeyword(keyword)) return undefined
+
+	const depths = computeDepths(code)
+	const start = head[0].length
+	const generic = code[start] === '<' ? findClosing(depths, start) : undefined
+	const typed = generic === undefined ? start : generic + 1
+	const generics = source.slice(start, typed)
+	const end = findSeparators(code, depths, ';', 0).find((index) => index >= typed) ?? code.length
+
+	if (keyword === 'function') {
+		const close = code[typed] === '(' ? findClosing(depths, typed) : undefined
+		if (close === undefined) return undefined
+		const colon = /^\s*:/.exec(code.slice(close + 1))?.[0].length
+		if (colon === undefined) return undefined
+		const returns = source.slice(close + 1 + colon, end).trim()
+		return {
+			name,
+			keyword,
+			signature: `${generics}(${source.slice(typed + 1, close)}) => ${returns}`,
+		}
+	}
+
+	if (keyword === 'const' || keyword === 'type') {
+		// The separator alone, because the spaces after it can be masked template text.
+		const assigned = (keyword === 'const' ? /^\s*[:=]/ : /^\s*=/).exec(code.slice(typed))
+		if (assigned === null) return undefined
+		return { name, keyword, signature: source.slice(typed + assigned[0].length, end).trim() }
+	}
+
+	const open = findSeparators(code, depths, '{', 0).find((index) => index >= typed)
+	const close = open === undefined ? undefined : findClosing(depths, open)
+	if (open === undefined || close === undefined) return undefined
+	const boundaries = [
+		open,
+		...findSeparators(code, depths, ';', 1).filter((index) => index > open && index < close),
+		close,
+	]
+	const members = boundaries.slice(0, -1).map((boundary, position) => {
+		const next = boundaries[position + 1] ?? close
+		return { code: code.slice(boundary + 1, next), source: source.slice(boundary + 1, next) }
+	})
+
+	if (keyword === 'interface') {
+		const entries = Array.from(
+			new Set(
+				members
+					.map((member) => renderMember(member.code, member.source))
+					.filter((entry) => entry !== undefined),
+			),
+		)
+		return { name, keyword, signature: entries.length === 0 ? '{}' : `{ ${entries.join(', ')} }` }
+	}
+
+	const heritage = /\bimplements\b/.exec(code.slice(typed, open))
+	const implemented =
+		heritage === null || depths[typed + heritage.index] !== 0
+			? undefined
+			: typed + heritage.index + heritage[0].length
+	const comma =
+		implemented === undefined
+			? undefined
+			: findSeparators(code, depths, ',', 0).find((index) => index > implemented && index < open)
+	const parameters =
+		generic === undefined
+			? []
+			: [start, ...findSeparators(code, depths, ',', 1).filter((index) => index < generic)].map(
+					(boundary, position, list) =>
+						/^\s*(?:(?:const|in|out)\s+)*([^\s=,>]+)/.exec(
+							code.slice(boundary + 1, list[position + 1] ?? generic),
+						)?.[1] ?? '',
+				)
+	const yielded =
+		implemented === undefined
+			? `${name}${parameters.length === 0 ? '' : `<${parameters.join(', ')}>`}`
+			: source.slice(implemented, comma ?? open).trim()
+	const constructors = members
+		.filter((member) =>
+			/^\s*(?:(?:public|private|protected)\s+)?constructor\s*\(/.test(member.code),
+		)
+		.map((member) => {
+			const parenthesis = member.code.indexOf('(')
+			const closed = findClosing(computeDepths(member.code), parenthesis) ?? member.code.length
+			return `new ${generics}(${member.source.slice(parenthesis + 1, closed)}) => ${yielded}`
+		})
+	return {
+		name,
+		keyword,
+		signature:
+			constructors.length === 0
+				? `new ${generics}() => ${yielded}`
+				: constructors.length === 1
+					? (constructors[0] ?? '')
+					: constructors.map((entry) => `(${entry})`).join(' & '),
+	}
+}
+
+/**
+ * Extracts every signature one compiler-emitted declaration file declares: each column-zero
+ * `export` head read through {@link extractSignature}, an overload set's emitted heads joined in
+ * order as an intersection of parenthesized signatures.
+ *
+ * @remarks
+ * The text is read through {@link extractSourceLines}, so comment and template payload never
+ * opens or closes a bracket. Each physical line is trimmed and a declaration's lines are joined
+ * with single spaces, so a multi-line emitted type reads as one line. A head the projector does
+ * not support, such as an `enum` or a re-export, contributes nothing. Every other repeated head
+ * keeps its first signature.
+ *
+ * @param declaration - The emitted `.d.ts` text
+ * @returns The declared symbols with their signatures, in first-seen order
+ *
+ * @example
+ * ```ts
+ * extractSignatures('export declare function open(id: string): boolean;\nexport declare function open(ids: readonly string[]): boolean;\n')
+ * // [{ name: 'open', keyword: 'function', signature: '((id: string) => boolean) & ((ids: readonly string[]) => boolean)' }]
+ * ```
+ */
+export function extractSignatures(declaration: string): readonly SurfaceSymbol[] {
+	const records = extractSourceLines(declaration)
+		.map((line) => {
+			const start = line.code.length - line.code.trimStart().length
+			const end = line.code.trimEnd().length
+			return {
+				code: line.code.slice(start, end),
+				source: line.source.slice(start, end),
+				head: start === 0 && line.code.startsWith('export '),
+			}
+		})
+		.filter((record) => record.code.length > 0)
+	const heads = records
+		.keys()
+		.filter((index) => records[index]?.head === true)
+		.toArray()
+	const symbols = heads
+		.map((head, position) => {
+			const segment = records.slice(head, heads[position + 1] ?? records.length)
+			return extractSignature(
+				segment.map((record) => record.code).join(' '),
+				segment.map((record) => record.source).join(' '),
+			)
+		})
+		.filter((symbol) => symbol !== undefined)
+
+	return Array.from(new Set(symbols.map(computeSymbolKey))).flatMap((key) => {
+		const declared = symbols.filter((symbol) => computeSymbolKey(symbol) === key)
+		const [first] = declared
+		if (first === undefined) return []
+		if (first.keyword !== 'function' || declared.length === 1) return [first]
+		return [
+			{
+				...first,
+				signature: declared.map((symbol) => `(${symbol.signature ?? ''})`).join(' & '),
+			},
+		]
+	})
+}
+
+/**
  * Joins the declaration head starting at `start` into one space-separated
  * line, consuming lines until the first that opens a body: one that ends with
  * `{`, or one that closes an empty body with `{}` or `{ }`.
@@ -1402,9 +1746,147 @@ export function selectSectionBlocks(
 }
 
 /**
+ * Validates every `## Surface` table a guide carries: each header must be exactly
+ * {@link SURFACE_HEADER}, and each row that keys a symbol must carry a non-empty `Signature` cell.
+ *
+ * @remarks
+ * Reads each `## Surface` section through {@link selectSectionBlocks}, a repeated section
+ * included, and refuses at the first offending table in document order, through {@link GuideError} with code
+ * `header` for a nonuniform header and `signature` for a keyed empty cell. Header and row text in
+ * the message is JSON-encoded and capped at 200 characters.
+ *
+ * @param document - The parsed guide document
+ * @throws {@link GuideError} at the first nonuniform header or keyed empty Signature cell
+ *
+ * @example
+ * ```ts
+ * validateSurface(createMarkdown('## Surface\n\n| Name | Kind |\n| --- | --- |').document)
+ * // throws GuideError: ## Surface table 1 has header "Name | Kind"; expected "Name | Kind | Signature | Summary".
+ * ```
+ */
+export function validateSurface(document: MarkdownDocument): void {
+	const expected = SURFACE_HEADER.join(' | ')
+	const signed = SURFACE_HEADER.indexOf(SIGNATURE)
+	const tables = new Set(
+		document.children
+			.flatMap((block, start) =>
+				isHeadingNode(block) && block.level === 2 && flattenText(block).trim() === SURFACE
+					? selectSectionBlocks({ ...document, children: document.children.slice(start) }, SURFACE)
+					: [],
+			)
+			.filter(isTableNode),
+	)
+	for (const [index, table] of Array.from(tables).entries()) {
+		const header = table.header.map((children) =>
+			flattenText({ element: 'paragraph', children }).trim(),
+		)
+		if (
+			header.length !== SURFACE_HEADER.length ||
+			!SURFACE_HEADER.every((name, column) => header[column] === name)
+		) {
+			throw new GuideError(
+				`## Surface table ${index + 1} has header ${JSON.stringify(header.join(' | ').slice(0, 200))}; expected ${JSON.stringify(expected)}.`,
+				'header',
+			)
+		}
+		for (const position of table.rows.keys()) {
+			const symbol = extractRowSymbol(table, position)
+			if (symbol === undefined) continue
+			const cell = table.rows[position]?.[signed]
+			if (
+				cell !== undefined &&
+				flattenText({ element: 'paragraph', children: cell }).trim().length > 0
+			)
+				continue
+			throw new GuideError(
+				`## Surface table ${index + 1} row ${position + 1} (${JSON.stringify(`${symbol.keyword} ${symbol.name}`.slice(0, 200))}) has an empty Signature cell; expected a non-empty TypeScript signature code span under ${JSON.stringify(expected)}.`,
+				'signature',
+			)
+		}
+	}
+}
+
+/**
+ * Validates that the modules one manifest entry spans declare disjoint exports: one name exported
+ * from two modules, whatever its keyword, is one capability split across environments.
+ *
+ * @remarks
+ * Each source file answers for the most specific listed module directory that contains it, so a
+ * nested module listed beside its parent never collides with itself. Logic that serves several
+ * environments lives once in its layer's `core` directory, such as `src/core` or `app/core`;
+ * environments whose internals differ each export a distinct name. Every colliding name is
+ * reported in one refusal, in key order, each with every module that declares it; name and module
+ * text is JSON-encoded and capped at 200 characters.
+ *
+ * @param files - The workspace-relative inventory the modules are read from
+ * @param module - The manifest entry's source scope
+ * @throws {@link GuideError} with code `collision` naming each name and the modules that declare it
+ *
+ * @example
+ * ```ts
+ * validateModules(
+ * 	{ 'src/core/a.ts': 'export function open() {}', 'src/server/a.ts': 'export function open() {}' },
+ * 	['src/core', 'src/server'],
+ * )
+ * // throws GuideError: "open" is declared in "src/core" and "src/server"; …
+ * ```
+ */
+export function validateModules(
+	files: Readonly<Record<string, string>>,
+	module: GuideModule,
+): void {
+	const directories = normalizeDirectories(module)
+	const declared = selectModuleKeys(files, directories).flatMap((key) => {
+		const owner = directories
+			.filter((directory) => directory === '.' || key.startsWith(`${directory}/`))
+			.reduce((current, directory) => (directory.length > current.length ? directory : current), '')
+		return extractExports(files[key] ?? '').map((symbol) => ({
+			key: symbol.name,
+			owner,
+		}))
+	})
+	const collisions = Array.from(new Set(declared.map((entry) => entry.key)))
+		.sort()
+		.map((key) => ({
+			key,
+			owners: directories.filter((directory) =>
+				declared.some((entry) => entry.key === key && entry.owner === directory),
+			),
+		}))
+		.filter((collision) => collision.owners.length > 1)
+	if (collisions.length === 0) return
+	const named = collisions.map(
+		(collision) =>
+			`${JSON.stringify(collision.key.slice(0, 200))} is declared in ${collision.owners.map((owner) => JSON.stringify(owner.slice(0, 200))).join(' and ')}`,
+	)
+	const cores = Array.from(
+		new Set(
+			collisions.flatMap((collision) =>
+				collision.owners
+					.filter((owner) => owner !== '.')
+					.map((owner) => `${owner.replace(/\/.*$/u, '').slice(0, 200)}/core`),
+			),
+		),
+	).sort()
+	throw new GuideError(
+		`${named.join('; ')}; one name exported from two environments is a conflict. Declare logic both environments share once in ${cores.join(' or ')}, and give each environment's own logic a distinct name.`,
+		'collision',
+		{
+			context: {
+				collisions: collisions.map((collision) => ({
+					name: collision.key,
+					modules: collision.owners,
+				})),
+			},
+		},
+	)
+}
+
+/**
  * Extracts one `## Surface` table row's symbol — its column 0 code span as the name, its
- * {@link KIND} column as the keyword, and its {@link SUMMARY} column as the compared summary
- * when the table has that column. A row with no code-span name and a row whose `Kind` text is
+ * {@link KIND} column as the keyword, and its exact `Signature` and {@link SUMMARY} columns as
+ * normalized text when those columns exist. Empty cells remain absent. A row with no code-span
+ * name and a row whose `Kind` text is
  * no {@link ExportKeyword} have no symbol to key, so each returns `undefined`.
  *
  * @param table - The table to read
@@ -1432,7 +1914,16 @@ export function extractRowSymbol(table: TableNode, row: number): SurfaceSymbol |
 	if (!isExportKeyword(keyword)) return undefined
 
 	const summary = extractRowSummary(table, row)
-	return { name, keyword, ...(summary === undefined ? {} : { summary }) }
+	const signed = findColumnIndex(table, SIGNATURE)
+	const signatureCell = signed === undefined ? undefined : cells[signed]
+	const signature =
+		signatureCell === undefined ? '' : normalizeSummary(extractCellText(signatureCell))
+	return {
+		name,
+		keyword,
+		...(signature.length === 0 ? {} : { signature }),
+		...(summary === undefined ? {} : { summary }),
+	}
 }
 
 /**
@@ -1493,7 +1984,8 @@ export function extractRowSummary(table: TableNode, row: number): string | undef
  * symbol on, so this reader skips it and {@link extractUnnamed} reports it; a row with an
  * unrecognized `Kind` text is skipped. A row also carries its {@link SUMMARY} column's compared
  * text when the table has that column; a table without it leaves every row's summary absent,
- * which {@link findDrift} reports.
+ * which {@link findDrift} reports. The exact `Signature` column contributes normalized signature
+ * text, including code spans, when present and non-empty; no other header supplies it.
  *
  * @remarks
  * The heading boundary compares {@link extractCellText} with the raw value from
@@ -1501,7 +1993,7 @@ export function extractRowSummary(table: TableNode, row: number): string | undef
  * Surrounding spaces, emphasis, and links preserve that identity. This reader refuses a heading
  * carrying any other visible text or an additional code span. Entries retain encounter order, and
  * the first-seen name + keyword wins: a genuine heading before its table row keeps the heading's
- * summary-less class entry, while a table row before that heading keeps its `Summary`.
+ * class entry without signature or summary, while a preceding table row keeps both cells.
  *
  * @param document - The parsed guide document
  * @returns The documented surface, in encounter order
@@ -2436,8 +2928,9 @@ export function formatDrift(drift: Drift): string {
 
 /**
  * Finds every disagreement between a guide and the source it documents, naming both sites:
- * each `## Surface` row against its declaration's description paragraph, each `## Methods`
- * row against its member's, and the first titled guide fence of a heading against the
+ * each `## Surface` row against its declaration's description paragraph, each present
+ * `Signature` cell against the declaration's computed signature written as a code span, each
+ * `## Methods` row against its member's, and the first titled guide fence of a heading against the
  * `@example` block of the same title. An example's compared text is its language on the first
  * line and its body beneath, so a fence that names another language drifts on its own.
  *
@@ -2448,11 +2941,14 @@ export function formatDrift(drift: Drift): string {
  * pair where one side carries none, and a pair where neither side carries text are all drift.
  * The pairing is per title across the whole document, not per heading: the first fence a title
  * reaches is the compared one, and every later fence of that title is outside the comparison,
- * whether it sits under the same heading or under a second heading of the same text.
+ * whether it sits under the same heading or under a second heading of the same text. A signature
+ * is compared only when both sides carry one, so an H3 entity heading, which carries no cell, and
+ * a source reflected without emitted declarations stay outside that comparison.
  *
  * @param guide - The parsed guide
  * @param source - The reflected source the guide documents
- * @returns One entry per disagreement: Surface rows, then Methods rows, then examples
+ * @returns One entry per disagreement: each Surface row's summary then signature, then Methods
+ * rows, then examples
  *
  * @example
  * ```ts
@@ -2469,6 +2965,12 @@ export function findDrift(guide: GuideInterface, source: SourceInterface): reado
 		if (match === undefined) continue
 		const drift = computeDrift(key, 'summary', symbol.summary, match.summary)
 		if (drift !== undefined) drifts.push(drift)
+		if (symbol.signature === undefined || match.signature === undefined) continue
+		const computed = normalizeSummary(
+			extractCellText([{ element: 'codeSpan', value: match.signature }]),
+		)
+		const signed = computeDrift(key, 'signature', symbol.signature, computed)
+		if (signed !== undefined) drifts.push(signed)
 	}
 
 	for (const group of guide.methods()) {
@@ -2541,28 +3043,33 @@ export function collectTitles(
 }
 
 /**
- * Builds a copy of `table` with one cell's inline content rebuilt from `text` through
- * {@link buildCell}. Every other cell keeps its own nodes, so a rewrite touches the one cell it
- * names and the header and the alignment row travel unchanged.
+ * Builds a copy of `table` with one cell's inline content replaced by `cell`. Every other cell
+ * keeps its own nodes, so a rewrite touches the one cell it names and the header and the
+ * alignment row travel unchanged.
  *
  * @param table - The table to copy
  * @param row - The index of the row to rewrite within {@link TableNode.rows}
  * @param column - The index of the cell to rewrite within that row
- * @param text - The cell's new compared text
+ * @param cell - The cell's new inline content, such as {@link buildCell} returns
  * @returns The rewritten table
  *
  * @example
  * ```ts
- * buildTable(table, 0, 2, 'Walks the tree.').rows[0]?.[2] // [{ element: 'text', value: 'Walks the tree.' }]
+ * buildTable(table, 0, 3, buildCell('Walks the tree.')).rows[0]?.[3] // [{ element: 'text', value: 'Walks the tree.' }]
  * ```
  */
-export function buildTable(table: TableNode, row: number, column: number, text: string): TableNode {
+export function buildTable(
+	table: TableNode,
+	row: number,
+	column: number,
+	cell: readonly InlineNode[],
+): TableNode {
 	return {
 		element: 'table',
 		header: table.header,
 		rows: table.rows.map((cells, index) =>
 			index === row
-				? cells.map((cell, position) => (position === column ? buildCell(text) : cell))
+				? cells.map((current, position) => (position === column ? cell : current))
 				: cells,
 		),
 		align: table.align,
@@ -2610,10 +3117,10 @@ export function spliceSpan(source: string, span: MarkdownSpan, replacement: stri
 }
 
 /**
- * Renders a `## Surface` table from the symbols a source declares — a `Name`, {@link KIND}, and
- * {@link SUMMARY} table with one row per symbol, the name as a code span, the keyword as its
- * text, and the summary through {@link buildCell}. A symbol carrying no summary renders an empty
- * cell, which {@link extractSurface} reads back as an absent summary.
+ * Renders a uniform `Name | Kind | Signature | Summary` table with one row per symbol, the name
+ * as a code span, the keyword as text, and the signature and summary through {@link buildCell}.
+ * An absent signature or summary renders an empty cell, which {@link extractSurface} reads back
+ * as absent. Guide construction refuses an empty signature cell.
  *
  * @remarks
  * The render carries no `## Surface` heading, because a guide documents its surface in several
@@ -2628,23 +3135,25 @@ export function spliceSpan(source: string, span: MarkdownSpan, replacement: stri
  * @example
  * ```ts
  * renderSurface([{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' }])
- * // '| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |'
+ * // '| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function |  | Walks the tree. |'
  * ```
  */
 export function renderSurface(symbols: readonly SurfaceSymbol[]): string {
 	return renderMarkdown({
 		element: 'table',
 		header: [
-			[{ element: 'text', value: 'Name' }],
+			[{ element: 'text', value: NAME }],
 			[{ element: 'text', value: KIND }],
+			[{ element: 'text', value: SIGNATURE }],
 			[{ element: 'text', value: SUMMARY }],
 		],
 		rows: symbols.map((symbol) => [
 			[{ element: 'codeSpan', value: symbol.name }],
 			[{ element: 'text', value: symbol.keyword }],
+			buildCell(symbol.signature ?? ''),
 			buildCell(symbol.summary ?? ''),
 		]),
-		align: [null, null, null],
+		align: [null, null, null, null],
 	})
 }
 
@@ -2673,7 +3182,7 @@ export function renderMethods(group: MethodGroup): string {
 			{ element: 'heading', level: 4, children: [{ element: 'codeSpan', value: group.interface }] },
 			{
 				element: 'table',
-				header: [[{ element: 'text', value: 'Name' }], [{ element: 'text', value: SUMMARY }]],
+				header: [[{ element: 'text', value: NAME }], [{ element: 'text', value: SUMMARY }]],
 				rows: group.methods.map((entry) => [
 					[{ element: 'codeSpan', value: entry.name }],
 					buildCell(entry.summary ?? ''),
@@ -2727,33 +3236,41 @@ export function renderExample(example: SourceExample): string {
 /**
  * Replaces one compared cell in a guide's text and returns the whole guide back. `key` names the
  * row the way {@link findDrift} names it — a {@link computeSymbolKey} key for a `## Surface` row,
- * an `Owner.member` key for a `## Methods` row — and the row's {@link SUMMARY} cell becomes
- * `summary`. Only the table's own source region is rewritten, so every byte outside it travels
- * unchanged; a key reaching no cell returns `undefined`, and a row already carrying the summary
- * returns the guide byte for byte.
+ * an `Owner.member` key for a `## Methods` row — and the row's cell under the `column` header
+ * becomes `cell`. Only the table's own source region is rewritten, so every byte outside it
+ * travels unchanged; a key reaching no cell returns `undefined`, and a row already carrying that
+ * cell returns the guide byte for byte.
  *
  * @remarks
- * A row the key does not reach, a table carrying no {@link SUMMARY} column, and a document whose
- * parse recorded no region for the table are each a miss, and a miss returns `undefined` rather
- * than throwing, so a caller reports the key it could not place — the one meaning `undefined`
- * carries in every replacer here. A row already carrying `summary` returns the guide byte for
- * byte, because a rewrite would re-pad the whole table for no change; that identity reads both
- * sides through {@link normalizeSummary}, so a caller passing text the compared form still moves
- * is a fixed point on the second run rather than a row rewritten forever. The rewritten table
- * renders one-space padded whatever padding it carried, so the checkout's formatter re-aligns it.
+ * A row the key does not reach, a table carrying no `column` header, and a document whose parse
+ * recorded no region for the table are each a miss, and a miss returns `undefined` rather than
+ * throwing, so a caller reports the key it could not place — the one meaning `undefined` carries
+ * in every replacer here. A row already carrying `cell` returns the guide byte for byte, because
+ * a rewrite would re-pad the whole table for no change; that identity reads both cells through
+ * {@link extractCellText} and {@link normalizeSummary}, so a caller passing text the compared form
+ * still moves is a fixed point on the second run rather than a row rewritten forever. The
+ * rewritten table renders one-space padded whatever padding it carried, so the checkout's
+ * formatter re-aligns it, and a code span renders with every `|` written `\|` and a longer
+ * backtick fence when its text holds a backtick.
  *
  * @param guide - The guide's markdown source
  * @param key - The compared key naming the row
- * @param summary - The row's new compared text
+ * @param column - The header text of the column to write, {@link SUMMARY} or {@link SIGNATURE}
+ * @param cell - The cell's new inline content, such as {@link buildCell} returns
  * @returns The guide's text with that cell replaced, or `undefined` when the key reaches no cell
  *
  * @example
  * ```ts
- * replaceCell('## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks. |', 'function walk', 'Walks a tree.')
- * // '## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks a tree. |'
+ * replaceCell('## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks. |', 'function walk', SUMMARY, buildCell('Walks a tree.'))
+ * // '## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks a tree. |'
  * ```
  */
-export function replaceCell(guide: string, key: string, summary: string): string | undefined {
+export function replaceCell(
+	guide: string,
+	key: string,
+	column: string,
+	cell: readonly InlineNode[],
+): string | undefined {
 	const markdown = createMarkdown(guide)
 	const document = markdown.document
 	const surface = Iterator.from(selectSectionBlocks(document, SURFACE))
@@ -2777,12 +3294,13 @@ export function replaceCell(guide: string, key: string, summary: string): string
 			.find((row) => row.entry !== undefined && `${row.owner}.${row.entry.name}` === key)
 	if (selected === undefined) return undefined
 	const { table, index } = selected
-	const column = findColumnIndex(table, SUMMARY)
-	if (column === undefined) return undefined
-	if ((extractRowSummary(table, index) ?? '') === normalizeSummary(summary)) return guide
+	const position = findColumnIndex(table, column)
+	if (position === undefined) return undefined
+	const current = normalizeSummary(extractCellText(table.rows[index]?.[position] ?? []))
+	if (current === normalizeSummary(extractCellText(cell))) return guide
 	const span = markdown.span(table)
 	if (span === undefined) return undefined
-	return spliceSpan(guide, span, renderMarkdown(buildTable(table, index, column, summary)))
+	return spliceSpan(guide, span, renderMarkdown(buildTable(table, index, position, cell)))
 }
 
 /**

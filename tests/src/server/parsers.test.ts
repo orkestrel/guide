@@ -1,4 +1,4 @@
-import { parseGuideDirection, parsePackageName } from '@src/server'
+import { parseCompilerRoot, parseGuideDirection, parsePackageName } from '@src/server'
 import { describe, expect, it } from 'vitest'
 
 describe('parseGuideDirection', () => {
@@ -20,5 +20,19 @@ describe('parsePackageName', () => {
 		expect(parsePackageName('{}')).toBeUndefined()
 		expect(parsePackageName('{"name":""}')).toBeUndefined()
 		expect(parsePackageName('null')).toBeUndefined()
+	})
+})
+
+describe('parseCompilerRoot', () => {
+	it('reads the rootDir a --showConfig reading declares and rejects every other reading', () => {
+		expect(parseCompilerRoot('{"compilerOptions":{"rootDir":"../../src/core"}}')).toBe(
+			'../../src/core',
+		)
+		expect(parseCompilerRoot('{"compilerOptions":{}}')).toBeUndefined()
+		expect(parseCompilerRoot('{"compilerOptions":{"rootDir":""}}')).toBeUndefined()
+		expect(parseCompilerRoot('{"compilerOptions":{"rootDir":3}}')).toBeUndefined()
+		expect(parseCompilerRoot('{"compilerOptions":null}')).toBeUndefined()
+		expect(parseCompilerRoot('{}')).toBeUndefined()
+		expect(parseCompilerRoot('error TS5058: The specified path does not exist.')).toBeUndefined()
 	})
 })

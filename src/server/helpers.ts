@@ -82,3 +82,24 @@ export function selectGuidePitch(
 	const spec = `guides/${name}.md`
 	return entries.some((entry) => entry.spec === spec) ? spec : undefined
 }
+
+/**
+ * Computes the scoped project a guide module's declarations are emitted through.
+ *
+ * @param module - The workspace-relative module directory
+ * @returns The workspace-relative `configs/<layer>/tsconfig.<env>.json` path for a module
+ * `src/<env>` or `app/<env>`, or `undefined` for any other module
+ *
+ * @example
+ * ```ts
+ * computeGuideProject('src/core') // 'configs/src/tsconfig.core.json'
+ * computeGuideProject('src/core/sources') // undefined
+ * ```
+ */
+export function computeGuideProject(module: string): string | undefined {
+	const matched = /^(src|app)\/([A-Za-z0-9_-]+)$/.exec(module)
+	const layer = matched?.[1]
+	const environment = matched?.[2]
+	if (layer === undefined || environment === undefined) return undefined
+	return `configs/${layer}/tsconfig.${environment}.json`
+}

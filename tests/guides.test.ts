@@ -25,6 +25,7 @@ await new GuideCommand({
 }).execute(async ({ files, report, root, rows }) => {
 	const { isNonEmptyString } = await import('@orkestrel/contract')
 	const {
+		buildCell,
 		createGuide,
 		createSource,
 		createSourceManager,
@@ -38,6 +39,7 @@ await new GuideCommand({
 		replaceSummary,
 		resolveLink,
 		resolvePath,
+		SUMMARY,
 	} = await import('@src/core')
 	const { describe, expect, it } = await import('vitest')
 	const { requireText } = await import('./setup.js')
@@ -171,17 +173,21 @@ await new GuideCommand({
 		const guideText = requireText(files, GUIDE_SPEC)
 
 		it('extracts a surface and its sections from markdown text', () => {
-			const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
+			const guide = createGuide(
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `X` | class | `new () => X` | |',
+			)
 
-			expect(guide.surface()).toEqual([{ name: 'X', keyword: 'class' }])
+			expect(guide.surface()).toEqual([{ name: 'X', keyword: 'class', signature: '`new () => X`' }])
 			expect(guide.sections()).toEqual(['Surface'])
 		})
 
 		it('carries the Guide-construction fence lines the transcription copies', () => {
 			expect(guideText).toContain(
-				"const guide = createGuide('## Surface\\n\\n| Name | Kind |\\n| --- | --- |\\n| `X` | class |')",
+				"const guide = createGuide(\n\t'## Surface\\n\\n| Name | Kind | Signature | Summary |\\n| --- | --- | --- | --- |\\n| `X` | class | `new () => X` | |',\n)",
 			)
-			expect(guideText).toContain("guide.surface() // [{ name: 'X', keyword: 'class' }]")
+			expect(guideText).toContain(
+				"guide.surface() // [{ name: 'X', keyword: 'class', signature: '`new () => X`' }]",
+			)
 			expect(guideText).toContain("guide.sections() // ['Surface']")
 		})
 
@@ -277,7 +283,9 @@ await new GuideCommand({
 		})
 
 		it('agrees in every direction between declarations, barrel, and guide', () => {
-			const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Guide` | class |')
+			const guide = createGuide(
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Guide` | class | `new () => Guide` | |',
+			)
 			const source = createSource({
 				files: {
 					'src/core/index.ts': "export * from './Guide.js'\n",
@@ -294,7 +302,7 @@ await new GuideCommand({
 
 		it('names both sites of a disagreement between a guide and its source', () => {
 			const guide = createGuide(
-				'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |',
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks the tree. |',
 			)
 			const source = createSource({
 				files: {
@@ -325,13 +333,15 @@ await new GuideCommand({
 
 		it('carries a summary across into the guide and into a doc block', () => {
 			const guide =
-				'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |'
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks the tree. |'
 
-			expect(replaceCell(guide, 'function walk', 'Walks a tree.')).toBe(
-				'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks a tree. |',
+			expect(replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks a tree.'))).toBe(
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks a tree. |',
 			)
-			expect(replaceCell(guide, 'function phantom', 'Absent.')).toBeUndefined()
-			expect(replaceCell(guide, 'function walk', 'Walks the tree.') === guide).toBe(true)
+			expect(replaceCell(guide, 'function phantom', SUMMARY, buildCell('Absent.'))).toBeUndefined()
+			expect(
+				replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks the tree.')) === guide,
+			).toBe(true)
 			expect(replaceSummary('/** Walks the tree. */', 'Walks a tree.')).toBe('/** Walks a tree. */')
 		})
 
@@ -341,8 +351,18 @@ await new GuideCommand({
 		// that obligation changes; the transcription check beside it only guards the sentence.
 		it('reads a rendered Surface table back under the section heading its caller supplies', () => {
 			const symbols: readonly SurfaceSymbol[] = [
-				{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' },
-				{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+				{
+					name: 'walk',
+					keyword: 'function',
+					signature: '`() => void`',
+					summary: 'Walks the tree.',
+				},
+				{
+					name: 'Widget',
+					keyword: 'class',
+					signature: '`new () => Widget`',
+					summary: 'Represents a widget.',
+				},
 			]
 			const rendered = renderSurface(symbols)
 
@@ -359,20 +379,22 @@ await new GuideCommand({
 
 		it('carries the propagation fence lines the transcription copies', () => {
 			expect(guideText).toContain(
-				"\t'## Surface\\n\\n| Name | Kind | Summary |\\n| --- | --- | --- |\\n| `walk` | function | Walks the tree. |'",
+				"\t'## Surface\\n\\n| Name | Kind | Signature | Summary |\\n| --- | --- | --- | --- |\\n| `walk` | function | `() => void` | Walks the tree. |'",
 			)
 			expect(guideText).toContain(
 				"// The guide's text back, with that one cell replaced and every byte outside the table unchanged.",
 			)
-			expect(guideText).toContain("replaceCell(guide, 'function walk', 'Walks a tree.')")
 			expect(guideText).toContain(
-				"// '## Surface\\n\\n| Name | Kind | Summary |\\n| --- | --- | --- |\\n| `walk` | function | Walks a tree. |'",
+				"replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks a tree.'))",
 			)
 			expect(guideText).toContain(
-				"replaceCell(guide, 'function phantom', 'Absent.') // undefined — no row carries that key",
+				"// '## Surface\\n\\n| Name | Kind | Signature | Summary |\\n| --- | --- | --- | --- |\\n| `walk` | function | `() => void` | Walks a tree. |'",
 			)
 			expect(guideText).toContain(
-				"replaceCell(guide, 'function walk', 'Walks the tree.') === guide // true — the row already carries it",
+				"replaceCell(guide, 'function phantom', SUMMARY, buildCell('Absent.')) // undefined — no row carries that key",
+			)
+			expect(guideText).toContain(
+				"replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks the tree.')) === guide // true — the row already carries it",
 			)
 			expect(guideText).toContain(
 				"replaceSummary('/** Walks the tree. */', 'Walks a tree.') // '/** Walks a tree. */'",

@@ -35,3 +35,22 @@ export function parsePackageName(manifest: string): string | undefined {
 	if (!isNonEmptyString(name)) return undefined
 	return name.slice(name.lastIndexOf('/') + 1)
 }
+
+/**
+ * Reads the `rootDir` a `tsc --showConfig` reading resolves.
+ *
+ * @param text - The compiler's `--showConfig` output
+ * @returns The `rootDir` text, relative to the project file, or `undefined` when none is declared
+ *
+ * @example
+ * ```ts
+ * parseCompilerRoot('{"compilerOptions":{"rootDir":"../../src/core"}}') // '../../src/core'
+ * ```
+ */
+export function parseCompilerRoot(text: string): string | undefined {
+	const parsed = parseJSONAs(text, isRecord)
+	const options = parsed?.compilerOptions
+	if (!isRecord(options)) return undefined
+	const root = options.rootDir
+	return isNonEmptyString(root) ? root : undefined
+}

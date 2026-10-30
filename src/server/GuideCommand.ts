@@ -1,5 +1,6 @@
 import type {
 	GuideCommandContext,
+	GuideCompilerInterface,
 	GuideCommandHandler,
 	GuideCommandInterface,
 	GuideCommandOptions,
@@ -11,8 +12,9 @@ import { isError, isFiniteNumber, isFunction, isObject, isString } from '@orkest
 import { globSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { Parity, parseManifest } from '@src/core'
+import { normalizeDirectories, Parity, parseManifest } from '@src/core'
 import { GUIDE_INDEX, GUIDE_MANIFEST, GUIDE_README, GUIDE_USAGE } from './constants.js'
+import { GuideCompiler } from './GuideCompiler.js'
 import {
 	formatGuideFinding,
 	matchesGuideResult,
@@ -60,6 +62,7 @@ export class GuideCommand implements GuideCommandInterface {
 	readonly #language: string
 	readonly #reader: GuideReadFunction
 	readonly #runner: GuideRunnerFunction
+	readonly #compiler: GuideCompilerInterface
 
 	constructor(options: GuideCommandOptions) {
 		this.#root = resolveGuideRoot(options.root)
@@ -69,6 +72,7 @@ export class GuideCommand implements GuideCommandInterface {
 		this.#language = options.language
 		this.#reader = options.reader
 		this.#runner = options.runner
+		this.#compiler = new GuideCompiler({ root: this.#root })
 	}
 
 	/**
@@ -92,7 +96,10 @@ export class GuideCommand implements GuideCommandInterface {
 		}
 	}
 
-	#createOptions(): ParityOptions | undefined {
+	// `compiled` holds one command run's declarations by module, so a module compiles once per run.
+	#createOptions(
+		compiled: Map<string, Readonly<Record<string, string>>>,
+	): ParityOptions | undefined {
 		const files = this.#readInventory()
 		const manifest = files[GUIDE_INDEX]
 		if (manifest === undefined) return undefined
@@ -103,7 +110,7 @@ export class GuideCommand implements GuideCommandInterface {
 			entries,
 			packageManifest === undefined ? undefined : parsePackageName(packageManifest),
 		)
-		return {
+		const options: ParityOptions = {
 			files,
 			entries,
 			modules: this.#modules,
@@ -113,6 +120,22 @@ export class GuideCommand implements GuideCommandInterface {
 				? {}
 				: { pitch: Object.freeze({ readme: GUIDE_README, spec: pitch }) }),
 		}
+		// Parity parses every manifest guide at construction, so a malformed guide refuses before
+		// any module compiles.
+		const directories = new Set(
+			new Parity(options).rows().flatMap((row) => normalizeDirectories(row.entry.source)),
+		)
+		for (const directory of directories) {
+			if (!compiled.has(directory)) compiled.set(directory, this.#compiler.compile(directory))
+		}
+		const declarations = Object.freeze(
+			Object.fromEntries(
+				Array.from(directories).flatMap((directory) =>
+					Object.entries(compiled.get(directory) ?? {}),
+				),
+			),
+		)
+		return { ...options, declarations }
 	}
 
 	async #executeNative(): Promise<void> {
@@ -128,7 +151,8 @@ export class GuideCommand implements GuideCommandInterface {
 			return
 		}
 
-		const options = this.#createOptions()
+		const compiled = new Map<string, Readonly<Record<string, string>>>()
+		const options = this.#createOptions(compiled)
 		if (options === undefined) {
 			this.#reportMissing()
 			return
@@ -144,7 +168,7 @@ export class GuideCommand implements GuideCommandInterface {
 			process.stdout.write(`wrote ${change.path}\n`)
 		}
 
-		const freshOptions = this.#createOptions()
+		const freshOptions = this.#createOptions(compiled)
 		if (freshOptions === undefined) {
 			this.#reportMissing()
 			return
@@ -171,7 +195,7 @@ export class GuideCommand implements GuideCommandInterface {
 	}
 
 	async #register(register: GuideCommandHandler): Promise<void> {
-		const options = this.#createOptions()
+		const options = this.#createOptions(new Map())
 		if (options === undefined) {
 			throw new Error('The inventory carries no guides/README.md to index from')
 		}

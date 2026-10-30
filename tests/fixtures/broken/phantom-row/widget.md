@@ -8,19 +8,19 @@
 
 ### Types
 
-| Name              | Kind      |
-| ----------------- | --------- |
-| `WidgetInterface` | interface |
-| `WidgetKind`      | type      |
+| Name              | Kind      | Signature                                 | Summary |
+| ----------------- | --------- | ----------------------------------------- | ------- |
+| `WidgetInterface` | interface | `{ count, inspect(), render(), reset() }` |         |
+| `WidgetKind`      | type      | `'basic' \| 'advanced'`                   |         |
 
 ### Helpers
 
-| Name            | Kind     |
-| --------------- | -------- |
-| `createLabel`   | function |
-| `loadWidget`    | function |
-| `DEFAULT_COUNT` | const    |
-| `missingExport` | function |
+| Name            | Kind     | Signature                         | Summary |
+| --------------- | -------- | --------------------------------- | ------- |
+| `createLabel`   | function | `(prefix: string) => string`      |         |
+| `loadWidget`    | function | `(id: string) => Promise<string>` |         |
+| `DEFAULT_COUNT` | const    | `number`                          |         |
+| `missingExport` | function | `() => void`                      |         |
 
 ### `Widget`
 

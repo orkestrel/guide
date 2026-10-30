@@ -67,6 +67,14 @@ import {
 	unwrapComment,
 	wrapText,
 	WRAP_WIDTH,
+	SUMMARY,
+	SIGNATURE,
+	computeDepths,
+	findClosing,
+	findSeparators,
+	renderMember,
+	extractSignature,
+	extractSignatures,
 	extractMemberMethods,
 	findMissingSymbols,
 	normalizeDirectories,
@@ -75,6 +83,9 @@ import {
 	selectSectionBlocks,
 	selectModuleKeys,
 	computeSymbolKey,
+	SURFACE_HEADER,
+	validateModules,
+	validateSurface,
 } from '@src/core'
 import { createMarkdown, isTableNode, renderMarkdown } from '@orkestrel/markdown'
 import { readParsedSummaries } from '../../setupServer.js'
@@ -1123,6 +1134,149 @@ describe('extractFenceImports', () => {
 	})
 })
 
+describe('validateSurface', () => {
+	it('accepts a uniform table, a nameless row, and a table outside the Surface section', () => {
+		const document = createMarkdown(
+			`## Surface\n\n| ${SURFACE_HEADER.join(' | ')} |\n| --- | --- | --- | --- |\n| \`Widget\` | class | \`new () => Widget\` | |\n| prose | class | | |\n\n## Methods\n\n| Name | Summary |\n| --- | --- |\n| \`render\` | Renders. |`,
+		).document
+		expect(() => validateSurface(document)).not.toThrow()
+		expect(SURFACE_HEADER).toEqual(['Name', 'Kind', 'Signature', 'Summary'])
+	})
+
+	it('refuses a nonuniform header in a repeated Surface section with its table number', () => {
+		const document = createMarkdown(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n\n## Methods\n\nNone.\n\n## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `Widget` | class | |',
+		).document
+		expect(() => validateSurface(document)).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'## Surface table 2 has header "Name | Kind | Summary"; expected "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('refuses a keyed row with an empty Signature cell', () => {
+		const document = createMarkdown(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Widget` | class | | Builds widgets. |',
+		).document
+		expect(() => validateSurface(document)).toThrow(
+			expect.objectContaining({
+				code: 'signature',
+				message:
+					'## Surface table 1 row 1 ("class Widget") has an empty Signature cell; expected a non-empty TypeScript signature code span under "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+})
+
+describe('validateModules', () => {
+	it('refuses every name two modules declare in one refusal, in key order, naming each module', () => {
+		const files = {
+			'src/core/index.ts': "export * from './widgets.js'\n",
+			'src/core/widgets.ts': 'export function openWidget() {}\nexport type WidgetName = string\n',
+			'src/server/widgets.ts':
+				'export function openWidget() {}\nexport type WidgetName = string\nexport const WIDGET_PORT = 1\n',
+			'src/browser/widgets.ts': 'export type WidgetName = string\n',
+		}
+		expect(() => validateModules(files, ['src/core', 'src/server', 'src/browser'])).toThrow(
+			expect.objectContaining({
+				code: 'collision',
+				message: `"WidgetName" is declared in "src/core" and "src/server" and "src/browser"; "openWidget" is declared in "src/core" and "src/server"; one name exported from two environments is a conflict. Declare logic both environments share once in src/core, and give each environment's own logic a distinct name.`,
+				context: {
+					collisions: [
+						{ name: 'WidgetName', modules: ['src/core', 'src/server', 'src/browser'] },
+						{ name: 'openWidget', modules: ['src/core', 'src/server'] },
+					],
+				},
+			}),
+		)
+	})
+
+	it('accepts distinct names, one module, and a nested module beside its parent', () => {
+		expect(() =>
+			validateModules(
+				{
+					'src/core/widgets.ts': 'export function openWidget() {}\n',
+					'src/server/widgets.ts': 'export function serveWidget() {}\n',
+				},
+				['src/core', 'src/server'],
+			),
+		).not.toThrow()
+		expect(() =>
+			validateModules(
+				{
+					'src/core/a.ts': 'export function openWidget() {}\n',
+					'src/core/b.ts': 'export function openWidget() {}\n',
+				},
+				'src/core',
+			),
+		).not.toThrow()
+		expect(() =>
+			validateModules(
+				{
+					'src/core/widgets.ts': 'export function openWidget() {}\n',
+					'src/core/sources/Source.ts': 'export class Source {}\n',
+				},
+				['src/core', 'src/core/sources'],
+			),
+		).not.toThrow()
+	})
+
+	it('refuses one bare name two modules declare as different kinds', () => {
+		expect(() =>
+			validateModules(
+				{
+					'src/core/types.ts': 'export interface Widget {}\n',
+					'src/server/Widget.ts': 'export class Widget {}\n',
+				},
+				['src/core', 'src/server'],
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'collision',
+				context: { collisions: [{ name: 'Widget', modules: ['src/core', 'src/server'] }] },
+			}),
+		)
+	})
+
+	it('refuses one name a parent module and its nested module both export', () => {
+		expect(() =>
+			validateModules(
+				{
+					'src/core/widgets.ts': 'export function openWidget() {}\n',
+					'src/core/sources/Source.ts': 'export function openWidget() {}\n',
+				},
+				['src/core', 'src/core/sources'],
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'collision',
+				context: {
+					collisions: [{ name: 'openWidget', modules: ['src/core', 'src/core/sources'] }],
+				},
+			}),
+		)
+	})
+
+	it("names the entry's own layer core in the correction", () => {
+		expect(() =>
+			validateModules(
+				{
+					'app/core/widgets.ts': 'export function openWidget() {}\n',
+					'app/server/widgets.ts': 'export function openWidget() {}\n',
+				},
+				['app/core', 'app/server'],
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'collision',
+				message: `"openWidget" is declared in "app/core" and "app/server"; one name exported from two environments is a conflict. Declare logic both environments share once in app/core, and give each environment's own logic a distinct name.`,
+			}),
+		)
+	})
+})
+
 describe('selectSectionBlocks', () => {
 	it('scopes to the blocks between a heading and the next ## heading', () => {
 		const document = createMarkdown('## A\n\npara-a\n\n## B\n\npara-b\n').document
@@ -1241,11 +1395,15 @@ describe('extractSurface', () => {
 		const document = createMarkdown(requireText(FIXTURES, 'good/guides/src/widget.md')).document
 		const surface = extractSurface(document)
 		expect(surface).toEqual([
-			{ name: 'WidgetInterface', keyword: 'interface' },
-			{ name: 'WidgetKind', keyword: 'type' },
-			{ name: 'createLabel', keyword: 'function' },
-			{ name: 'loadWidget', keyword: 'function' },
-			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{
+				name: 'WidgetInterface',
+				keyword: 'interface',
+				signature: '`{ count, inspect(), render(), reset() }`',
+			},
+			{ name: 'WidgetKind', keyword: 'type', signature: "`'basic' | 'advanced'`" },
+			{ name: 'createLabel', keyword: 'function', signature: '`(prefix: string) => string`' },
+			{ name: 'loadWidget', keyword: 'function', signature: '`(id: string) => Promise<string>`' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const', signature: '`number`' },
 			{ name: 'Widget', keyword: 'class' },
 		])
 	})
@@ -1270,7 +1428,12 @@ describe('extractSurface', () => {
 
 	it('refuses an embedded demonstration heading and keeps the following row summary', () => {
 		expect(extractSurface(createMarkdown(DEMONSTRATION_HEADING_GUIDE).document)).toEqual([
-			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+			{
+				name: 'Widget',
+				keyword: 'class',
+				signature: '`new () => Widget`',
+				summary: 'Represents a widget.',
+			},
 		])
 	})
 
@@ -1536,6 +1699,233 @@ describe('extractExports', () => {
 	it('ignores non-export lines', () => {
 		const source = 'const local = 1\nfunction helper() {}\nexport class Real {}\n'
 		expect(extractExports(source)).toEqual([{ name: 'Real', keyword: 'class' }])
+	})
+})
+
+describe('computeDepths, findClosing, and findSeparators', () => {
+	it('gives a bracket pair the outer depth and quoted text -1', () => {
+		expect(computeDepths("f(a, 'b')")).toEqual([0, 0, 1, 1, 1, -1, -1, -1, 0])
+	})
+
+	it('reads the arrow of a function type as no closing angle', () => {
+		const code = '<T>(cb: () => T) => T'
+		const depths = computeDepths(code)
+		expect(findClosing(depths, 0)).toBe(2)
+		expect(findClosing(depths, 3)).toBe(15)
+	})
+
+	it('reads an escaped quote as quoted text', () => {
+		const code = "('a\\')', b)"
+		expect(findClosing(computeDepths(code), 0)).toBe(code.length - 1)
+	})
+
+	it('returns undefined for an opener that never closes and for a quoted index', () => {
+		expect(findClosing(computeDepths('f(a'), 1)).toBeUndefined()
+		expect(findClosing(computeDepths("'('"), 1)).toBeUndefined()
+		expect(findClosing([], 0)).toBeUndefined()
+	})
+
+	it('finds separators only at the depth asked for and outside quotes', () => {
+		const code = "a, f(b, c), ';,'"
+		const depths = computeDepths(code)
+		expect(findSeparators(code, depths, ',', 0)).toEqual([1, 10])
+		expect(findSeparators(code, depths, ',', 1)).toEqual([6])
+		expect(findSeparators('', [], ',', 0)).toEqual([])
+	})
+})
+
+describe('renderMember', () => {
+	it('renders a property, an optional property, and a readonly one by name', () => {
+		expect(renderMember(' name: string', ' name: string')).toBe('name')
+		expect(renderMember('readonly label?: string', 'readonly label?: string')).toBe('label?')
+		expect(renderMember('readonly readonly: boolean', 'readonly readonly: boolean')).toBe(
+			'readonly',
+		)
+	})
+
+	it('renders a method, an optional method, and a generic method with parentheses', () => {
+		expect(renderMember('open(): void', 'open(): void')).toBe('open()')
+		expect(renderMember('close?(force: boolean): void', 'close?(force: boolean): void')).toBe(
+			'close?()',
+		)
+		expect(renderMember('map<T>(value: T): T', 'map<T>(value: T): T')).toBe('map()')
+	})
+
+	it('renders a property of function type and an accessor as a property', () => {
+		expect(renderMember('handler: () => void', 'handler: () => void')).toBe('handler')
+		expect(renderMember('get size(): number', 'get size(): number')).toBe('size')
+		expect(renderMember('get(): number', 'get(): number')).toBe('get()')
+	})
+
+	it('keeps the quotes of a quoted name and the brackets of a computed one', () => {
+		expect(renderMember("'data-id': string", "'data-id': string")).toBe("'data-id'")
+		expect(
+			renderMember(
+				'[Symbol.iterator](): Iterator<string>',
+				'[Symbol.iterator](): Iterator<string>',
+			),
+		).toBe('[Symbol.iterator]()')
+	})
+
+	it('renders a call, construct, and index signature as its collapsed text', () => {
+		expect(renderMember('(name: string):  boolean', '(name: string):  boolean')).toBe(
+			'(name: string): boolean',
+		)
+		expect(renderMember('new (name: string): Widget', 'new (name: string): Widget')).toBe(
+			'new (name: string): Widget',
+		)
+		expect(renderMember('readonly [key: string]: number', 'readonly [key: string]: number')).toBe(
+			'readonly [key: string]: number',
+		)
+	})
+
+	it('returns undefined for an empty member', () => {
+		expect(renderMember('  ', '  ')).toBeUndefined()
+	})
+})
+
+describe('extractSignature', () => {
+	it('prints a function, a generic function, and a type-predicate function', () => {
+		const plain = 'export declare function walk(node: string, depth?: number): void;'
+		expect(extractSignature(plain, plain)).toEqual({
+			name: 'walk',
+			keyword: 'function',
+			signature: '(node: string, depth?: number) => void',
+		})
+		const generic =
+			'export declare function first<T extends { a: string; }>(list: readonly T[]): T;'
+		expect(extractSignature(generic, generic)?.signature).toBe(
+			'<T extends { a: string; }>(list: readonly T[]) => T',
+		)
+		const guard = 'export declare function isWidget(value: unknown): value is Widget;'
+		expect(extractSignature(guard, guard)?.signature).toBe('(value: unknown) => value is Widget')
+	})
+
+	it('prints a type alias body without its type parameters', () => {
+		const text = 'export type Box<T = string> = { readonly value: T; };'
+		expect(extractSignature(text, text)).toEqual({
+			name: 'Box',
+			keyword: 'type',
+			signature: '{ readonly value: T; }',
+		})
+	})
+
+	it('prints an annotated constant and a literal constant as the compiler emitted them', () => {
+		const annotated = 'export declare const LIMITS: { readonly size: 3; };'
+		expect(extractSignature(annotated, annotated)?.signature).toBe('{ readonly size: 3; }')
+		const literal = 'export declare const LABEL = "a; b";'
+		expect(extractSignature(literal, literal)?.signature).toBe('"a; b"')
+	})
+
+	it('prints an interface members list and an empty one, ignoring its extends clause', () => {
+		const text =
+			'export interface Widget<T> extends Base<{ a: string; }> { readonly name?: string; open(): void; open(force: boolean): void; }'
+		expect(extractSignature(text, text)).toEqual({
+			name: 'Widget',
+			keyword: 'interface',
+			signature: '{ name?, open() }',
+		})
+		const empty = 'export interface Empty { }'
+		expect(extractSignature(empty, empty)?.signature).toBe('{}')
+	})
+
+	it('prints a class construct signature yielding its first implements type', () => {
+		const text =
+			'export declare class Widget<T> extends Base implements WidgetInterface<T>, Other { #private; readonly name: string; constructor(options: WidgetOptions<T>); open(): void; }'
+		expect(extractSignature(text, text)).toEqual({
+			name: 'Widget',
+			keyword: 'class',
+			signature: 'new <T>(options: WidgetOptions<T>) => WidgetInterface<T>',
+		})
+	})
+
+	it('prints a class with no constructor and with several, yielding its own name', () => {
+		const none = 'export declare class Box<in out T extends object = {}> { readonly value: T; }'
+		expect(extractSignature(none, none)?.signature).toBe(
+			'new <in out T extends object = {}>() => Box<T>',
+		)
+		const several =
+			'export declare class Point { constructor(x: number); constructor(x: number, y: number); }'
+		expect(extractSignature(several, several)?.signature).toBe(
+			'(new (x: number) => Point) & (new (x: number, y: number) => Point)',
+		)
+	})
+
+	it('reads the signature text from the source at the code columns', () => {
+		const template = '`widgets/${string}`'
+		const code = `export type Path = ${' '.repeat(template.length)};`
+		const source = `export type Path = ${template};`
+		expect(extractSignature(code, source)?.signature).toBe('`widgets/${string}`')
+	})
+
+	it('returns undefined for a head the projector does not read', () => {
+		for (const text of [
+			'export declare const enum Color { Red = 0 }',
+			'export * from "./widgets.js";',
+			'export declare namespace Widgets { }',
+			'declare const hidden: string;',
+		]) {
+			expect(extractSignature(text, text)).toBeUndefined()
+		}
+	})
+})
+
+describe('extractSignatures', () => {
+	it('joins a multi-line declaration with single spaces', () => {
+		expect(
+			extractSignatures(
+				'export type Record = {\n    readonly id: string;\n    readonly size: number;\n};\n',
+			),
+		).toEqual([
+			{
+				name: 'Record',
+				keyword: 'type',
+				signature: '{ readonly id: string; readonly size: number; }',
+			},
+		])
+	})
+
+	it('joins an overload set in emitted order as an intersection', () => {
+		expect(
+			extractSignatures(
+				'export declare function open(id: string): boolean;\nexport declare function open(ids: readonly string[]): boolean;\n',
+			),
+		).toEqual([
+			{
+				name: 'open',
+				keyword: 'function',
+				signature: '((id: string) => boolean) & ((ids: readonly string[]) => boolean)',
+			},
+		])
+	})
+
+	it('reads every head in file order and skips imports and unsupported heads', () => {
+		const declaration = [
+			"import type { Widget } from './types.js';",
+			'export declare const SIZE: number;',
+			'export declare const enum Color {',
+			'    Red = 0',
+			'}',
+			'export interface Lookup {',
+			'    (name: string): Widget | undefined;',
+			'    readonly [name: string]: unknown;',
+			'}',
+			"export * from './types.js';",
+			'',
+		].join('\n')
+		expect(extractSignatures(declaration)).toEqual([
+			{ name: 'SIZE', keyword: 'const', signature: 'number' },
+			{
+				name: 'Lookup',
+				keyword: 'interface',
+				signature: '{ (name: string): Widget | undefined, readonly [name: string]: unknown }',
+			},
+		])
+	})
+
+	it('reads no signature from an empty declaration file', () => {
+		expect(extractSignatures('')).toEqual([])
+		expect(extractSignatures('export {};\n')).toEqual([])
 	})
 })
 
@@ -3156,10 +3546,10 @@ describe('findDrift', () => {
 		'',
 		'## Surface',
 		'',
-		'| Name | Kind | Summary |',
-		'| --- | --- | --- |',
-		'| `WidgetInterface` | interface | Represents a widget. |',
-		'| `createWidget` | function | Creates a widget. |',
+		'| Name | Kind | Signature | Summary |',
+		'| --- | --- | --- | --- |',
+		'| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |',
+		'| `createWidget` | function | `() => void` | Creates a widget. |',
 		'',
 		'## Methods',
 		'',
@@ -3241,8 +3631,8 @@ describe('findDrift', () => {
 	// carries the code token alone. Both sides read through the compared form, so the pair agrees.
 	it('reads a module-qualified link against the bare token documenting it', () => {
 		const linked = AGREEING_GUIDE.replace(
-			'| `createWidget` | function | Creates a widget. |',
-			'| `createWidget` | function | Creates a `Widget`. |',
+			'| `createWidget` | function | `() => void` | Creates a widget. |',
+			'| `createWidget` | function | `() => void` | Creates a `Widget`. |',
 		)
 		const cross = createSource({
 			files: {
@@ -3260,10 +3650,34 @@ describe('findDrift', () => {
 		expect(findDrift(createGuide(linked), cross)).toEqual([])
 	})
 
-	it('reports the guide side absent when the table carries no Summary column', () => {
+	it('reports a Signature cell that differs from the computed signature as signature drift', () => {
+		const signed = createSource({
+			files: FILES,
+			module: 'module',
+			declarations: {
+				'module/types.d.ts': 'export interface WidgetInterface {\n    render(): void;\n}\n',
+				'module/factories.d.ts': 'export declare function createWidget(size: number): void;\n',
+			},
+		})
+		expect(findDrift(createGuide(AGREEING_GUIDE), signed)).toEqual([
+			{
+				key: 'function createWidget',
+				category: 'signature',
+				guide: '`() => void`',
+				source: '`(size: number) => void`',
+			},
+		])
+	})
+
+	it('compares no signature when the source carries no emitted declaration', () => {
+		const drifted = AGREEING_GUIDE.replace('`() => void`', '`(size: number) => void`')
+		expect(findDrift(createGuide(drifted), source)).toEqual([])
+	})
+
+	it('reports the guide side absent when the Summary cells are empty', () => {
 		const stripped = AGREEING_GUIDE.replace(
-			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `WidgetInterface` | interface | Represents a widget. |\n| `createWidget` | function | Creates a widget. |',
-			'| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n| `createWidget` | function |',
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `createWidget` | function | `() => void` | Creates a widget. |',
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | |\n| `createWidget` | function | `() => void` | |',
 		)
 		expect(findDrift(createGuide(stripped), source)).toEqual([
 			{ key: 'interface WidgetInterface', category: 'summary', source: 'Represents a widget.' },
@@ -3283,8 +3697,8 @@ describe('findDrift', () => {
 
 	it('reports the key alone when neither the table nor the declaration carries text', () => {
 		const stripped = AGREEING_GUIDE.replace(
-			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `WidgetInterface` | interface | Represents a widget. |\n| `createWidget` | function | Creates a widget. |',
-			'| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n| `createWidget` | function |',
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `createWidget` | function | `() => void` | Creates a widget. |',
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | |\n| `createWidget` | function | `() => void` | |',
 		)
 		const undocumented = createSource({
 			files: { ...FILES, 'module/factories.ts': 'export function createWidget(): void {}\n' },
@@ -3335,8 +3749,8 @@ describe('findDrift', () => {
 	// membership rule, and the SB legs beside it prove the run is not vacuous.
 	it('reports neither a symbol the guide alone documents nor one the barrel alone exports', () => {
 		const phantomGuide = AGREEING_GUIDE.replace(
-			'| `createWidget` | function | Creates a widget. |',
-			'| `createWidget` | function | Creates a widget. |\n| `phantom` | function | Names nothing. |',
+			'| `createWidget` | function | `() => void` | Creates a widget. |',
+			'| `createWidget` | function | `() => void` | Creates a widget. |\n| `phantom` | function | `() => void` | Names nothing. |',
 		)
 		const stranded = createSource({
 			files: {
@@ -3380,9 +3794,9 @@ describe('findDrift', () => {
 		'',
 		'## Surface',
 		'',
-		'| Name | Kind | Summary |',
-		'| --- | --- | --- |',
-		'| `Widget` | class | Represents a widget. |',
+		'| Name | Kind | Signature | Summary |',
+		'| --- | --- | --- | --- |',
+		'| `Widget` | class | `new () => Widget` | Represents a widget. |',
 		'',
 		'## Patterns',
 		'',
@@ -3462,7 +3876,7 @@ describe('computeDrift', () => {
 describe('collectTitles', () => {
 	it('keys the titled blocks a documented interface carries and skips an untitled one', () => {
 		const guide = createGuide(
-			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `WidgetInterface` | interface |\n',
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | |\n',
 		)
 		const source = createSource({
 			files: {
@@ -3836,6 +4250,44 @@ describe('unwrapComment and buildComment', () => {
 })
 
 describe('extractRowSymbol, extractRowEntry, and extractRowSummary', () => {
+	it('reads and normalizes Signature by its exact header without changing the symbol key', () => {
+		const table = requireTable(
+			'| Name | Summary | Signature | Kind |\n| --- | --- | --- | --- |\n| `walk` | Walks   the tree. | `  () => string \\| number  ` | function |',
+		)
+		const symbol = extractRowSymbol(table, 0)
+		expect(symbol).toEqual({
+			name: 'walk',
+			keyword: 'function',
+			signature: '`() => string | number`',
+			summary: 'Walks the tree.',
+		})
+		if (symbol === undefined) throw new Error('The signature row must be keyed.')
+		expect(computeSymbolKey(symbol)).toBe('function walk')
+		expect(computeSymbolKey({ ...symbol, signature: '`() => boolean`' })).toBe('function walk')
+	})
+
+	it.each(['Shape', 'Export', 'Symbol', 'signature'])('never reads %s as Signature', (header) => {
+		const table = requireTable(
+			`| Name | Kind | ${header} | Summary |\n| --- | --- | --- | --- |\n| \`walk\` | function | \`() => void\` | Walks. |`,
+		)
+		expect(extractRowSymbol(table, 0)).toEqual({
+			name: 'walk',
+			keyword: 'function',
+			summary: 'Walks.',
+		})
+	})
+
+	it('leaves empty Signature cells absent', () => {
+		const table = requireTable(
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function |   | Walks. |',
+		)
+		expect(extractRowSymbol(table, 0)).toEqual({
+			name: 'walk',
+			keyword: 'function',
+			summary: 'Walks.',
+		})
+	})
+
 	const table = requireTable(
 		[
 			'| Name | Kind | Summary |',
@@ -3949,7 +4401,7 @@ describe('spliceSpan, buildTable, and buildFence', () => {
 				'\n',
 			),
 		)
-		const rebuilt = buildTable(table, 0, 2, 'Walks a tree.')
+		const rebuilt = buildTable(table, 0, 2, buildCell('Walks a tree.'))
 		expect(rebuilt.rows[0]?.[2]).toEqual([{ element: 'text', value: 'Walks a tree.' }])
 		expect(rebuilt.rows[0]?.[0]).toBe(table.rows[0]?.[0])
 		expect(rebuilt.header).toBe(table.header)
@@ -3983,8 +4435,20 @@ describe('renderSurface', () => {
 
 	it('renders the header the reader locates its columns by', () => {
 		expect(renderSurface([{ name: 'walk', keyword: 'function', summary: 'Walks the tree.' }])).toBe(
-			'| Name | Kind | Summary |\n| --- | --- | --- |\n| `walk` | function | Walks the tree. |',
+			'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function |  | Walks the tree. |',
 		)
+	})
+
+	it('round-trips a typed signature with an escaped union through the uniform table', () => {
+		const symbol: SurfaceSymbol = {
+			name: 'walk',
+			keyword: 'function',
+			signature: '`() => string | number`',
+			summary: 'Walks.',
+		}
+		const rendered = renderSurface([symbol])
+		expect(rendered).toContain('`() => string \\| number`')
+		expect(extractSurface(createMarkdown(`## Surface\n\n${rendered}`).document)).toEqual([symbol])
 	})
 
 	it('re-renders its own output byte for byte', () => {
@@ -4083,7 +4547,12 @@ describe('replaceCell', () => {
 		const span = table === undefined ? undefined : markdown.span(table)
 		expect(span).toBeDefined()
 
-		const result = replaceCell(GUIDE, 'type Artifact', 'Names one file in a plan.')
+		const result = replaceCell(
+			GUIDE,
+			'type Artifact',
+			SUMMARY,
+			buildCell('Names one file in a plan.'),
+		)
 		expect(result).toBeDefined()
 		expect(result?.slice(0, span?.start)).toBe(GUIDE.slice(0, span?.start))
 		expect(result?.slice((result?.length ?? 0) - (GUIDE.length - (span?.end ?? 0)))).toBe(
@@ -4092,7 +4561,8 @@ describe('replaceCell', () => {
 	})
 
 	it('changes the one row it names and no other row', () => {
-		const result = replaceCell(GUIDE, 'type Artifact', 'Names one file in a plan.') ?? ''
+		const result =
+			replaceCell(GUIDE, 'type Artifact', SUMMARY, buildCell('Names one file in a plan.')) ?? ''
 		const before = extractSurface(createMarkdown(GUIDE).document)
 		const after = extractSurface(createMarkdown(result).document)
 		expect(after[0]).toEqual({
@@ -4104,7 +4574,8 @@ describe('replaceCell', () => {
 	})
 
 	it('replaces one Methods cell by its Owner.member key', () => {
-		const result = replaceCell(GUIDE, 'CompilerInterface.audit', 'Audits a target.') ?? ''
+		const result =
+			replaceCell(GUIDE, 'CompilerInterface.audit', SUMMARY, buildCell('Audits a target.')) ?? ''
 		expect(extractMethods(createMarkdown(result).document)).toEqual([
 			{
 				interface: 'CompilerInterface',
@@ -4125,9 +4596,14 @@ describe('replaceCell', () => {
 	})
 
 	it('returns the guide byte for byte when the row already carries the summary', () => {
-		expect(replaceCell(GUIDE, 'type CatalogEntry', 'One package row of the fleet catalog.')).toBe(
-			GUIDE,
-		)
+		expect(
+			replaceCell(
+				GUIDE,
+				'type CatalogEntry',
+				SUMMARY,
+				buildCell('One package row of the fleet catalog.'),
+			),
+		).toBe(GUIDE)
 	})
 
 	// The identity reads both sides through the compared form, so a caller handing over text
@@ -4140,23 +4616,53 @@ describe('replaceCell', () => {
 			'One package row of the {@link Fleet} catalog, in order.',
 			'One package row of the ` | ` fleet catalog, in order.',
 		]) {
-			const first = replaceCell(GUIDE, 'type CatalogEntry', summary)
+			const first = replaceCell(GUIDE, 'type CatalogEntry', SUMMARY, buildCell(summary))
 			expect(first).toBeDefined()
 			expect(first).not.toBe(GUIDE)
-			expect(replaceCell(first ?? '', 'type CatalogEntry', summary)).toBe(first)
+			expect(replaceCell(first ?? '', 'type CatalogEntry', SUMMARY, buildCell(summary))).toBe(first)
 		}
 	})
 
+	it('writes a Signature cell as one code span with escaped pipes and a widened fence', () => {
+		const guide =
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Path` | type | `string` | Names a path. |'
+		const piped = replaceCell(guide, 'type Path', SIGNATURE, [
+			{ element: 'codeSpan', value: 'string | number' },
+		])
+		expect(piped).toBe(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Path` | type | `string \\| number` | Names a path. |',
+		)
+		const ticked = replaceCell(guide, 'type Path', SIGNATURE, [
+			{ element: 'codeSpan', value: '`widgets/${string}`' },
+		])
+		expect(ticked).toBe(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Path` | type | `` `widgets/${string}` `` | Names a path. |',
+		)
+		expect(extractSurface(createMarkdown(ticked ?? '').document)[0]?.signature).toBe(
+			normalizeSummary(extractCellText([{ element: 'codeSpan', value: '`widgets/${string}`' }])),
+		)
+		expect(
+			replaceCell(piped ?? '', 'type Path', SIGNATURE, [
+				{ element: 'codeSpan', value: 'string | number' },
+			]),
+		).toBe(piped)
+	})
+
 	it('returns undefined for a key no row carries', () => {
-		expect(replaceCell(GUIDE, 'type Phantom', 'Absent.')).toBeUndefined()
-		expect(replaceCell(GUIDE, 'CompilerInterface.phantom', 'Absent.')).toBeUndefined()
-		expect(replaceCell(GUIDE, 'class Artifact', 'Absent.')).toBeUndefined()
+		expect(replaceCell(GUIDE, 'type Phantom', SUMMARY, buildCell('Absent.'))).toBeUndefined()
+		expect(
+			replaceCell(GUIDE, 'CompilerInterface.phantom', SUMMARY, buildCell('Absent.')),
+		).toBeUndefined()
+		expect(replaceCell(GUIDE, 'class Artifact', SUMMARY, buildCell('Absent.'))).toBeUndefined()
 	})
 
 	it('returns undefined for a table carrying no Summary column', () => {
 		expect(extractSurface(createMarkdown(UNCOMPARED).document)[0]?.summary).toBeUndefined()
-		expect(replaceCell(UNCOMPARED, 'type Artifact', 'Absent.')).toBeUndefined()
-		expect(replaceCell(UNCOMPARED, 'CompilerInterface.audit', 'Absent.')).toBeUndefined()
+		expect(replaceCell(UNCOMPARED, 'type Artifact', SUMMARY, buildCell('Absent.'))).toBeUndefined()
+		expect(
+			replaceCell(UNCOMPARED, 'CompilerInterface.audit', SUMMARY, buildCell('Absent.')),
+		).toBeUndefined()
+		expect(replaceCell(GUIDE, 'type Artifact', SIGNATURE, buildCell('`string`'))).toBeUndefined()
 	})
 
 	// The control, drawn from outside the membership rule "a row of a Surface or Methods
@@ -4171,7 +4677,7 @@ describe('replaceCell', () => {
 			name: 'Compiler',
 			keyword: 'class',
 		})
-		expect(replaceCell(heading, 'class Compiler', 'Absent.')).toBeUndefined()
+		expect(replaceCell(heading, 'class Compiler', SUMMARY, buildCell('Absent.'))).toBeUndefined()
 	})
 })
 

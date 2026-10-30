@@ -19,14 +19,36 @@ export const EXPORT_KEYWORDS = Object.freeze([
 /**
  * Lists the compared sites a {@link Drift} can describe.
  */
-export const DRIFT_CATEGORIES = Object.freeze(['summary', 'example'] satisfies ReadonlyArray<
-	'summary' | 'example'
->)
+export const DRIFT_CATEGORIES = Object.freeze([
+	'summary',
+	'signature',
+	'example',
+] satisfies ReadonlyArray<'summary' | 'signature' | 'example'>)
 
 /**
  * Names the `## Surface` heading text a guide's documented exports section is keyed on.
  */
 export const SURFACE: string = 'Surface'
+
+/**
+ * Lists the codes a {@link GuideError} carries: a refused Surface `header` or empty `signature`
+ * cell, a name two modules of one manifest entry declare (`collision`), and the compiler faults —
+ * a failed `compile`, an `empty` emit, a `timeout`, and an output `overflow`.
+ */
+export const GUIDE_CODES = Object.freeze([
+	'header',
+	'signature',
+	'collision',
+	'compile',
+	'empty',
+	'timeout',
+	'overflow',
+] satisfies ReadonlyArray<
+	'header' | 'signature' | 'collision' | 'compile' | 'empty' | 'timeout' | 'overflow'
+>)
+
+/** Names the cross-copy identity marker of a Guide error. */
+export const GUIDE_ERROR_BRAND = Symbol.for('@orkestrel/guide.GuideError')
 
 /**
  * Names the `## Methods` heading text a guide's documented interface-methods section is keyed on.
@@ -44,10 +66,25 @@ export const TESTS: string = 'Tests'
 export const KIND: string = 'Kind'
 
 /**
+ * Names the header text of the column a `## Surface` table's TypeScript signature is read from.
+ */
+export const SIGNATURE: string = 'Signature'
+
+/**
  * Names the header text of the column a `## Surface` or `## Methods` table's compared
  * description paragraph is read from.
  */
 export const SUMMARY: string = 'Summary'
+
+/**
+ * Names the header text of a `## Surface` or `## Methods` table's first column, the symbol name.
+ */
+export const NAME: string = 'Name'
+
+/**
+ * Lists the uniform `## Surface` table header, column by column, that guide construction requires.
+ */
+export const SURFACE_HEADER: readonly string[] = Object.freeze([NAME, KIND, SIGNATURE, SUMMARY])
 
 /**
  * Names the `## By concept` heading text the manifest's run-map table is keyed on.

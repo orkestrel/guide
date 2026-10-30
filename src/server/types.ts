@@ -94,6 +94,39 @@ export interface GuideCommandOptions {
 }
 
 /**
+ * Configures the workspace whose own TypeScript compiler emits a module's declarations.
+ */
+export interface GuideCompilerOptions {
+	/** Names the workspace root as a file URL or native path. */
+	readonly root: URL | string
+	/** Holds the milliseconds one compiler run may take before it is stopped. Default: `GUIDE_COMPILER_TIMEOUT`. */
+	readonly timeout?: number
+	/** Holds the bytes of output one compiler run may write to each stream. Default: `GUIDE_COMPILER_LIMIT`. */
+	readonly limit?: number
+	/** Names the directory each compile's scratch output is created under. Default: the host temporary directory. */
+	readonly temporary?: string
+}
+
+/**
+ * Represents the compiler projection that emits one module's declarations under the workspace's
+ * own TypeScript compiler.
+ */
+export interface GuideCompilerInterface {
+	/**
+	 * Emits the declarations of one `src/<env>` or `app/<env>` module through its scoped project.
+	 *
+	 * @param module - The workspace-relative module directory, `src/<env>` or `app/<env>`
+	 * @returns The emitted declaration text keyed by workspace-relative `.d.ts` path, sorted by key
+	 * @throws `GuideError` with code `compile` when the module is outside `src/<env>` and
+	 * `app/<env>`, the workspace installs no TypeScript compiler, the project declares no
+	 * `rootDir`, or the compiler exits non-zero; `empty` when the project emits no declaration under
+	 * the module; `timeout` when a run passes the timeout; and `overflow` when a run passes the output
+	 * bound
+	 */
+	compile(module: string): Readonly<Record<string, string>>
+}
+
+/**
  * Represents the server command's native and worker behavior.
  */
 export interface GuideCommandInterface {

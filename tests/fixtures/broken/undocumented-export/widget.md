@@ -9,17 +9,17 @@
 
 ### Types
 
-| Name              | Kind      |
-| ----------------- | --------- |
-| `WidgetInterface` | interface |
-| `WidgetKind`      | type      |
+| Name              | Kind      | Signature                                 | Summary |
+| ----------------- | --------- | ----------------------------------------- | ------- |
+| `WidgetInterface` | interface | `{ count, inspect(), render(), reset() }` |         |
+| `WidgetKind`      | type      | `'basic' \| 'advanced'`                   |         |
 
 ### Helpers
 
-| Name          | Kind     |
-| ------------- | -------- |
-| `createLabel` | function |
-| `loadWidget`  | function |
+| Name          | Kind     | Signature                         | Summary |
+| ------------- | -------- | --------------------------------- | ------- |
+| `createLabel` | function | `(prefix: string) => string`      |         |
+| `loadWidget`  | function | `(id: string) => Promise<string>` |         |
 
 ### `Widget`
 

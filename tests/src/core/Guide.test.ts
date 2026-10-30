@@ -1,4 +1,11 @@
-import { Guide, createSource, isExternalLink, findMissingSymbols, resolveLink } from '@src/core'
+import {
+	Guide,
+	createGuide,
+	createSource,
+	isExternalLink,
+	findMissingSymbols,
+	resolveLink,
+} from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { readInventory } from '@orkestrel/test/server'
 import { DEMONSTRATION_HEADING_GUIDE, requireText } from '../../setup.js'
@@ -10,6 +17,123 @@ const FIXTURES = readInventory(new URL('../../fixtures/', import.meta.url), ['.'
 // each projection's green and red paths (.claude/rules/tests.md § Test contract).
 
 describe('Guide', () => {
+	it('refuses a whitespace-only signature code span', () => {
+		expect(() =>
+			createGuide(
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Widget` | class | ` ` | |',
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'signature',
+				message:
+					'## Surface table 1 row 1 ("class Widget") has an empty Signature cell; expected a non-empty TypeScript signature code span under "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('checks a later Surface section and leaves other sections outside the refusal', () => {
+		const other = '## Methods\n\n| Name | Summary |\n| --- | --- |\n| `render` | Renders. |'
+		expect(() => createGuide(other)).not.toThrow()
+		expect(() =>
+			createGuide(
+				`## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n\n${other}\n\n## Surface\n\n| Export | Kind |\n| --- | --- |\n| \`Widget\` | class |`,
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'## Surface table 2 has header "Export | Kind"; expected "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('refuses reordered headers even though the low-level row reader locates named columns', () => {
+		expect(() =>
+			createGuide(
+				'## Surface\n\n| Name | Signature | Kind | Summary |\n| --- | --- | --- | --- |\n| `Widget` | `new () => Widget` | class | |',
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'## Surface table 1 has header "Name | Signature | Kind | Summary"; expected "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('JSON-encodes and caps untrusted header and row text in refusals', () => {
+		const header = `Bad "${'x'.repeat(250)}`
+		expect(() => createGuide(`## Surface\n\n| ${header} | Kind |\n| --- | --- |\n`)).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message: `## Surface table 1 has header ${JSON.stringify(`${header} | Kind`.slice(0, 200))}; expected "Name | Kind | Signature | Summary".`,
+			}),
+		)
+		const name = `Widget"${'x'.repeat(250)}`
+		expect(() =>
+			createGuide(
+				`## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| \`${name}\` | class | | |`,
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'signature',
+				message: `## Surface table 1 row 1 (${JSON.stringify(`class ${name}`.slice(0, 200))}) has an empty Signature cell; expected a non-empty TypeScript signature code span under "Name | Kind | Signature | Summary".`,
+			}),
+		)
+	})
+
+	it.each(['Shape', 'Export', 'Symbol', 'Value', 'Returns', 'signature'])(
+		'refuses the %s Surface header with a coded correction',
+		(header) => {
+			expect(() =>
+				createGuide(
+					`## Surface\n\n| Name | Kind | ${header} | Summary |\n| --- | --- | --- | --- |\n| \`Widget\` | class | \`new () => Widget\` | |`,
+				),
+			).toThrow(
+				expect.objectContaining({
+					code: 'header',
+					message: `## Surface table 1 has header ${JSON.stringify(`Name | Kind | ${header} | Summary`)}; expected "Name | Kind | Signature | Summary".`,
+				}),
+			)
+		},
+	)
+
+	it('refuses a Surface header with no typed column', () => {
+		expect(() =>
+			createGuide(
+				'## Surface\n\n| Name | Kind | Summary |\n| --- | --- | --- |\n| `Widget` | class | |',
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'## Surface table 1 has header "Name | Kind | Summary"; expected "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('refuses the first keyed empty Signature before later offending tables', () => {
+		expect(() =>
+			createGuide(
+				'## Surface\n\n### `Widget`\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Widget` | class | `new () => Widget` | |\n| `Widget` | class | | |\n\n| Export | Kind |\n| --- | --- |\n| `Later` | class |',
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: 'signature',
+				message:
+					'## Surface table 1 row 2 ("class Widget") has an empty Signature cell; expected a non-empty TypeScript signature code span under "Name | Kind | Signature | Summary".',
+			}),
+		)
+	})
+
+	it('parses the uniform Surface table and preserves its signature', () => {
+		expect(
+			createGuide(
+				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Widget` | class | `new () => Widget` | |',
+			).surface(),
+		).toEqual([{ name: 'Widget', keyword: 'class', signature: '`new () => Widget`' }])
+	})
+
 	it('extracts sections in document order from the good fixture guide', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.sections()).toEqual(['Surface', 'Methods', 'Tests'])
@@ -18,11 +142,15 @@ describe('Guide', () => {
 	it('extracts the exact documented surface from the good fixture guide', () => {
 		const guide = new Guide(requireText(FIXTURES, 'good/guides/src/widget.md'))
 		expect(guide.surface()).toEqual([
-			{ name: 'WidgetInterface', keyword: 'interface' },
-			{ name: 'WidgetKind', keyword: 'type' },
-			{ name: 'createLabel', keyword: 'function' },
-			{ name: 'loadWidget', keyword: 'function' },
-			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{
+				name: 'WidgetInterface',
+				keyword: 'interface',
+				signature: '`{ count, inspect(), render(), reset() }`',
+			},
+			{ name: 'WidgetKind', keyword: 'type', signature: "`'basic' | 'advanced'`" },
+			{ name: 'createLabel', keyword: 'function', signature: '`(prefix: string) => string`' },
+			{ name: 'loadWidget', keyword: 'function', signature: '`(id: string) => Promise<string>`' },
+			{ name: 'DEFAULT_COUNT', keyword: 'const', signature: '`number`' },
 			{ name: 'Widget', keyword: 'class' },
 		])
 	})
@@ -30,7 +158,12 @@ describe('Guide', () => {
 	it('caches a surface that refuses an embedded demonstration heading', () => {
 		const guide = new Guide(DEMONSTRATION_HEADING_GUIDE)
 		expect(guide.surface()).toEqual([
-			{ name: 'Widget', keyword: 'class', summary: 'Represents a widget.' },
+			{
+				name: 'Widget',
+				keyword: 'class',
+				signature: '`new () => Widget`',
+				summary: 'Represents a widget.',
+			},
 		])
 		expect(guide.surface()).toBe(guide.surface())
 	})
@@ -79,15 +212,17 @@ describe('Guide', () => {
 			[
 				'## Surface',
 				'',
-				'| Name | Kind |',
-				'| --- | --- |',
-				'| `Widget` | class |',
-				'| Widget | class |',
+				'| Name | Kind | Signature | Summary |',
+				'| --- | --- | --- | --- |',
+				'| `Widget` | class | `new () => Widget` | |',
+				'| Widget | class | | |',
 				'',
 			].join('\n'),
 		)
-		expect(guide.unnamed()).toEqual(['Widget | class'])
-		expect(guide.surface()).toEqual([{ name: 'Widget', keyword: 'class' }])
+		expect(guide.unnamed()).toEqual(['Widget | class |  | '])
+		expect(guide.surface()).toEqual([
+			{ name: 'Widget', keyword: 'class', signature: '`new () => Widget`' },
+		])
 	})
 
 	it('extracts an empty fences() array from the good fixture guide', () => {

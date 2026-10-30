@@ -38,7 +38,7 @@ export const isDriftCategory: Guard<DriftCategory> = literalOf(DRIFT_CATEGORIES)
 
 /**
  * Checks whether `value` is a well-formed {@link SurfaceSymbol} — a `name`
- * string paired with a valid {@link ExportKeyword}, and an optional `summary`.
+ * string paired with a valid {@link ExportKeyword}, and optional `signature` and `summary` strings.
  *
  * @param value - The value to test
  * @returns True if `value` is a well-formed {@link SurfaceSymbol}; false otherwise
@@ -53,9 +53,10 @@ export const isSurfaceSymbol: Guard<SurfaceSymbol> = recordOf(
 	{
 		name: isString,
 		keyword: isExportKeyword,
+		signature: isString,
 		summary: isString,
 	},
-	['summary'],
+	['signature', 'summary'],
 )
 
 /**

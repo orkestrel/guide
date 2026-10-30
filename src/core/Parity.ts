@@ -13,6 +13,7 @@ import type {
 } from './types.js'
 import { isNonEmptyString } from '@orkestrel/contract'
 import {
+	buildCell,
 	collectExamples,
 	collectTitles,
 	compareMembership,
@@ -38,9 +39,11 @@ import {
 	resolveLink,
 	selectModuleKeys,
 	spliceSpan,
+	validateModules,
 } from './helpers.js'
-import { METHODS, SURFACE, TESTS } from './constants.js'
+import { METHODS, SIGNATURE, SUMMARY, SURFACE, TESTS } from './constants.js'
 import { Guide } from './Guide.js'
+import { GuideError, isGuideError } from './errors.js'
 import { Source } from './sources/Source.js'
 import { SourceManager } from './sources/SourceManager.js'
 
@@ -59,6 +62,7 @@ export class Parity implements ParityInterface {
 			languages: [...options.languages],
 			language: options.language,
 			...(options.pitch === undefined ? {} : { pitch: { ...options.pitch } }),
+			...(options.declarations === undefined ? {} : { declarations: { ...options.declarations } }),
 		}
 		this.#rows = this.#createRows(this.#options.files)
 	}
@@ -171,13 +175,35 @@ export class Parity implements ParityInterface {
 		for (const entry of this.#options.entries) {
 			const text = files[entry.spec]
 			if (text === undefined) continue
+			const guide = this.#attribute(entry.spec, () => new Guide(text))
+			this.#attribute(entry.spec, () => validateModules(files, entry.source))
 			rows.push({
 				entry,
-				guide: new Guide(text),
-				source: new Source({ files, module: entry.source }),
+				guide,
+				source: new Source({
+					files,
+					module: entry.source,
+					...(this.#options.declarations === undefined
+						? {}
+						: { declarations: this.#options.declarations }),
+				}),
 			})
 		}
 		return rows
+	}
+
+	// Runs one step over the guide at `spec` and names that guide in a coded refusal the step
+	// raises, keeping the refusal's code and context and carrying it as the cause.
+	#attribute<T>(spec: string, step: () => T): T {
+		try {
+			return step()
+		} catch (error) {
+			if (!isGuideError(error)) throw error
+			throw new GuideError(`${JSON.stringify(spec.slice(0, 200))}: ${error.message}`, error.code, {
+				cause: error,
+				...(error.context === undefined ? {} : { context: error.context }),
+			})
+		}
 	}
 
 	#inspectInput(findings: ParityFinding[]): void {
@@ -463,8 +489,8 @@ export class Parity implements ParityInterface {
 			findings.push({ spec: pitch.spec, text: `${pitch.spec} is absent from the inventory.` })
 			return
 		}
-		const left = new Guide(readme).tagline()
-		const right = new Guide(spec).tagline()
+		const left = this.#attribute(pitch.readme, () => new Guide(readme)).tagline()
+		const right = this.#attribute(pitch.spec, () => new Guide(spec)).tagline()
 		if (left !== undefined && left === right) return
 		findings.push({
 			spec: pitch.spec,
@@ -478,9 +504,23 @@ export class Parity implements ParityInterface {
 		if (current === undefined) return 'the guide inventory text is absent'
 
 		if (drift.category === 'summary') {
-			const replacement = replaceCell(current, drift.key, drift.source)
+			const replacement = replaceCell(current, drift.key, SUMMARY, buildCell(drift.source))
 			if (replacement === undefined)
 				return 'the guide summary cell or its provenance is unavailable'
+			files.set(row.entry.spec, replacement)
+			return undefined
+		}
+
+		if (drift.category === 'signature') {
+			const signature = row.source
+				.surface()
+				.find((symbol) => computeSymbolKey(symbol) === drift.key)?.signature
+			if (signature === undefined) return 'the computed signature is unavailable'
+			const replacement = replaceCell(current, drift.key, SIGNATURE, [
+				{ element: 'codeSpan', value: signature },
+			])
+			if (replacement === undefined)
+				return 'the guide signature cell or its provenance is unavailable'
 			files.set(row.entry.spec, replacement)
 			return undefined
 		}
@@ -494,6 +534,7 @@ export class Parity implements ParityInterface {
 	}
 
 	#rewriteSource(row: ParityRow, drift: Drift, files: Map<string, string>): string | undefined {
+		if (drift.category === 'signature') return 'a signature is computed from the source declaration'
 		if (drift.guide === undefined) return 'guide authority is absent'
 		if (drift.category === 'summary') {
 			const located = this.#locateSource(row.entry, drift.key, files)

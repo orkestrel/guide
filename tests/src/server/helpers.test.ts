@@ -1,5 +1,6 @@
 import type { ManifestEntry } from '@src/core'
 import {
+	computeGuideProject,
 	formatGuideFinding,
 	matchesGuideResult,
 	resolveGuideRoot,
@@ -86,5 +87,28 @@ describe('selectGuidePitch', () => {
 		expect(selectGuidePitch(entries, 'widget')).toBe('guides/widget.md')
 		expect(selectGuidePitch(entries, 'other')).toBeUndefined()
 		expect(selectGuidePitch(entries, undefined)).toBeUndefined()
+	})
+})
+
+describe('computeGuideProject', () => {
+	it('maps a src or app environment module to its scoped project', () => {
+		expect(computeGuideProject('src/core')).toBe('configs/src/tsconfig.core.json')
+		expect(computeGuideProject('src/server')).toBe('configs/src/tsconfig.server.json')
+		expect(computeGuideProject('app/browser')).toBe('configs/app/tsconfig.browser.json')
+	})
+
+	it('maps no project for a module outside src/<env> and app/<env>', () => {
+		for (const module of [
+			'src/core/sources',
+			'src',
+			'lib/core',
+			'.',
+			'src/..',
+			'src/core/',
+			'/src/core',
+			'src\\core',
+		]) {
+			expect(computeGuideProject(module)).toBeUndefined()
+		}
 	})
 })

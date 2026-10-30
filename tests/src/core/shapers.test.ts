@@ -21,6 +21,15 @@ import { TEST_SEED } from '../../setup.js'
 describe('surfaceSymbolShape', () => {
 	const contract = createContract(surfaceSymbolShape)
 
+	it('accepts and preserves an optional string signature and rejects a non-string', () => {
+		const symbol = { name: 'Widget', keyword: 'class', signature: '`new () => WidgetInterface`' }
+		expect(contract.is(symbol)).toBe(true)
+		expect(contract.parse(symbol)).toEqual(symbol)
+		expect(contract.schema.properties?.signature?.type).toBe('string')
+		expect(contract.schema.required).toEqual(['name', 'keyword'])
+		expect(contract.is({ ...symbol, signature: 42 })).toBe(false)
+	})
+
 	it('is: accepts a well-formed value', () => {
 		expect(contract.is({ name: 'Widget', keyword: 'class' })).toBe(true)
 	})

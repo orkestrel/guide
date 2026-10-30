@@ -8,9 +8,9 @@
 
 ### Helpers
 
-| Name   | Kind     |
-| ------ | -------- |
-| `real` | function |
+| Name   | Kind     | Signature    | Summary |
+| ------ | -------- | ------------ | ------- |
+| `real` | function | `() => void` |         |
 
 ## Patterns
 

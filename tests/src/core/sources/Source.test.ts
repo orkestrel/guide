@@ -352,7 +352,7 @@ describe('Source', () => {
 			module: 'module',
 		})
 		const guide = createGuide(
-			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `ghost` | const |\n| `visible` | const |',
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `ghost` | const | `true` | |\n| `visible` | const | `true` | |',
 		)
 		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual([])
 		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual(['const ghost'])
@@ -370,7 +370,9 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `kept` | const |')
+		const guide = createGuide(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `kept` | const | `true` | |',
+		)
 		expect(findMissingSymbols(source.surface(), guide.surface())).toEqual(['const lost'])
 		expect(findMissingSymbols(guide.surface(), source.surface())).toEqual([])
 	})
@@ -392,7 +394,7 @@ describe('Source', () => {
 			module: 'module',
 		})
 		const guide = createGuide(
-			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Widget` | interface |\n\n## Methods\n\n#### `Widget`\n\n| Method | Description |\n| --- | --- |\n| `ghost` | Phantom |\n| `visible` | Real |',
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Widget` | interface | `{ ghost(), visible() }` | |\n\n## Methods\n\n#### `Widget`\n\n| Method | Description |\n| --- | --- |\n| `ghost` | Phantom |\n| `visible` | Real |',
 		)
 		expect(source.methods('Widget').map((entry) => entry.name)).toEqual(['visible'])
 		expect(source.examples('Widget').map((example) => example.name)).toEqual(['visible'])
@@ -448,6 +450,30 @@ describe('Source', () => {
 			{ name: 'createLabel', keyword: 'function' },
 			{ name: 'loadWidget', keyword: 'function' },
 		])
+	})
+
+	it('carries the signature each emitted declaration projects onto exports() and surface()', () => {
+		const declarations = {
+			'module/helpers.d.ts': [
+				'export declare function createLabel(name: string): string;',
+				'export declare function loadWidget(id: string): Promise<void>;',
+				'export declare function unlisted(): void;',
+				'',
+			].join('\n'),
+			'module/index.d.ts': 'export declare const DEFAULT_COUNT: number;\n',
+		}
+		const source = new Source({ files: GOOD_FILES, module: 'module', declarations })
+		const expected = [
+			{ name: 'DEFAULT_COUNT', keyword: 'const' },
+			{ name: 'Widget', keyword: 'class' },
+			{ name: 'WidgetInterface', keyword: 'interface' },
+			{ name: 'WidgetKind', keyword: 'type' },
+			{ name: 'createLabel', keyword: 'function', signature: '(name: string) => string' },
+			{ name: 'loadWidget', keyword: 'function', signature: '(id: string) => Promise<void>' },
+		]
+		expect(source.exports()).toEqual(expected)
+		expect(source.surface()).toEqual(expected)
+		expect(source.exports()[4]).toBe(source.surface()[4])
 	})
 
 	it('surface() caches the scan — repeated calls return the same array instance', () => {
@@ -577,7 +603,9 @@ describe('Source', () => {
 			},
 			module: 'module',
 		})
-		const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `ghost` | const |\n')
+		const guide = createGuide(
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `ghost` | const | `true` | |\n',
+		)
 		const direct = source.exports()
 		const barrel = source.surface()
 		const documented = guide.surface()
@@ -597,7 +625,7 @@ describe('Source', () => {
 			module: 'module',
 		})
 		const guide = createGuide(
-			'## Surface\n\n| Name | Kind |\n| --- | --- |\n| `external` | const |\n',
+			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `external` | const | `true` | |\n',
 		)
 		const direct = source.exports()
 		const barrel = source.surface()

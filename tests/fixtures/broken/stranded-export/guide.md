@@ -7,7 +7,7 @@
 
 ### Helpers
 
-| Name              | Kind     |
-| ----------------- | -------- |
-| `publishedExport` | function |
-| `strandedExport`  | function |
+| Name              | Kind     | Signature      | Summary |
+| ----------------- | -------- | -------------- | ------- |
+| `publishedExport` | function | `() => string` |         |
+| `strandedExport`  | function | `() => string` |         |

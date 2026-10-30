@@ -1,4 +1,5 @@
-import type { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
+import type { JSONRecord } from '@orkestrel/contract'
+import type { DRIFT_CATEGORIES, EXPORT_KEYWORDS, GUIDE_CODES } from './constants.js'
 
 /**
  * Represents the declaration keyword a documented / exported symbol carries — the reflected
@@ -9,9 +10,21 @@ import type { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
  */
 export type ExportKeyword = (typeof EXPORT_KEYWORDS)[number]
 
+/** Identifies a refused guide, manifest entry, or module compile, derived from {@link GUIDE_CODES}. */
+export type GuideCode = (typeof GUIDE_CODES)[number]
+
 /**
- * Represents one documented / exported symbol — its identifier, its declaration keyword, and
- * the description paragraph the guide and the doc block are compared on.
+ * Configures a {@link GuideError}: the standard `cause` and the machine-readable `context` its
+ * refusal carries.
+ */
+export interface GuideErrorOptions extends ErrorOptions {
+	/** Holds the refusal's machine-readable facts, such as the module, project, and compiler output. */
+	readonly context?: JSONRecord
+}
+
+/**
+ * Represents one documented / exported symbol — its identifier, its declaration keyword, its
+ * optional guide signature, and the description paragraph the guide and the doc block are compared on.
  */
 export interface SurfaceSymbol {
 	/** Holds the symbol's identifier. */
@@ -19,10 +32,16 @@ export interface SurfaceSymbol {
 	/** Holds the symbol's declaration keyword — half of the bijection key alongside {@link name}. */
 	readonly keyword: ExportKeyword
 	/**
+	 * Holds a guide row's normalized `Signature` cell text, code spans included, or a reflected
+	 * declaration's type text projected from its compiler-emitted declaration; absent when the
+	 * cell is empty, the column is missing, or no emitted declaration was supplied.
+	 */
+	readonly signature?: string
+	/**
 	 * Holds the normalized description paragraph this side carries — a guide table's `Summary`
 	 * cell, or a doc block's text before its first block tag — and is absent when this side
-	 * carries none. Optional, so a hand-built symbol stays valid; {@link computeSymbolKey} never
-	 * reads it.
+	 * carries none. Optional, so a hand-built symbol stays valid; {@link computeSymbolKey}
+	 * reads neither the summary nor the signature.
 	 */
 	readonly summary?: string
 }
@@ -63,7 +82,7 @@ export type DriftCategory = (typeof DRIFT_CATEGORIES)[number]
  * with the text each side carries there, the side carrying no text omitted.
  */
 export interface Drift {
-	/** Names whether the disagreement belongs to a summary or a titled example. */
+	/** Names whether the disagreement belongs to a summary, a signature, or a titled example. */
 	readonly category: DriftCategory
 	/**
 	 * Names the compared pair: a {@link computeSymbolKey} symbol key for a `## Surface` row, an
@@ -191,6 +210,11 @@ export interface ParityOptions {
 	readonly language: string
 	/** Names the optional README and guide tagline pair. */
 	readonly pitch?: ParityPitch
+	/**
+	 * Maps each emitted declaration key, the source key with `.ts` replaced by `.d.ts`, to the
+	 * compiler's emitted declaration text; absent when no signature is computed.
+	 */
+	readonly declarations?: Readonly<Record<string, string>>
 }
 
 /**
@@ -383,12 +407,13 @@ export interface GuideInterface {
 	/**
 	 * Lists every `## Surface` identifier + keyword — table rows union H3 entity headings whose
 	 * trimmed compared inline content is exactly their backticked code-span name. Each row carries
-	 * its `Summary` cell, located by header text, when the table has that column.
+	 * its non-empty `Signature` and `Summary` cells, located by exact header text and normalized
+	 * through the same text reader, when the table has those columns.
 	 *
 	 * @remarks
 	 * Entries retain encounter order, and the first-seen name + keyword wins. A genuine entity
-	 * heading before its matching class row keeps the heading's summary-less entry; a table row
-	 * before that heading keeps its `Summary`.
+	 * heading before its matching class row keeps the entry without signature or summary; a table
+	 * row before that heading keeps both cells.
 	 *
 	 * @returns The documented surface symbols, in encounter order
 	 */
@@ -628,6 +653,11 @@ export interface SourceOptions {
 	readonly files: Readonly<Record<string, string>>
 	/** Names the source directory (or directories) this guide documents; `'.'` is workspace root. */
 	readonly module: GuideModule
+	/**
+	 * Maps each emitted declaration key, the source key with `.ts` replaced by `.d.ts`, to the
+	 * compiler's emitted declaration text; absent when no signature is computed.
+	 */
+	readonly declarations?: Readonly<Record<string, string>>
 }
 
 /**

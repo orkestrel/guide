@@ -15,6 +15,7 @@ import {
 	extractExports,
 	extractHidden,
 	extractMemberMethods,
+	extractSignatures,
 	extractSourceLines,
 	hasCanonicalSegments,
 	normalizeDirectories,
@@ -88,16 +89,20 @@ export class Source implements SourceInterface {
 	#hidden: readonly SurfaceSymbol[] | undefined
 	#declarations: ReadonlyMap<string, Declaration> | undefined
 	readonly #origins = new Map<string, string>()
+	readonly #emitted: Readonly<Record<string, string>> | undefined
+	readonly #signed = new Map<string, readonly SurfaceSymbol[]>()
 
 	constructor(options: SourceOptions) {
 		this.#files = options.files
 		this.#directories = normalizeDirectories(options.module)
+		this.#emitted = options.declarations
 	}
 
 	// The module's exports are computed once on first access and cached —
 	// every subsequent call reuses the same scan of an immutable inventory.
 	exports(): readonly SurfaceSymbol[] {
-		if (this.#exports === undefined) this.#exports = this.#scanSymbols(extractExports)
+		if (this.#exports === undefined)
+			this.#exports = this.#scanSymbols((key, text) => this.#scanExports(key, text))
 		return this.#exports
 	}
 
@@ -127,7 +132,8 @@ export class Source implements SourceInterface {
 	// The module's hidden declarations are computed once on first access and
 	// cached — mirrors `exports()`'s caching.
 	hidden(): readonly SurfaceSymbol[] {
-		if (this.#hidden === undefined) this.#hidden = this.#scanSymbols(extractHidden)
+		if (this.#hidden === undefined)
+			this.#hidden = this.#scanSymbols((_key, text) => extractHidden(text))
 		return this.#hidden
 	}
 
@@ -243,7 +249,7 @@ export class Source implements SourceInterface {
 
 			const text = this.#files[path]
 			if (text === undefined) continue
-			for (const symbol of extractExports(text)) {
+			for (const symbol of this.#scanExports(path, text)) {
 				const identity = computeSymbolKey(symbol)
 				if (seen.has(identity)) continue
 				seen.add(identity)
@@ -277,7 +283,9 @@ export class Source implements SourceInterface {
 	// `hidden()` — kept as a private method because it orchestrates a scanner
 	// across every file of the module scope rather than being a self-contained
 	// leaf.
-	#scanSymbols(scan: (source: string) => readonly SurfaceSymbol[]): readonly SurfaceSymbol[] {
+	#scanSymbols(
+		scan: (key: string, source: string) => readonly SurfaceSymbol[],
+	): readonly SurfaceSymbol[] {
 		const symbols: SurfaceSymbol[] = []
 		const seen = new Set<string>()
 
@@ -285,7 +293,7 @@ export class Source implements SourceInterface {
 			const text = this.#files[key]
 			if (text === undefined) continue
 
-			for (const symbol of scan(text)) {
+			for (const symbol of scan(key, text)) {
 				const identity = computeSymbolKey(symbol)
 				if (seen.has(identity)) continue
 				seen.add(identity)
@@ -294,6 +302,34 @@ export class Source implements SourceInterface {
 		}
 
 		return symbols.sort((a, b) => (a.name === b.name ? 0 : a.name < b.name ? -1 : 1))
+	}
+
+	// One file's exports, each carrying the signature its emitted declaration projects when the
+	// options supply one, read once per inventory key and reused by `exports()` and `surface()`.
+	#scanExports(key: string, text: string): readonly SurfaceSymbol[] {
+		const cached = this.#signed.get(key)
+		if (cached !== undefined) return cached
+
+		const declaration = this.#emitted?.[`${key.slice(0, -3)}.d.ts`]
+		const signatures = new Map(
+			(declaration === undefined ? [] : extractSignatures(declaration)).map((symbol) => [
+				computeSymbolKey(symbol),
+				symbol.signature,
+			]),
+		)
+		const symbols = extractExports(text).map((symbol) => {
+			const signature = signatures.get(computeSymbolKey(symbol))
+			return signature === undefined
+				? symbol
+				: {
+						name: symbol.name,
+						keyword: symbol.keyword,
+						signature,
+						...(symbol.summary === undefined ? {} : { summary: symbol.summary }),
+					}
+		})
+		this.#signed.set(key, symbols)
+		return symbols
 	}
 
 	// The declared members of the `keyword` declaration named `name` unioned with

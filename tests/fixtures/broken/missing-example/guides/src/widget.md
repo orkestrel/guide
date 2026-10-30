@@ -7,10 +7,10 @@
 
 ### Helpers
 
-| Name       | Kind     |
-| ---------- | -------- |
-| `greet`    | function |
-| `farewell` | function |
+| Name       | Kind     | Signature                  | Summary |
+| ---------- | -------- | -------------------------- | ------- |
+| `greet`    | function | `(name: string) => string` |         |
+| `farewell` | function | `(name: string) => string` |         |
 
 ## Patterns
 

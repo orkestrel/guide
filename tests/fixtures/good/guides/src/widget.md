@@ -6,18 +6,18 @@
 
 ### Types
 
-| Name                 | Kind      |
-| -------------------- | --------- |
-| `WidgetInterface<T>` | interface |
-| `WidgetKind`         | type      |
+| Name                 | Kind      | Signature                                 | Summary |
+| -------------------- | --------- | ----------------------------------------- | ------- |
+| `WidgetInterface<T>` | interface | `{ count, inspect(), render(), reset() }` |         |
+| `WidgetKind`         | type      | `'basic' \| 'advanced'`                   |         |
 
 ### Helpers
 
-| Name            | Kind     |
-| --------------- | -------- |
-| `createLabel`   | function |
-| `loadWidget`    | function |
-| `DEFAULT_COUNT` | const    |
+| Name            | Kind     | Signature                         | Summary |
+| --------------- | -------- | --------------------------------- | ------- |
+| `createLabel`   | function | `(prefix: string) => string`      |         |
+| `loadWidget`    | function | `(id: string) => Promise<string>` |         |
+| `DEFAULT_COUNT` | const    | `number`                          |         |
 
 ### `Widget`
 

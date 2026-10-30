@@ -35,6 +35,17 @@ describe('isExportKeyword (through isSurfaceSymbol)', () => {
 })
 
 describe('isSurfaceSymbol', () => {
+	it('accepts a string signature and rejects a signature of another type', () => {
+		expect(
+			isSurfaceSymbol({
+				name: 'Widget',
+				keyword: 'class',
+				signature: '`new () => WidgetInterface`',
+			}),
+		).toBe(true)
+		expect(isSurfaceSymbol({ name: 'Widget', keyword: 'class', signature: 42 })).toBe(false)
+	})
+
 	it('accepts a well-formed symbol', () => {
 		expect(isSurfaceSymbol({ name: 'Widget', keyword: 'class' })).toBe(true)
 	})

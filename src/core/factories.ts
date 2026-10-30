@@ -32,13 +32,16 @@ import { SourceManager } from './sources/SourceManager.js'
  *
  * @param source - The guide's markdown source text
  * @returns A working {@link GuideInterface}
+ * @throws {@link GuideError} when a Surface header is nonuniform or a keyed Signature cell is empty.
  *
  * @example Construct a Guide from markdown text
  * ```ts
  * import { createGuide } from '@orkestrel/guide'
  *
- * const guide = createGuide('## Surface\n\n| Name | Kind |\n| --- | --- |\n| `X` | class |')
- * guide.surface() // [{ name: 'X', keyword: 'class' }]
+ * const guide = createGuide(
+ * 	'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `X` | class | `new () => X` | |',
+ * )
+ * guide.surface() // [{ name: 'X', keyword: 'class', signature: '`new () => X`' }]
  * guide.sections() // ['Surface']
  * ```
  */

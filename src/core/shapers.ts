@@ -15,7 +15,7 @@ import { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
 
 /**
  * Shapes a {@link SurfaceSymbol} — a documented / exported symbol's `name`
- * paired with its {@link ExportKeyword} and its optional compared `summary`.
+ * paired with its {@link ExportKeyword}, optional `signature`, and optional compared `summary`.
  *
  * @example
  * ```ts
@@ -29,6 +29,7 @@ import { DRIFT_CATEGORIES, EXPORT_KEYWORDS } from './constants.js'
 export const surfaceSymbolShape = objectShape({
 	name: stringShape(),
 	keyword: literalShape(EXPORT_KEYWORDS),
+	signature: optionalShape(stringShape()),
 	summary: optionalShape(stringShape()),
 })
 

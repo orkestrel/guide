@@ -10,6 +10,112 @@ import {
 } from '../../setup.js'
 
 describe('Parity', () => {
+	it('accepts uniform Surface tables and preserves their signatures', () => {
+		const parity = new Parity(
+			createParityFixture({
+				files: {
+					[PARITY_SPEC]:
+						'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `createWidget` | function | `() => WidgetInterface` | Creates a widget. |',
+				},
+			}),
+		)
+		expect(parity.inspect().surface).toEqual([])
+		expect(
+			parity
+				.rows()[0]
+				?.guide.surface()
+				.map((symbol) => symbol.signature),
+		).toEqual(['`{ render() }`', '`new () => WidgetInterface`', '`() => WidgetInterface`'])
+	})
+
+	it('propagates a coded parse refusal with the guide spec', () => {
+		expect(
+			() =>
+				new Parity(
+					createParityFixture({
+						files: {
+							[PARITY_SPEC]: '## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Widget` | class |',
+						},
+					}),
+				),
+		).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'"guides/widget.md": ## Surface table 1 has header "Name | Kind"; expected "Name | Kind | Signature | Summary".',
+				cause: expect.objectContaining({
+					code: 'header',
+					message:
+						'## Surface table 1 has header "Name | Kind"; expected "Name | Kind | Signature | Summary".',
+				}),
+			}),
+		)
+	})
+	it('names the README in a coded refusal of its pitch parse', () => {
+		const parity = new Parity(
+			createParityFixture({
+				files: {
+					'README.md':
+						'# Widget\n\n> A widget toolkit.\n\n## Surface\n\n| Name | Kind |\n| --- | --- |\n| `Widget` | class |\n',
+				},
+			}),
+		)
+		expect(() => parity.inspect()).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'"README.md": ## Surface table 1 has header "Name | Kind"; expected "Name | Kind | Signature | Summary".',
+				cause: expect.objectContaining({
+					code: 'header',
+					message:
+						'## Surface table 1 has header "Name | Kind"; expected "Name | Kind | Signature | Summary".',
+				}),
+			}),
+		)
+	})
+
+	it('refuses a name two modules of one entry declare, naming the guide, the name, and each module', () => {
+		const entries = [
+			{
+				concept: 'Widget',
+				spec: PARITY_SPEC,
+				source: ['src/core', 'src/server'],
+				tests: 'tests/src/core',
+			},
+		]
+		expect(
+			() =>
+				new Parity(
+					createParityFixture({
+						files: {
+							'src/server/index.ts': "export * from './factories.js'\n",
+							'src/server/factories.ts': PARITY_FACTORIES,
+						},
+						entries,
+					}),
+				),
+		).toThrow(
+			expect.objectContaining({
+				code: 'collision',
+				message: `"guides/widget.md": "createWidget" is declared in "src/core" and "src/server"; one name exported from two environments is a conflict. Declare logic both environments share once in src/core, and give each environment's own logic a distinct name.`,
+				context: {
+					collisions: [{ name: 'createWidget', modules: ['src/core', 'src/server'] }],
+				},
+			}),
+		)
+		expect(
+			new Parity(
+				createParityFixture({
+					files: {
+						'src/server/index.ts': "export * from './serve.js'\n",
+						'src/server/serve.ts': 'export function serveWidget(): void {}\n',
+					},
+					entries,
+				}),
+			).rows(),
+		).toHaveLength(1)
+	})
+
 	it('publishes a pure composition with shared rows and a clean complete report', () => {
 		const options = createParityFixture()
 		const files = { ...options.files }
@@ -158,8 +264,11 @@ describe('Parity', () => {
 			/## Methods[\s\S]*?## Patterns/,
 			'## Methods\n\nThe surface exposes no behavioural interface.\n\n## Patterns',
 		)
-			.replace('| `WidgetInterface` | interface | Represents a widget. |\n', '')
-			.replace('| `Widget` | class | Represents an implementing widget. |\n', '')
+			.replace('| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n', '')
+			.replace(
+				'| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n',
+				'',
+			)
 			.replace(/### Render a widget[\s\S]*?```\n\n/, '')
 		const constantsOnly = createParityFixture({
 			files: {
@@ -183,8 +292,8 @@ describe('Parity', () => {
 			'| `render` | Renders the widget. |',
 			'| `open` | Opens the widget. |\n| `render` | Renders the widget. |',
 		).replace(
-			'| `Widget` | class | Represents an implementing widget. |',
-			'| `Widget` | class | Represents an implementing widget. |\n| `Empty` | class | Represents an empty widget. |',
+			'| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |',
+			'| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `Empty` | class | `new () => Empty` | Represents an empty widget. |',
 		)
 		const types = PARITY_TYPES.replace(
 			'\trender(): void',
@@ -291,11 +400,59 @@ describe('Parity', () => {
 		expect(rewrite.findings).toEqual([])
 		expect(rewrite.changes.map((change) => change.path)).toEqual([PARITY_SPEC])
 		expect(rewrite.changes[0]?.content).toContain(
-			'| `createWidget` | function | Creates a widget. |',
+			'| `createWidget` | function | `() => WidgetInterface` | Creates a widget. |',
 		)
 		expect(rewrite.changes[0]?.content).toContain('createWidget()\n```')
 		expect(rewrite.changes[0]?.content).toContain('leaveWidget()')
 		expect(options.files[PARITY_SPEC]).toBe(guide)
+	})
+
+	it('rewrites only a differing Signature cell from the computed signature', () => {
+		const options = {
+			...createParityFixture(),
+			declarations: {
+				'src/core/factories.d.ts':
+					'export declare function createWidget(size: number | string): void;\n',
+			},
+		}
+		const parity = new Parity(options)
+		expect(parity.inspect().drift).toEqual([
+			{
+				spec: PARITY_SPEC,
+				text: 'signature function createWidget: guide "`() => WidgetInterface`" source "`(size: number | string) => void`"',
+			},
+		])
+
+		const rewrite = parity.document()
+		expect(rewrite.findings).toEqual([])
+		expect(rewrite.changes.map((change) => change.path)).toEqual([PARITY_SPEC])
+		const content = rewrite.changes[0]?.content ?? ''
+		expect(content).toBe(
+			PARITY_GUIDE.replace(
+				'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `createWidget` | function | `() => WidgetInterface` | Creates a widget. |',
+				'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `createWidget` | function | `(size: number \\| string) => void` | Creates a widget. |',
+			),
+		)
+		const second = new Parity({ ...options, files: { ...options.files, [PARITY_SPEC]: content } })
+		expect(second.inspect().drift).toEqual([])
+		expect(second.document().changes).toEqual([])
+	})
+
+	it('leaves the source alone and reports a differing signature under source authority', () => {
+		const options = {
+			...createParityFixture(),
+			declarations: {
+				'src/core/factories.d.ts': 'export declare function createWidget(size: number): void;\n',
+			},
+		}
+		const rewrite = new Parity(options).annotate()
+		expect(rewrite.changes).toEqual([])
+		expect(rewrite.findings).toEqual([
+			{
+				spec: PARITY_SPEC,
+				text: 'signature function createWidget: guide "`() => WidgetInterface`" source "`(size: number) => void`"; a signature is computed from the source declaration',
+			},
+		])
 	})
 
 	it('accumulates guide authority into one source text and returns changed texts only', () => {
@@ -388,15 +545,17 @@ describe('Parity', () => {
 			' | --- |',
 		)
 		const unsafe = PARITY_GUIDE.replace('createWidget()\n```', 'createWidget(/* */)\n```')
-		const target = new Parity(
-			createParityFixture({ files: { [PARITY_SPEC]: missingColumn } }),
-		).document()
+		expect(
+			() => new Parity(createParityFixture({ files: { [PARITY_SPEC]: missingColumn } })),
+		).toThrow(
+			expect.objectContaining({
+				code: 'header',
+				message:
+					'"guides/widget.md": ## Surface table 1 has header "Name | Kind | Signature"; expected "Name | Kind | Signature | Summary".',
+			}),
+		)
 		const refused = new Parity(createParityFixture({ files: { [PARITY_SPEC]: unsafe } })).annotate()
 
-		expect(target.changes).toEqual([])
-		expect(target.findings.map((finding) => finding.text)).toEqual(
-			expect.arrayContaining([expect.stringContaining('summary function createWidget:')]),
-		)
 		expect(refused.changes).toEqual([])
 		expect(refused.findings.map((finding) => finding.text)).toEqual([
 			expect.stringContaining('example Create a widget:'),
