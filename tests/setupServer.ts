@@ -386,6 +386,61 @@ export const NATIVE_FIXTURE: Readonly<Record<string, string>> = Object.freeze({
 })
 
 /**
+ * Holds a fixture workspace whose manifest rows cover `src/core` and the nested `src/core/panels`
+ * module, each guide documenting its own directory's declaration with its computed `Signature`
+ * cell.
+ */
+export const NESTED_FIXTURE: Readonly<Record<string, string>> = Object.freeze({
+	'package.json': '{ "name": "@scope/fixture", "type": "module" }\n',
+	'configs/src/tsconfig.core.json': COMPILER_PROJECT,
+	'src/core/index.ts': "export * from './widgets.js'\n",
+	'src/core/widgets.ts': [
+		'/**',
+		' * Opens a widget by name.',
+		' */',
+		'export function openWidget(name: string): boolean {',
+		'\treturn name.length > 0',
+		'}',
+		'',
+	].join('\n'),
+	'src/core/panels/index.ts': "export * from './panels.js'\n",
+	'src/core/panels/panels.ts': [
+		'/**',
+		' * Opens a panel by depth.',
+		' */',
+		'export function openPanel(depth: number): boolean {',
+		'\treturn depth > 0',
+		'}',
+		'',
+	].join('\n'),
+	'guides/README.md': [
+		'## By concept',
+		'',
+		'| Concept | Spec | Source | Tests |',
+		'| --- | --- | --- | --- |',
+		'| Widget | [Widget](widget.md) | [Source](../src/core) | [Tests](../tests) |',
+		'| Panel | [Panel](panel.md) | [Source](../src/core/panels) | [Tests](../tests) |',
+		'',
+	].join('\n'),
+	'guides/widget.md': [
+		'## Surface',
+		'',
+		'| Name | Kind | Signature | Summary |',
+		'| --- | --- | --- | --- |',
+		'| `openWidget` | function | `(name: string) => boolean` | Opens a widget by name. |',
+		'',
+	].join('\n'),
+	'guides/panel.md': [
+		'## Surface',
+		'',
+		'| Name | Kind | Signature | Summary |',
+		'| --- | --- | --- | --- |',
+		'| `openPanel` | function | `(depth: number) => boolean` | Opens a panel by depth. |',
+		'',
+	].join('\n'),
+})
+
+/**
  * Runs a native Guide command carrier in an isolated process against this checkout's built server
  * entry, which {@link readGuideBuild} resolves and refuses when stale.
  *

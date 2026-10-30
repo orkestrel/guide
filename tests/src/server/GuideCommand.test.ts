@@ -2,6 +2,7 @@ import type { GuideReadFunction, GuideRunnerFunction } from '@src/server'
 import { GuideCommand } from '@src/server'
 import { isFunction, isRecord } from '@orkestrel/contract'
 import { createScratch, readInventory } from '@orkestrel/test/server'
+import { resolve } from 'node:path'
 import { createVitest } from 'vitest/node'
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,6 +10,7 @@ import {
 	COMPILER_PROJECT,
 	DISTINCT_FIXTURE,
 	NATIVE_FIXTURE,
+	NESTED_FIXTURE,
 	RECORDER_COMPILER,
 	TYPESCRIPT_ROOT,
 	runNativeGuide,
@@ -148,6 +150,168 @@ const runner = async () => ({
 				expect.arrayContaining(['--showConfig']),
 				expect.arrayContaining(['--emitDeclarationOnly']),
 			])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('reads a nested module row signatures from its environment compile', async () => {
+		const options = {
+			patterns: ['src/**/*.ts', 'guides/*.md'],
+			modules: { '@scope/widget': 'src/core', '@scope/widget/panels': 'src/core/panels' },
+			languages: ['ts'],
+			language: 'ts',
+			reader: readInventory,
+			runner: createVitest,
+		}
+		const clean = createScratch({ files: NESTED_FIXTURE })
+		try {
+			clean.ensure('node_modules')
+			clean.link('node_modules/typescript', TYPESCRIPT_ROOT)
+			await new GuideCommand({ ...options, root: clean.path }).execute(async ({ report, rows }) => {
+				expect(rows.map((row) => row.entry.spec)).toEqual(['guides/widget.md', 'guides/panel.md'])
+				expect(report.input).toEqual([])
+				expect(report.drift).toEqual([])
+			})
+		} finally {
+			clean.destroy()
+		}
+		const stale = createScratch({
+			files: {
+				...NESTED_FIXTURE,
+				'guides/panel.md': (NESTED_FIXTURE['guides/panel.md'] ?? '').replace(
+					'`(depth: number) => boolean`',
+					'`(depth: string) => boolean`',
+				),
+			},
+		})
+		try {
+			stale.ensure('node_modules')
+			stale.link('node_modules/typescript', TYPESCRIPT_ROOT)
+			await new GuideCommand({ ...options, root: stale.path }).execute(async ({ report }) => {
+				expect(report.input).toEqual([])
+				expect(report.drift).toEqual([
+					{
+						spec: 'guides/panel.md',
+						text: expect.stringContaining(
+							'signature function openPanel: guide "`(depth: string) => boolean`" source "`(depth: number) => boolean`"',
+						),
+					},
+				])
+			})
+		} finally {
+			stale.destroy()
+		}
+	})
+
+	it('compiles an environment once per execute call for its own and its nested module rows', async () => {
+		const scratch = createScratch({ files: { ...NESTED_FIXTURE, ...RECORDER_COMPILER } })
+		try {
+			const command = new GuideCommand({
+				root: scratch.path,
+				patterns: ['src/**/*.ts', 'guides/*.md'],
+				modules: { '@scope/widget': 'src/core', '@scope/widget/panels': 'src/core/panels' },
+				languages: ['ts'],
+				language: 'ts',
+				reader: readInventory,
+				runner: createVitest,
+			})
+			await command.execute(async ({ report }) => {
+				expect(report.drift).toEqual([])
+			})
+			const calls = (scratch.read('node_modules/typescript/calls.log') ?? '')
+				.trim()
+				.split('\n')
+				.map((line): unknown => JSON.parse(line))
+			expect(calls).toEqual([
+				expect.arrayContaining([
+					'--showConfig',
+					resolve(scratch.path, 'configs/src/tsconfig.core.json'),
+				]),
+				expect.arrayContaining([
+					'--emitDeclarationOnly',
+					resolve(scratch.path, 'configs/src/tsconfig.core.json'),
+				]),
+			])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a nested module its environment project emits no declaration under, naming it', async () => {
+		const scratch = createScratch({
+			files: {
+				...NESTED_FIXTURE,
+				'configs/src/tsconfig.core.json': COMPILER_PROJECT.replace(
+					'"../../src/core/**/*.ts"',
+					'"../../src/core/*.ts"',
+				),
+			},
+		})
+		try {
+			scratch.ensure('node_modules')
+			scratch.link('node_modules/typescript', TYPESCRIPT_ROOT)
+			const command = new GuideCommand({
+				root: scratch.path,
+				patterns: ['src/**/*.ts', 'guides/*.md'],
+				modules: { '@scope/widget': 'src/core', '@scope/widget/panels': 'src/core/panels' },
+				languages: ['ts'],
+				language: 'ts',
+				reader: readInventory,
+				runner: createVitest,
+			})
+			await expect(
+				command.execute(async () => {
+					throw new Error('Registration must not run')
+				}),
+			).rejects.toMatchObject({
+				code: 'empty',
+				message:
+					'"src/core/panels" emitted no declaration under src/core/panels through configs/src/tsconfig.core.json; each project\'s include must cover its module and its declarations must emit into --outDir, with no declarationDir.',
+				context: {
+					missing: [{ module: 'src/core/panels', project: 'configs/src/tsconfig.core.json' }],
+				},
+			})
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a source outside every src/<env> and app/<env> directory, naming it', async () => {
+		const scratch = createScratch({
+			files: {
+				...NESTED_FIXTURE,
+				'lib/core/index.ts': 'export {}\n',
+				'guides/README.md': (NESTED_FIXTURE['guides/README.md'] ?? '').replace(
+					'[Source](../src/core/panels)',
+					'[Source](../lib/core)',
+				),
+				'guides/panel.md':
+					'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n',
+			},
+		})
+		try {
+			scratch.ensure('node_modules')
+			scratch.link('node_modules/typescript', TYPESCRIPT_ROOT)
+			const command = new GuideCommand({
+				root: scratch.path,
+				patterns: ['src/**/*.ts', 'lib/**/*.ts', 'guides/*.md'],
+				modules: { '@scope/widget': 'src/core' },
+				languages: ['ts'],
+				language: 'ts',
+				reader: readInventory,
+				runner: createVitest,
+			})
+			await expect(
+				command.execute(async () => {
+					throw new Error('Registration must not run')
+				}),
+			).rejects.toMatchObject({
+				code: 'compile',
+				message:
+					'"lib/core" is outside src/<env> and app/<env>; a guide module compiles through configs/<layer>/tsconfig.<env>.json, such as configs/src/tsconfig.core.json for src/core.',
+				context: { module: 'lib/core' },
+			})
 		} finally {
 			scratch.destroy()
 		}

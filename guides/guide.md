@@ -235,13 +235,14 @@ directly.
 
 The server command leaves come from [`helpers.ts`](../src/server/helpers.ts).
 
-| Name                  | Kind     | Signature                                                                               | Summary                                                                                 |
-| --------------------- | -------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `formatGuideFinding`  | function | `(finding: ParityFinding) => string`                                                    | Formats one finding with its guide prefix when needed.                                  |
-| `matchesGuideResult`  | function | `(result: unknown) => boolean`                                                          | Reads an owned foreign result view and accepts passed modules without unhandled errors. |
-| `resolveGuideRoot`    | function | `(root: URL \| string) => string`                                                       | Resolves a command root to a native absolute path.                                      |
-| `selectGuidePitch`    | function | `(entries: readonly ManifestEntry[], name: string \| undefined) => string \| undefined` | Selects the indexed guide matching a package's bare name.                               |
-| `computeGuideProject` | function | `(module: string) => string \| undefined`                                               | Computes the scoped project a guide module's declarations are emitted through.          |
+| Name                      | Kind     | Signature                                                                               | Summary                                                                                 |
+| ------------------------- | -------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `formatGuideFinding`      | function | `(finding: ParityFinding) => string`                                                    | Formats one finding with its guide prefix when needed.                                  |
+| `matchesGuideResult`      | function | `(result: unknown) => boolean`                                                          | Reads an owned foreign result view and accepts passed modules without unhandled errors. |
+| `resolveGuideRoot`        | function | `(root: URL \| string) => string`                                                       | Resolves a command root to a native absolute path.                                      |
+| `selectGuidePitch`        | function | `(entries: readonly ManifestEntry[], name: string \| undefined) => string \| undefined` | Selects the indexed guide matching a package's bare name.                               |
+| `computeGuideProject`     | function | `(module: string) => string \| undefined`                                               | Computes the scoped project a guide module's declarations are emitted through.          |
+| `computeGuideEnvironment` | function | `(source: string) => string \| undefined`                                               | Computes the environment directory whose project compiles a guide source.               |
 
 ### Parsers
 
@@ -357,9 +358,15 @@ no-write and rewrite failures preserve a higher existing process exit code.
 
 Every inventory read first constructs `Parity` without declarations, so every manifest guide
 parses, and every name two modules of one entry declare refuses, before any module compiles. It
-then compiles each distinct directory the parsed rows' sources name through `GuideCompiler` and
-passes the emitted declarations to `Parity` as `declarations`. A module compiles once per `execute`
-call: a `--to` run's second inventory read reuses the first read's declarations, which a
+then compiles, through `GuideCompiler`, each distinct `src/<env>` or `app/<env>` directory that a
+parsed row's source equals or sits beneath, and passes every emitted declaration to `Parity` as
+`declarations`. A row over `src/core/panels` reads its signatures from the `src/core` compile. A
+source under no `src/<env>` or `app/<env>` directory refuses with code `compile`, naming the
+module, and a source whose environment's emit holds no declaration under it refuses with code
+`empty`, naming each such module and its project in `context.missing`. An environment compiles
+once per `execute` call: a manifest that lists `src/core` and
+`src/core/panels` compiles `src/core` once, and a `--to` run's second inventory read reuses the
+first read's declarations, which a
 `--to source` rewrite cannot change, because it rewrites doc blocks and the emit removes comments.
 A refusal names the guide or the module; a compile refusal carries the compiler's output in its
 message and in `context.output`. The native command writes the message to stderr and raises the
@@ -1219,9 +1226,9 @@ source with `npm run test:guides -- --to source`; never weaken the case.
 - [`tests/src/core/Parity.test.ts`](../tests/src/core/Parity.test.ts) — parity findings, rewrite boundaries, and propagation of parse refusals with the guide path and cause. The `Signature` cell rewrite under guide authority and its report under source authority; the README named in a refused pitch parse; a name two modules of one entry export, refused with the guide, the name, and both modules, beside a distinct-name control.
 - [`tests/src/core/sources/Source.test.ts`](../tests/src/core/sources/Source.test.ts) — direct/barrel projections, lexical and JSDoc regressions, canonical-key populations, root and nested indexes, exact row grammar, graph invariants, and correlated population controls; signatures carried from supplied emitted declarations
 - [`tests/src/core/sources/SourceManager.test.ts`](../tests/src/core/sources/SourceManager.test.ts) — `computeModuleKey` boundary collision, specifier resolution, the `undefined` skip for an unmapped specifier, array-valued module scopes, `sources()` enumeration, and per-module entity sharing with a differently-scoped identity control.
-- [`tests/src/server/GuideCommand.test.ts`](../tests/src/server/GuideCommand.test.ts) — malformed guide rejection with its path, code, and required header; direct installed reader and runner ports, fresh worker context, registration rejection, real runner cleanup after start failure, cleanup failure reporting, and higher native exit preservation; compile refusal naming the module; native `--to guide` signature rewrite and `--to source` report with exit codes; a malformed guide refused before any compile; one compile per module across a `--to guide` run, counted through a recording compiler; native exit 1 for a header refusal and for a compile refusal; a name `src/core` and `src/server` both export, refused, beside a distinct-name control that resolves
+- [`tests/src/server/GuideCommand.test.ts`](../tests/src/server/GuideCommand.test.ts) — malformed guide rejection with its path, code, and required header; direct installed reader and runner ports, fresh worker context, registration rejection, real runner cleanup after start failure, cleanup failure reporting, and higher native exit preservation; compile refusal naming the module; native `--to guide` signature rewrite and `--to source` report with exit codes; a malformed guide refused before any compile; one compile per environment across a `--to guide` run and across an environment's own and nested module rows, counted through a recording compiler; a nested module row read from its environment's compile, with a drifted cell reported for that row alone; a nested module its environment's project emits nothing under, refused with code `empty`; a source outside every `src/<env>` and `app/<env>` directory, refused with code `compile`; native exit 1 for a header refusal and for a compile refusal; a name `src/core` and `src/server` both export, refused, beside a distinct-name control that resolves
 - [`tests/src/server/GuideCompiler.test.ts`](../tests/src/server/GuideCompiler.test.ts) — every signature form computed from a fixture workspace compiler; byte-equal repeated compiles; refusal of a failing compile, a missing project, a module outside `src/<env>` and `app/<env>`, and a workspace with no compiler; coded `compile` refusals with the compiler output in `context`; `empty` refusals for a `declarationDir` and for an `include` that misses the module; `timeout` and `overflow` refusals; the scratch directory gone after a success and after a failure; sorted keys.
-- [`tests/src/server/helpers.test.ts`](../tests/src/server/helpers.test.ts) — finding formatting, native and file-URL root resolution, pitch selection, and owned foreign-result reading with live receivers. Module-to-project mapping.
+- [`tests/src/server/helpers.test.ts`](../tests/src/server/helpers.test.ts) — finding formatting, native and file-URL root resolution, pitch selection, and owned foreign-result reading with live receivers. Module-to-project mapping, and the environment directory a source equals or sits beneath, matched by whole segments.
 - [`tests/src/server/parsers.test.ts`](../tests/src/server/parsers.test.ts) — native direction arguments and package-name parsing. `rootDir` reading from `--showConfig` output.
 - [`tests/setupServer.test.ts`](../tests/setupServer.test.ts) — the native carrier and `readGuideBuild`, which returns the built server entry the native-command cases load and refuses a missing build or one older than a source.
 - [`tests/distribution.test.ts`](../tests/distribution.test.ts) — the packed package through the `tests/setupDistribution.ts` harness, and `isGuideError` across the packed `import` and `require` entries and a copy at a second path: pairwise-distinct constructors, a hidden brand, subclass recognition, and refusal of a look-alike, a proxy, and a brand-only object.

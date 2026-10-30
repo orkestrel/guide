@@ -2,6 +2,7 @@ import type { ManifestEntry, ParityFinding } from '@src/core'
 import { isArray, isFunction, isInstance, isObject } from '@orkestrel/contract'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hasCanonicalSegments } from '@src/core'
 
 /**
  * Formats one finding with its guide prefix when needed.
@@ -102,4 +103,22 @@ export function computeGuideProject(module: string): string | undefined {
 	const environment = matched?.[2]
 	if (layer === undefined || environment === undefined) return undefined
 	return `configs/${layer}/tsconfig.${environment}.json`
+}
+
+/**
+ * Computes the environment directory whose project compiles a guide source.
+ *
+ * @param source - The workspace-relative source directory
+ * @returns The `src/<env>` or `app/<env>` directory that `source` equals or sits beneath, or
+ * `undefined` for a source under neither
+ *
+ * @example
+ * ```ts
+ * computeGuideEnvironment('src/core/panels') // 'src/core'
+ * computeGuideEnvironment('lib/core') // undefined
+ * ```
+ */
+export function computeGuideEnvironment(source: string): string | undefined {
+	if (!hasCanonicalSegments(source)) return undefined
+	return /^(?:src|app)\/[A-Za-z0-9_-]+(?=\/|$)/.exec(source)?.[0]
 }

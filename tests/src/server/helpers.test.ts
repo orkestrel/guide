@@ -1,5 +1,6 @@
 import type { ManifestEntry } from '@src/core'
 import {
+	computeGuideEnvironment,
 	computeGuideProject,
 	formatGuideFinding,
 	matchesGuideResult,
@@ -109,6 +110,35 @@ describe('computeGuideProject', () => {
 			'src\\core',
 		]) {
 			expect(computeGuideProject(module)).toBeUndefined()
+		}
+	})
+})
+
+describe('computeGuideEnvironment', () => {
+	it('maps a src or app source to the environment directory it equals or sits beneath', () => {
+		expect(computeGuideEnvironment('src/core')).toBe('src/core')
+		expect(computeGuideEnvironment('src/core/panels')).toBe('src/core')
+		expect(computeGuideEnvironment('src/core/panels/rows')).toBe('src/core')
+		expect(computeGuideEnvironment('app/browser/screens')).toBe('app/browser')
+		expect(computeGuideEnvironment('src/corex')).toBe('src/corex')
+		expect(computeGuideEnvironment('src/core.x')).toBeUndefined()
+	})
+
+	it('maps no environment for a source under neither src/<env> nor app/<env>', () => {
+		for (const source of [
+			'src',
+			'app',
+			'lib/core',
+			'.',
+			'src/..',
+			'src/core/',
+			'src/core/../server',
+			'/src/core',
+			'src\\core',
+			'srcs/core',
+			'tests/src/core',
+		]) {
+			expect(computeGuideEnvironment(source)).toBeUndefined()
 		}
 	})
 })

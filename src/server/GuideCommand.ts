@@ -12,10 +12,12 @@ import { isError, isFiniteNumber, isFunction, isObject, isString } from '@orkest
 import { globSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { normalizeDirectories, Parity, parseManifest } from '@src/core'
+import { GuideError, normalizeDirectories, Parity, parseManifest } from '@src/core'
 import { GUIDE_INDEX, GUIDE_MANIFEST, GUIDE_README, GUIDE_USAGE } from './constants.js'
 import { GuideCompiler } from './GuideCompiler.js'
 import {
+	computeGuideEnvironment,
+	computeGuideProject,
 	formatGuideFinding,
 	matchesGuideResult,
 	resolveGuideRoot,
@@ -96,7 +98,7 @@ export class GuideCommand implements GuideCommandInterface {
 		}
 	}
 
-	// `compiled` holds one command run's declarations by module, so a module compiles once per run.
+	// `compiled` holds each environment's emit across one command run's inventory reads.
 	#createOptions(
 		compiled: Map<string, Readonly<Record<string, string>>>,
 	): ParityOptions | undefined {
@@ -120,21 +122,37 @@ export class GuideCommand implements GuideCommandInterface {
 				? {}
 				: { pitch: Object.freeze({ readme: GUIDE_README, spec: pitch }) }),
 		}
-		// Parity parses every manifest guide at construction, so a malformed guide refuses before
-		// any module compiles.
-		const directories = new Set(
+		// Parity parses every manifest guide at construction, so a malformed guide refuses first.
+		const sources = new Set(
 			new Parity(options).rows().flatMap((row) => normalizeDirectories(row.entry.source)),
 		)
-		for (const directory of directories) {
-			if (!compiled.has(directory)) compiled.set(directory, this.#compiler.compile(directory))
+		const environments = new Set(
+			Array.from(sources).map((source) => computeGuideEnvironment(source) ?? source),
+		)
+		for (const environment of environments) {
+			if (!compiled.has(environment)) compiled.set(environment, this.#compiler.compile(environment))
 		}
 		const declarations = Object.freeze(
 			Object.fromEntries(
-				Array.from(directories).flatMap((directory) =>
-					Object.entries(compiled.get(directory) ?? {}),
-				),
+				Array.from(compiled)
+					.filter(([environment]) => environments.has(environment))
+					.flatMap(([, emitted]) => Object.entries(emitted)),
 			),
 		)
+		const missing = Array.from(sources).flatMap((module) => {
+			const project = computeGuideProject(computeGuideEnvironment(module) ?? module)
+			return project === undefined ||
+				Object.keys(declarations).some((key) => key.startsWith(`${module}/`))
+				? []
+				: [{ module, project }]
+		})
+		if (missing.length > 0) {
+			throw new GuideError(
+				`${missing.map(({ module, project }) => `${JSON.stringify(module)} emitted no declaration under ${module} through ${project}`).join('; ')}; each project's include must cover its module and its declarations must emit into --outDir, with no declarationDir.`,
+				'empty',
+				{ context: { missing } },
+			)
+		}
 		return { ...options, declarations }
 	}
 
