@@ -89,9 +89,9 @@
 		"@orkestrel/markdown": "^0.0.18"
 	},
 	"devDependencies": {
-		"@microsoft/api-extractor": "^7.60.0",
+		"@microsoft/api-extractor": "^7.60.1",
 		"@orkestrel/probe": "^0.0.26",
-		"@orkestrel/scaffold": "^0.0.116",
+		"@orkestrel/scaffold": "^0.0.118",
 		"@orkestrel/test": "^0.0.31",
 		"@types/node": "^26.6.6",
 		"oxfmt": "^0.75.0",
