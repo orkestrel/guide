@@ -40,9 +40,9 @@ import {
 	isParagraphNode,
 	isTableNode,
 	renderMarkdown,
-	walkNodes,
+	walkMarkdownNodes,
 } from '@orkestrel/markdown'
-import { isNonEmptyString, isString } from '@orkestrel/contract'
+import { escapeRegExp, isNonEmptyString, isString } from '@orkestrel/contract'
 import {
 	EXTERNAL_SCHEMES,
 	KIND,
@@ -907,7 +907,7 @@ export function findFirstCode(nodes: readonly InlineNode[]): string | undefined 
  */
 export function extractCellLinks(cell: readonly InlineNode[]): readonly string[] {
 	const links: string[] = []
-	for (const node of walkNodes({ element: 'paragraph', children: cell })) {
+	for (const node of walkMarkdownNodes({ element: 'paragraph', children: cell })) {
 		if (isLinkNode(node)) links.push(node.href)
 	}
 	return links
@@ -1511,29 +1511,6 @@ export function joinHead(lines: readonly string[], start: number): DeclarationHe
 		if (closed && /\{\s*\}$/.test(text)) return { text: parts.join(' '), end: index }
 	}
 	return undefined
-}
-
-/**
- * Escapes every regex metacharacter in a literal string so it reads as text
- * inside a larger `RegExp` source rather than as syntax.
- *
- * @remarks
- * A caller-supplied name reaches a `RegExp` through this: {@link
- * findUnexampled} splices it into a word-boundary search, so a name carrying
- * `$`, `(`, `[`, or `.` matches that character literally instead of throwing or
- * matching text it does not name. Pure and total; never throws.
- *
- * @param value - The literal string to escape
- * @returns `value` with every regex metacharacter backslash-escaped
- *
- * @example
- * ```ts
- * escapeRegExp('A.B') // 'A\\.B'
- * new RegExp(`^${escapeRegExp('A.B')}$`).test('AxB') // false
- * ```
- */
-export function escapeRegExp(value: string): string {
-	return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
 }
 
 /**
@@ -2145,7 +2122,7 @@ export function extractUnnamed(document: MarkdownDocument): readonly string[] {
  */
 export function extractLinks(document: MarkdownDocument): readonly string[] {
 	const links: string[] = []
-	for (const node of walkNodes(document)) {
+	for (const node of walkMarkdownNodes(document)) {
 		if (isLinkNode(node)) links.push(node.href)
 	}
 	return links
@@ -2166,7 +2143,7 @@ export function extractLinks(document: MarkdownDocument): readonly string[] {
 export function extractTests(document: MarkdownDocument): readonly string[] {
 	const links: string[] = []
 	for (const block of selectSectionBlocks(document, TESTS)) {
-		for (const node of walkNodes(block)) {
+		for (const node of walkMarkdownNodes(block)) {
 			if (isLinkNode(node)) links.push(node.href)
 		}
 	}
@@ -2746,7 +2723,7 @@ export function extractFences(document: MarkdownDocument): readonly GuideFence[]
  */
 export function collectFences(document: MarkdownDocument): ReadonlyMap<CodeBlockNode, GuideFence> {
 	const fences: Array<readonly [CodeBlockNode, GuideFence]> = []
-	Iterator.from(walkNodes(document)).reduce((title, node) => {
+	Iterator.from(walkMarkdownNodes(document)).reduce((title, node) => {
 		if (isHeadingNode(node)) return flattenText(node).trim()
 		if (isCodeBlockNode(node)) {
 			fences.push([

@@ -1,6 +1,6 @@
 import type { TableNode } from '@orkestrel/markdown'
 import type { ParityOptions, SourceInterface, SurfaceSymbol } from '@src/core'
-import { parseDocument } from '@orkestrel/markdown'
+import { parseMarkdown } from '@orkestrel/markdown'
 import { requireValue } from '@orkestrel/test'
 import {
 	extractExports,
@@ -200,7 +200,7 @@ export function createParityFixture(options?: ParityFixtureOptions): ParityOptio
  * ```
  */
 export function requireTable(markdown: string): TableNode {
-	const [table] = parseDocument(markdown).children
+	const [table] = parseMarkdown(markdown).children
 	if (table?.element !== 'table') throw new Error('expected a table block')
 	return table
 }

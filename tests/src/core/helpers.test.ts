@@ -54,7 +54,6 @@ import {
 	extractHidden,
 	joinHead,
 	locateComment,
-	escapeRegExp,
 	findColumnIndex,
 	renderExample,
 	renderMethods,
@@ -2170,30 +2169,6 @@ describe('joinHead', () => {
 			text: 'export interface BoxInterface< T = string, > {}',
 			end: 2,
 		})
-	})
-})
-
-describe('escapeRegExp', () => {
-	it('escapes every regex metacharacter', () => {
-		expect(escapeRegExp('a.b+c*d?e^f$g(h)i[j]k{l}m|n\\o')).toBe(
-			'a\\.b\\+c\\*d\\?e\\^f\\$g\\(h\\)i\\[j\\]k\\{l\\}m\\|n\\\\o',
-		)
-	})
-
-	it('leaves an ordinary identifier unchanged', () => {
-		expect(escapeRegExp('WidgetInterface')).toBe('WidgetInterface')
-	})
-
-	it('makes an escaped string match itself and nothing else', () => {
-		const pattern = new RegExp(`^${escapeRegExp('A.B')}$`)
-		expect({ literal: pattern.test('A.B'), wildcard: pattern.test('AxB') }).toEqual({
-			literal: true,
-			wildcard: false,
-		})
-	})
-
-	it('escapes a metacharacter-only name into a pattern that matches that text', () => {
-		expect(new RegExp(`^${escapeRegExp('.*')}$`).test('.*')).toBe(true)
 	})
 })
 
