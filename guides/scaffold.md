@@ -116,13 +116,16 @@ Exported from `@orkestrel/scaffold`, and reachable from
 | `ToolchainHold`         | interface | `{ framework, range, reason }`                                                                                                                                                                                                                       | Represents one foreign tool range required by a browser framework.                                |
 | `ViteMachinery`         | interface | `{ browser, frameworks, output, showcase }`                                                                                                                                                                                                          | Names which host-specific pipelines a generated root Vite configuration carries.                  |
 
-| Name               | Kind      | Signature                       | Summary                                                                                        |
-| ------------------ | --------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `SurfaceCandidate` | interface | `{ conflicts }`                 | Represents a candidate checkout's claim with each name two or more of its environments export. |
-| `SurfaceClaim`     | interface | `{ owner, names }`              | Represents one owner's bare exported names, including an empty candidate surface.              |
-| `SurfaceCollision` | interface | `{ name, owners }`              | Represents a bare name claimed by distinct package owners.                                     |
-| `SurfaceConflict`  | interface | `{ name, owner, environments }` | Represents a bare name one owner's barrels export from two or more of its environments.        |
-| `SurfaceFinding`   | interface | `{ standing }`                  | Reports a collision's standing against the recorded owner set.                                 |
+| Name                | Kind      | Signature                                     | Summary                                                                                            |
+| ------------------- | --------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `SurfaceAdvisory`   | interface | `{ name, owner, peer, similarity }`           | Reports a name a candidate adds beside a near name or an equal contract another owner claims.      |
+| `SurfaceCandidate`  | interface | `{ conflicts }`                               | Represents a candidate checkout's contract with each name two or more of its environments export.  |
+| `SurfaceClaim`      | interface | `{ owner, names }`                            | Represents one owner's bare exported names, including an empty candidate surface.                  |
+| `SurfaceCollision`  | interface | `{ name, owners }`                            | Represents a bare name claimed by distinct package owners.                                         |
+| `SurfaceConflict`   | interface | `{ name, owner, environments }`               | Represents a bare name one owner's barrels export from two or more of its environments.            |
+| `SurfaceContract`   | interface | `{ signatures }`                              | Represents one owner's claim with the guide `Signature` cell of each name a Surface row documents. |
+| `SurfaceFinding`    | interface | `{ standing }`                                | Reports a collision's standing against the recorded owner set.                                     |
+| `SurfaceSimilarity` | type      | `'case' \| 'plural' \| 'edit' \| 'signature'` | Names how an added name resembles a name another owner claims.                                     |
 
 #### Constants
 
@@ -212,6 +215,7 @@ Exported from `@orkestrel/scaffold`, and reachable from
 | `STYLES_DEV_DEPENDENCIES`         | const | `Readonly<Record<string, string>>`                                                                | Lists the development dependencies the styles surface adds, frozen.                                                                                                                    |
 | `STYLES_ENTRY_PATH`               | const | `"src/styles/index.scss"`                                                                         | Names the base stylesheet marker.                                                                                                                                                      |
 | `SURFACES`                        | const | `readonly Surface[]`                                                                              | Lists the surfaces an extension may extend, frozen.                                                                                                                                    |
+| `SURFACE_EDIT_LENGTH`             | const | `6`                                                                                               | Sets the shortest name length at which a one-edit neighbor counts as a near name.                                                                                                      |
 | `TAB_WIDTH`                       | const | `2`                                                                                               | Sets the columns one tab occupies when the formatter measures a line, matching `tabWidth`.                                                                                             |
 | `TARGET_SKILL_NAMES`              | const | `readonly string[]`                                                                               | Lists the package-facing skills a target receives pointers for, frozen and alphabetical.                                                                                               |
 | `THEMES_BARREL_PATH`              | const | `"src/styles/themes/index.scss"`                                                                  | Names the themes stylesheet marker.                                                                                                                                                    |
@@ -304,11 +308,15 @@ Exported from `@orkestrel/scaffold`, and reachable from
 | `serializeTypeScriptString` | function | `(value: string) => string`                                                                                                                        | Serializes one string as a single-quoted TypeScript literal.                                        |
 | `srcToRoot`                 | function | `(src: readonly Environment[]) => Environment \| undefined`                                                                                        | Selects the single published environment a package root points at.                                  |
 
-| Name                       | Kind     | Signature                                                                                                     | Summary                                                                                 |
-| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `collectSurfaceCollisions` | function | `(claims: readonly SurfaceClaim[]) => readonly SurfaceCollision[]`                                            | Collects bare names claimed by distinct owners in sorted order.                         |
-| `collectSurfaceConflicts`  | function | `(owner: string, exports: Readonly<Record<string, readonly string[]>>) => readonly SurfaceConflict[]`         | Collects the bare names one owner exports from two or more of its environments.         |
-| `compareSurfaceCollisions` | function | `(collisions: readonly SurfaceCollision[], record: readonly SurfaceCollision[]) => readonly SurfaceFinding[]` | Compares collisions with the record and reports errors, recorded subsets, and closures. |
+| Name                       | Kind     | Signature                                                                                                                         | Summary                                                                                                                                                 |
+| -------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `collectSurfaceAdvisories` | function | `(candidate: SurfaceContract, published: readonly string[], contracts: readonly SurfaceContract[]) => readonly SurfaceAdvisory[]` | Collects the near names and equal contracts other owners claim beside each name a candidate adds.                                                       |
+| `collectSurfaceCollisions` | function | `(claims: readonly SurfaceClaim[]) => readonly SurfaceCollision[]`                                                                | Collects bare names claimed by distinct owners in sorted order.                                                                                         |
+| `collectSurfaceConflicts`  | function | `(owner: string, exports: Readonly<Record<string, readonly string[]>>) => readonly SurfaceConflict[]`                             | Collects the bare names one owner exports from two or more of its environments.                                                                         |
+| `compareSurfaceCollisions` | function | `(collisions: readonly SurfaceCollision[], record: readonly SurfaceCollision[]) => readonly SurfaceFinding[]`                     | Compares collisions with the record and reports errors, recorded subsets, and closures.                                                                 |
+| `inferSurfaceSimilarity`   | function | `(name: string, other: string) => SurfaceSimilarity \| undefined`                                                                 | Infers how two different names resemble each other by spelling.                                                                                         |
+| `matchesGuideRefusal`      | function | `(error: unknown) => boolean`                                                                                                     | Checks whether an error is the `TARGET` refusal a surface reader raises for a guide its parser refuses, which carries the parser's code in its context. |
+| `matchesSurfaceStructure`  | function | `(signature: string) => boolean`                                                                                                  | Checks whether a guide `Signature` cell spells a structure rather than a literal or a type name.                                                        |
 
 #### Compilers
 
@@ -393,7 +401,7 @@ Exported from `@orkestrel/scaffold/server`, and reachable from
 | `MaterializerInterface`  | interface | `{ emitter, audit(), materialize(), repair(), mirror(), catalog(), declare(), remove(), destroy() }` | Describes the mutation contract: the package's only filesystem writer.                            |
 | `MaterializerOptions`    | interface | `{ host?, on?, error? }`                                                                             | Represents the options for the materializer.                                                      |
 | `ReadAllowanceInterface` | interface | `{ remaining, spend() }`                                                                             | Describes the byte allowance one upstream call spends across every read it makes.                 |
-| `SurfaceModule`          | interface | `{ createGuide, createSource, extractSourceLines }`                                                  | Describes the guide module functions required by surface reflection.                              |
+| `SurfaceModule`          | interface | `{ createGuide, createSource, extractSourceLines, isGuideError }`                                    | Describes the guide module functions required by surface reflection.                              |
 | `TextReadResult`         | interface | `{ lookup, content, note, unreachable? }`                                                            | Reports the outcome of one bounded read whose body is taken as text.                              |
 | `Worktree`               | interface | `{ tracked, dirty }`                                                                                 | Describes what git reports about a target's working tree.                                         |
 | `UpstreamInterface`      | interface | `{ emitter, lookup(), fetch(), read(), catalog(), inventory(), destroy() }`                          | Describes the upstream contract: the package's only network reader, and it never writes.          |
@@ -498,10 +506,10 @@ Exported from `@orkestrel/scaffold/server`, and reachable from
 | `readSnapshot`            | function | `(target: string, paths: readonly string[]) => Snapshot`                                                        | Reads a target's current bytes at the paths a plan claims.                                        |
 | `readSurfaceBaseline`     | function | `(root: string, name?: string) => readonly SurfaceCollision[] \| undefined`                                     | Reads the Surface collision baseline from a committed inventory.                                  |
 | `readSurfaceCollisions`   | function | `(root: string) => ReadonlyMap<string, readonly string[]>`                                                      | Reads bare Surface names claimed by distinct package guides.                                      |
-| `readSurfaceClaims`       | function | `(root: string, loader?: SurfaceLoader) => readonly SurfaceClaim[]`                                             | Reads each immediate package guide's bare names under its file owner.                             |
+| `readSurfaceClaims`       | function | `(root: string, loader?: SurfaceLoader) => readonly SurfaceContract[]`                                          | Reads each immediate package guide's bare names under its file owner.                             |
 | `readSurfaceCandidate`    | function | `(root: string, loader?: SurfaceLoader) => SurfaceCandidate`                                                    | Reads a checkout's combined guide and barrel claims under its manifest owner.                     |
-| `readSurfaceFile`         | function | `(root: string \| Host, owner: string, label: string, loader?: SurfaceLoader) => SurfaceClaim \| undefined`     | Reads one owner's `guides/<owner>.md` under a root, or from a verified host value, as a claim.    |
-| `readSurfaceGuide`        | function | `(text: string, owner: string, source: string, loader?: SurfaceLoader) => SurfaceClaim`                         | Reads one guide's claims and reports parser refusals with its owner and source.                   |
+| `readSurfaceFile`         | function | `(root: string \| Host, owner: string, label: string, loader?: SurfaceLoader) => SurfaceContract \| undefined`  | Reads one owner's `guides/<owner>.md` under a root, or from a verified host value, as a claim.    |
+| `readSurfaceGuide`        | function | `(text: string, owner: string, source: string, loader?: SurfaceLoader) => SurfaceContract`                      | Reads one guide's claims and reports parser refusals with its owner and source.                   |
 | `readSurfaceModule`       | function | `(loader?: SurfaceLoader) => SurfaceModule`                                                                     | Loads and validates the guide functions required by surface reflection.                           |
 | `readSurfaceRecord`       | function | `(root: string) => readonly SurfaceCollision[]`                                                                 | Reads a data root's verified collision record.                                                    |
 | `resolveHostRoot`         | function | `() => string`                                                                                                  | Resolves the bundled host root from the executing module's location.                              |
@@ -759,8 +767,11 @@ nor `src/`, when its guide exists but is not UTF-8 text within the artifact boun
 TypeScript source under `src/` cannot be read. Only `.ts` files under `src/` are read, so a binary
 asset there is ignored. A barrel holding a statement other than `export * from './module.js'`
 refuses with the statement named, because the reflection follows nothing else and an incomplete
-reading never reports clean. When `@orkestrel/guide` refuses a guide from any source, the command
-refuses with `TARGET`, naming the owner and the source and carrying the parser's message.
+reading never reports clean. When `@orkestrel/guide` refuses a guide from any source with an error
+its `isGuideError` guard accepts, such as a `## Surface` header other than
+`Name | Kind | Signature | Summary`, the command refuses with `TARGET`, naming the owner and the
+source, carrying the parser's message, and holding the guide error's `code` in the refusal's
+context. Any other error the parser raises propagates unchanged.
 
 Compare unpublished candidates together with this command:
 
@@ -774,6 +785,28 @@ or carrying an owner absent from its recorded owner set, has `error` standing. A
 same or fewer owners has `recorded` standing. A recorded name that no longer collides has `closed`
 standing, so a release can shrink the record.
 
+A name a candidate adds is one its claims hold and its owner's published guide does not. The
+published guide is read in the order the Claims row gives for any other owner: the guide on `main`,
+then the data root's `guides/<owner>.md`, or that root's guide alone under `--from`. That guide
+sets only the advisory baseline, so when its parser refuses it the command reads the next source,
+and with none left every name the candidate claims counts as added; a refused guide for any other
+owner stops the run. The command compares each added name with every other owner's claimed names, never with the candidate's own,
+and reports an advisory for each near name: a case-fold twin (`case`), a singular or plural form by
+`s`, `es`, or `y` to `ies` (`plural`), or a name one insertion, deletion, or substitution away when
+both names hold at least `SURFACE_EDIT_LENGTH` characters (`edit`). It also reports a different
+name whose `Signature` cell equals the added name's cell (`signature`) when `matchesSurfaceStructure`
+reads that cell as a structure: a member list with at least one member, its array and union forms
+included. A pair that is both a near name and an equal structure reports once in each class. A literal, a bare
+primitive, a type reference, a function type, and an empty member list are no structure, and a name
+only a barrel claims carries no cell. An advisory never changes the exit code; rule each one under
+`.claude/rules/names.md` § Fleet name ownership before you publish. Each advisory prints one line,
+where `NAME` is the added name, `OWNER` the candidate, `PEER` the other name, `HOLDER` the other
+owner, and `CLASS` the similarity:
+
+```text
+Surface advisory "NAME": "OWNER" adds it beside "PEER" from "HOLDER" (CLASS). Rule it under fleet name ownership before the upload.
+```
+
 The command returns `1` when a collision has `error` standing, a candidate carries a conflict, or
 an owner is unread. A run without
 `--offline` or `--from` also returns `1` when membership fell to the floor catalog table, any
@@ -781,26 +814,35 @@ owner fell to the floor guide, or the record fell to the floor inventory. Every 
 
 The human report names membership when it fell to the floor catalog table, with the failure the
 registry read reported, then each owner that fell to the floor guide, each unread owner, the record
-when it fell to the floor inventory, each `error` collision with its owners, and each conflict
-with its owner and environments, then prints the recorded and closed counts. The `--json` option
-emits one value with `owners`, `collisions`, `conflicts`, and `provenance`. Each owner carries `owner`, `source` (`candidate`, `live`, `floor`, or `unread`), and
+when it fell to the floor inventory, each `error` collision with its owners, each conflict
+with its owner and environments, and each advisory, then prints the recorded and closed counts. The `--json` option
+emits one value with `owners`, `collisions`, `conflicts`, `advisories`, and `provenance`. Each owner carries `owner`, `source` (`candidate`, `live`, `floor`, or `unread`), and
 `names` unless it is unread. Each collision carries `name`, `owners`, and `standing`, sorted by
 name, including closed entries with their recorded owners. Each conflict carries `name`, `owner`,
-and `environments`, sorted by name within each candidate. `provenance.membership` names the
+and `environments`, sorted by name within each candidate. Each advisory carries the candidate's
+`name` and `owner`, the other owner's name as `peer`, and `similarity`, sorted within each candidate
+by added name, peer owner, and peer name, with a spelling class before `signature`. `provenance.membership` names the
 package list's baseline, `provenance.guides` is `live` only when no owner fell to the floor, and
 `provenance.record` names the record's baseline; a `--from` run reports none of them. The command changes no files.
 
 The core `SurfaceClaim` interface carries `owner` and `names`. `SurfaceCollision` carries `name`
 and `owners`; `SurfaceFinding` adds `standing`. `SurfaceConflict` carries `name`, `owner`, and
-`environments`, and `SurfaceCandidate` adds `conflicts` to a claim. `collectSurfaceCollisions`
+`environments`. `SurfaceContract` adds `signatures`, the `Signature` cell of each name a guide row
+documents, to a claim, and `SurfaceCandidate` adds `conflicts` to a contract. `SurfaceAdvisory`
+carries `name`, `owner`, `peer`, and a `SurfaceSimilarity` as `similarity`. `collectSurfaceCollisions`
 deduplicates owners, `compareSurfaceCollisions` applies the record, and `collectSurfaceConflicts`
-finds the names one owner exports from more than one environment. `readSurfaceClaims` reads
+finds the names one owner exports from more than one environment. `collectSurfaceAdvisories`
+compares a candidate's added names with other owners' contracts through `inferSurfaceSimilarity`
+and `matchesSurfaceStructure`, and `matchesGuideRefusal` recognizes the refusal a reader raises for
+a guide its parser refuses. `readSurfaceClaims` reads
 immediate package guides, excluding the README index. `readSurfaceCandidate` adds live barrel names
 and the candidate's conflicts. `readSurfaceFile` reads
-one owner's guide file under a root, and `readSurfaceGuide` parses guide text from any source.
+one owner's guide file under a root, and `readSurfaceGuide` parses guide text from any source into
+a contract.
 `readSurfaceRecord` reads a data root's record, and `resolveHostRoot` resolves the bundled root.
-`readSurfaceModule` loads `@orkestrel/guide` lazily and narrows it with `isSurfaceModule`; every
-reader takes an optional `SurfaceLoader` that resolves the module, and requires the package in
+`readSurfaceModule` loads `@orkestrel/guide` lazily and narrows it with `isSurfaceModule`, which
+requires `createGuide`, `createSource`, `extractSourceLines`, and `isGuideError` as functions, and
+refuses with `TARGET` a module that lacks one or holds another value there; every reader takes an optional `SurfaceLoader` that resolves the module, and requires the package in
 scaffold's resolution path when none is supplied. Importing the server entry alone does not load
 it.
 
