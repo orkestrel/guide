@@ -400,7 +400,7 @@ describe('Parity', () => {
 		expect(rewrite.findings).toEqual([])
 		expect(rewrite.changes.map((change) => change.path)).toEqual([PARITY_SPEC])
 		expect(rewrite.changes[0]?.content).toContain(
-			'| `createWidget` | function | `() => WidgetInterface` | Creates a widget. |',
+			'| `createWidget`    | function  | `() => WidgetInterface`     | Creates a widget.                  |',
 		)
 		expect(rewrite.changes[0]?.content).toContain('createWidget()\n```')
 		expect(rewrite.changes[0]?.content).toContain('leaveWidget()')
@@ -430,7 +430,7 @@ describe('Parity', () => {
 		expect(content).toBe(
 			PARITY_GUIDE.replace(
 				'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `createWidget` | function | `() => WidgetInterface` | Creates a widget. |',
-				'| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `WidgetInterface` | interface | `{ render() }` | Represents a widget. |\n| `Widget` | class | `new () => WidgetInterface` | Represents an implementing widget. |\n| `createWidget` | function | `(size: number \\| string) => void` | Creates a widget. |',
+				'| Name              | Kind      | Signature                          | Summary                            |\n| ----------------- | --------- | ---------------------------------- | ---------------------------------- |\n| `WidgetInterface` | interface | `{ render() }`                     | Represents a widget.               |\n| `Widget`          | class     | `new () => WidgetInterface`        | Represents an implementing widget. |\n| `createWidget`    | function  | `(size: number \\| string) => void` | Creates a widget.                  |',
 			),
 		)
 		const second = new Parity({ ...options, files: { ...options.files, [PARITY_SPEC]: content } })

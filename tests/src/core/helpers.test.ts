@@ -58,6 +58,7 @@ import {
 	renderExample,
 	renderMethods,
 	renderSurface,
+	renderMarkdownTable,
 	replaceCell,
 	replaceExample,
 	replaceFence,
@@ -68,6 +69,7 @@ import {
 	WRAP_WIDTH,
 	SUMMARY,
 	SIGNATURE,
+	computeCellWidth,
 	computeDepths,
 	findClosing,
 	findSeparators,
@@ -4515,6 +4517,241 @@ describe('renderExample', () => {
 	})
 })
 
+// Guides and tables the checkout's formatter wrote (`oxfmt` 0.79.0, run once over the one-space
+// source `renderMarkdown` writes), pinned as bytes. A table this package writes must equal these
+// bytes, so a rewrite needs no formatter pass; each constant names the table it holds.
+const PADDED_BASE = [
+	'# Widget',
+	'',
+	'> A widget.',
+	'',
+	'## Surface',
+	'',
+	'| Name   | Kind     | Signature    | Summary                                           |',
+	'| ------ | -------- | ------------ | ------------------------------------------------- |',
+	'| `walk` | function | `() => void` | Walks.                                            |',
+	'| `talk` | function | `() => void` | Talks about the whole tree, one branch at a time. |',
+	'| `Path` | type     | `string`     | Names a path.                                     |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name    | Summary                                          |',
+	'| ------- | ------------------------------------------------ |',
+	'| `open`  | Opens the widget and keeps it open until closed. |',
+	'| `close` | Closes.                                          |',
+].join('\n')
+
+const PADDED_WIDER = [
+	'# Widget',
+	'',
+	'> A widget.',
+	'',
+	'## Surface',
+	'',
+	'| Name   | Kind     | Signature    | Summary                                                      |',
+	'| ------ | -------- | ------------ | ------------------------------------------------------------ |',
+	'| `walk` | function | `() => void` | Walks the whole tree, visiting every branch before it stops. |',
+	'| `talk` | function | `() => void` | Talks about the whole tree, one branch at a time.            |',
+	'| `Path` | type     | `string`     | Names a path.                                                |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name    | Summary                                          |',
+	'| ------- | ------------------------------------------------ |',
+	'| `open`  | Opens the widget and keeps it open until closed. |',
+	'| `close` | Closes.                                          |',
+].join('\n')
+
+const PADDED_NARROWER = [
+	'# Widget',
+	'',
+	'> A widget.',
+	'',
+	'## Surface',
+	'',
+	'| Name   | Kind     | Signature    | Summary       |',
+	'| ------ | -------- | ------------ | ------------- |',
+	'| `walk` | function | `() => void` | Walks.        |',
+	'| `talk` | function | `() => void` | Talks.        |',
+	'| `Path` | type     | `string`     | Names a path. |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name    | Summary                                          |',
+	'| ------- | ------------------------------------------------ |',
+	'| `open`  | Opens the widget and keeps it open until closed. |',
+	'| `close` | Closes.                                          |',
+].join('\n')
+
+const PADDED_PIPED = [
+	'# Widget',
+	'',
+	'> A widget.',
+	'',
+	'## Surface',
+	'',
+	'| Name   | Kind     | Signature          | Summary                                           |',
+	'| ------ | -------- | ------------------ | ------------------------------------------------- |',
+	'| `walk` | function | `() => void`       | Walks.                                            |',
+	'| `talk` | function | `() => void`       | Talks about the whole tree, one branch at a time. |',
+	'| `Path` | type     | `string \\| number` | Names a path.                                     |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name    | Summary                                          |',
+	'| ------- | ------------------------------------------------ |',
+	'| `open`  | Opens the widget and keeps it open until closed. |',
+	'| `close` | Closes.                                          |',
+].join('\n')
+
+const PADDED_METHODS = [
+	'# Widget',
+	'',
+	'> A widget.',
+	'',
+	'## Surface',
+	'',
+	'| Name   | Kind     | Signature    | Summary                                           |',
+	'| ------ | -------- | ------------ | ------------------------------------------------- |',
+	'| `walk` | function | `() => void` | Walks.                                            |',
+	'| `talk` | function | `() => void` | Talks about the whole tree, one branch at a time. |',
+	'| `Path` | type     | `string`     | Names a path.                                     |',
+	'',
+	'## Methods',
+	'',
+	'#### `WidgetInterface`',
+	'',
+	'| Name    | Summary                                                 |',
+	'| ------- | ------------------------------------------------------- |',
+	'| `open`  | Opens the widget and keeps it open until closed.        |',
+	'| `close` | Closes the widget and releases every resource it holds. |',
+].join('\n')
+
+const PADDED_SIGNATURE_PIPED = [
+	'## Surface',
+	'',
+	'| Name   | Kind | Signature          | Summary       |',
+	'| ------ | ---- | ------------------ | ------------- |',
+	'| `Path` | type | `string \\| number` | Names a path. |',
+].join('\n')
+
+const PADDED_SIGNATURE_TICKED = [
+	'## Surface',
+	'',
+	'| Name   | Kind | Signature                 | Summary       |',
+	'| ------ | ---- | ------------------------- | ------------- |',
+	'| `Path` | type | `` `widgets/${string}` `` | Names a path. |',
+].join('\n')
+
+const PADDED_ALIGN = [
+	'| Left        | Right | Center | None |',
+	'| :---------- | ----: | :----: | ---- |',
+	'| x           |     y |   z    | w    |',
+	'| longer cell |     1 |   22   |      |',
+].join('\n')
+
+const SOURCE_ALIGN = [
+	'| Left | Right | Center | None |',
+	'| :--- | ---: | :---: | --- |',
+	'| x | y | z | w |',
+	'| longer cell | 1 | 22 | |',
+].join('\n')
+
+const PADDED_WIDE = [
+	'| Sig                         | Note         |',
+	'| --------------------------- | ------------ |',
+	'| `a \\| b`                    | pipe in span |',
+	'| `` `x` ``                   | tick         |',
+	'| é ü                         | accents      |',
+	'| 日本語                      | wide         |',
+	'| 😀                          | emoji        |',
+	'| **bold** [link](http://x.y) | md           |',
+	'| x                           |              |',
+].join('\n')
+
+const SOURCE_WIDE = [
+	'| Sig | Note |',
+	'| --- | --- |',
+	'| `a \\| b` | pipe in span |',
+	'| `` `x` `` | tick |',
+	'| é ü | accents |',
+	'| 日本語 | wide |',
+	'| 😀 | emoji |',
+	'| **bold** [link](http://x.y) | md |',
+	'| x | |',
+].join('\n')
+
+describe('computeCellWidth', () => {
+	it('counts one column per narrow character and none for a mark or a format character', () => {
+		expect(computeCellWidth('')).toBe(0)
+		expect(computeCellWidth('`walk`')).toBe(6)
+		expect(computeCellWidth('é ü')).toBe(3)
+		expect(computeCellWidth('—…→✓')).toBe(4)
+		expect(computeCellWidth(String.fromCodePoint(0x65, 0x301))).toBe(1)
+		expect(computeCellWidth(String.fromCodePoint(0x61, 0x200b, 0x62))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0xff71))).toBe(1)
+	})
+
+	it('counts two columns per wide character', () => {
+		expect(computeCellWidth('日本語')).toBe(6)
+		expect(computeCellWidth(String.fromCodePoint(0x3072, 0xd55c, 0xff21))).toBe(6)
+		expect(computeCellWidth(String.fromCodePoint(0x2705))).toBe(2)
+	})
+
+	it('counts two columns for an emoji and for each emoji sequence, and one per regional indicator', () => {
+		expect(computeCellWidth(String.fromCodePoint(0x1f600))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x26a0))).toBe(1)
+		expect(computeCellWidth(String.fromCodePoint(0x26a0, 0xfe0f))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467))).toBe(
+			2,
+		)
+		expect(computeCellWidth(String.fromCodePoint(0x31, 0xfe0f, 0x20e3))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x31, 0x20e3))).toBe(1)
+		expect(computeCellWidth(String.fromCodePoint(0x1f44d, 0x1f3fd))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x1f469, 0x1f3fd, 0x200d, 0x1f4bb))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x1f1fa, 0x1f1f8))).toBe(2)
+		expect(computeCellWidth(String.fromCodePoint(0x1f1fa))).toBe(1)
+	})
+
+	it('counts the source text, so an escaped pipe is two columns', () => {
+		expect(computeCellWidth('`a ' + String.fromCharCode(92) + '| b`')).toBe(8)
+	})
+
+	it('agrees with the formatter on the widths of the pinned wide table', () => {
+		const widths = PADDED_WIDE.split('\n').map((line) => computeCellWidth(line))
+		expect(new Set(widths).size).toBe(1)
+	})
+})
+
+describe('renderMarkdownTable', () => {
+	it('writes the bytes the formatter writes for left, right, centred, and unaligned columns', () => {
+		expect(renderMarkdownTable(requireTable(SOURCE_ALIGN))).toBe(PADDED_ALIGN)
+	})
+
+	it('writes the bytes the formatter writes for wide text, a piped code span, and an empty cell', () => {
+		expect(renderMarkdownTable(requireTable(SOURCE_WIDE))).toBe(PADDED_WIDE)
+	})
+
+	it('is a fixed point: rendering a table read back from its own render returns that render', () => {
+		expect(renderMarkdownTable(requireTable(PADDED_ALIGN))).toBe(PADDED_ALIGN)
+		expect(renderMarkdownTable(requireTable(PADDED_WIDE))).toBe(PADDED_WIDE)
+	})
+
+	it('widens every column to three columns at least', () => {
+		expect(renderMarkdownTable(requireTable('| a | b |\n| - | - |\n| 1 | 2 |\n'))).toBe(
+			'| a   | b   |\n| --- | --- |\n| 1   | 2   |',
+		)
+	})
+})
+
 describe('replaceCell', () => {
 	it('replaces one Surface cell and keeps every byte outside the table', () => {
 		const markdown = createMarkdown(GUIDE)
@@ -4604,15 +4841,11 @@ describe('replaceCell', () => {
 		const piped = replaceCell(guide, 'type Path', SIGNATURE, [
 			{ element: 'codeSpan', value: 'string | number' },
 		])
-		expect(piped).toBe(
-			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Path` | type | `string \\| number` | Names a path. |',
-		)
+		expect(piped).toBe(PADDED_SIGNATURE_PIPED)
 		const ticked = replaceCell(guide, 'type Path', SIGNATURE, [
 			{ element: 'codeSpan', value: '`widgets/${string}`' },
 		])
-		expect(ticked).toBe(
-			'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `Path` | type | `` `widgets/${string}` `` | Names a path. |',
-		)
+		expect(ticked).toBe(PADDED_SIGNATURE_TICKED)
 		expect(extractSurface(createMarkdown(ticked ?? '').document)[0]?.signature).toBe(
 			normalizeSummary(extractCellText([{ element: 'codeSpan', value: '`widgets/${string}`' }])),
 		)
@@ -4621,6 +4854,57 @@ describe('replaceCell', () => {
 				{ element: 'codeSpan', value: 'string | number' },
 			]),
 		).toBe(piped)
+	})
+
+	it('pads every row of a table a wider cell moves, as the formatter does', () => {
+		const result = replaceCell(
+			PADDED_BASE,
+			'function walk',
+			SUMMARY,
+			buildCell('Walks the whole tree, visiting every branch before it stops.'),
+		)
+		expect(result).toBe(PADDED_WIDER)
+	})
+
+	it('pads every row of a table a narrower cell moves, as the formatter does', () => {
+		expect(replaceCell(PADDED_BASE, 'function talk', SUMMARY, buildCell('Talks.'))).toBe(
+			PADDED_NARROWER,
+		)
+	})
+
+	it('pads a Signature cell holding a code span with a pipe as the formatter does', () => {
+		const result = replaceCell(PADDED_BASE, 'type Path', SIGNATURE, [
+			{ element: 'codeSpan', value: 'string | number' },
+		])
+		expect(result).toBe(PADDED_PIPED)
+		expect(
+			replaceCell(result ?? '', 'type Path', SIGNATURE, [
+				{ element: 'codeSpan', value: 'string | number' },
+			]),
+		).toBe(result)
+	})
+
+	it('pads a Methods table as the formatter does and leaves the Surface table byte for byte', () => {
+		const result = replaceCell(
+			PADDED_BASE,
+			'WidgetInterface.close',
+			SUMMARY,
+			buildCell('Closes the widget and releases every resource it holds.'),
+		)
+		expect(result).toBe(PADDED_METHODS)
+		const cut = PADDED_BASE.indexOf('## Methods')
+		expect(result?.slice(0, cut)).toBe(PADDED_BASE.slice(0, cut))
+	})
+
+	it('leaves a table the rewrite does not touch byte for byte', () => {
+		const result = replaceCell(
+			PADDED_BASE,
+			'function walk',
+			SUMMARY,
+			buildCell('Walks the whole tree, visiting every branch before it stops.'),
+		)
+		const cut = PADDED_BASE.indexOf('## Methods')
+		expect(result?.slice(result.indexOf('## Methods'))).toBe(PADDED_BASE.slice(cut))
 	})
 
 	it('returns undefined for a key no row carries', () => {

@@ -336,7 +336,7 @@ await new GuideCommand({
 				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks the tree. |'
 
 			expect(replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks a tree.'))).toBe(
-				'## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks a tree. |',
+				'## Surface\n\n| Name   | Kind     | Signature    | Summary       |\n| ------ | -------- | ------------ | ------------- |\n| `walk` | function | `() => void` | Walks a tree. |',
 			)
 			expect(replaceCell(guide, 'function phantom', SUMMARY, buildCell('Absent.'))).toBeUndefined()
 			expect(
@@ -388,7 +388,7 @@ await new GuideCommand({
 				"replaceCell(guide, 'function walk', SUMMARY, buildCell('Walks a tree.'))",
 			)
 			expect(guideText).toContain(
-				"// '## Surface\\n\\n| Name | Kind | Signature | Summary |\\n| --- | --- | --- | --- |\\n| `walk` | function | `() => void` | Walks a tree. |'",
+				"// '## Surface\\n\\n| Name   | Kind     | Signature    | Summary       |\\n| ------ | -------- | ------------ | ------------- |\\n| `walk` | function | `() => void` | Walks a tree. |'",
 			)
 			expect(guideText).toContain(
 				"replaceCell(guide, 'function phantom', SUMMARY, buildCell('Absent.')) // undefined — no row carries that key",

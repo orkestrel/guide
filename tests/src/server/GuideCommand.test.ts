@@ -453,10 +453,7 @@ const runner = async () => ({
 			expect(first.status).toBe(0)
 			expect(first.stdout).toContain('wrote guides/widget.md\n')
 			expect(scratch.read('guides/widget.md')).toBe(
-				(NATIVE_FIXTURE['guides/widget.md'] ?? '').replace(
-					'`(name: number) => boolean`',
-					'`(name: string) => boolean`',
-				),
+				'## Surface\n\n| Name         | Kind     | Signature                   | Summary                 |\n| ------------ | -------- | --------------------------- | ----------------------- |\n| `openWidget` | function | `(name: string) => boolean` | Opens a widget by name. |\n',
 			)
 			expect(scratch.read('src/core/widgets.ts')).toBe(NATIVE_FIXTURE['src/core/widgets.ts'])
 

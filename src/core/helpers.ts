@@ -44,6 +44,7 @@ import {
 } from '@orkestrel/markdown'
 import { escapeRegExp, isNonEmptyString, isString } from '@orkestrel/contract'
 import {
+	EMOJI_SEQUENCE,
 	EXTERNAL_SCHEMES,
 	KIND,
 	METHODS,
@@ -53,7 +54,9 @@ import {
 	SURFACE,
 	SURFACE_HEADER,
 	TESTS,
+	WIDE_CHARACTER,
 	WRAP_WIDTH,
+	ZERO_WIDTH,
 } from './constants.js'
 import { GuideError } from './errors.js'
 import { isExportKeyword } from './validators.js'
@@ -3054,6 +3057,94 @@ export function buildTable(
 }
 
 /**
+ * Measures how many terminal columns `text` occupies the way the checkout's formatter pads a
+ * Markdown table cell: each grapheme cluster counts two columns when it is wide — a character
+ * of the East Asian wide and fullwidth blocks, an emoji, or a sequence of them — and otherwise
+ * one column per character that has a width, with marks, format characters, and control
+ * characters counting none.
+ *
+ * @remarks
+ * The count is of the cell's source text, so an escaped pipe counts two columns, as it does in the
+ * file. An ambiguous-width character such as an arrow counts one column, the width the formatter
+ * gives it.
+ *
+ * @param text - The cell's source text
+ * @returns The columns `text` occupies
+ *
+ * @example
+ * ```ts
+ * computeCellWidth('`walk`') // 6
+ * ```
+ */
+export function computeCellWidth(text: string): number {
+	return Iterator.from(new Intl.Segmenter().segment(text)).reduce(
+		(total, { segment }) =>
+			EMOJI_SEQUENCE.test(segment)
+				? total + 2
+				: Iterator.from(segment).reduce(
+						(sum, character) =>
+							ZERO_WIDTH.test(character) ? sum : sum + (WIDE_CHARACTER.test(character) ? 2 : 1),
+						total,
+					),
+		0,
+	)
+}
+
+/**
+ * Renders `table` as the bytes the checkout's formatter writes for it: every column padded to
+ * its widest cell, at least three columns wide, each cell justified to its column's alignment,
+ * and a delimiter row of dashes the column's width carrying the alignment's colons.
+ *
+ * @remarks
+ * `renderMarkdown` writes every cell one-space padded, so a rewritten table that passed straight
+ * through it would fail the formatter's check and need a formatter pass. This render pads from
+ * that output instead of re-deriving it, so the cell text is `renderMarkdown`'s and only the
+ * padding is this function's: a cell is measured by {@link computeCellWidth}, a left or unaligned
+ * cell pads on the right, a right-aligned cell on the left, and a centred cell on both sides with
+ * the odd column on the right.
+ *
+ * @param table - The table to render
+ * @returns The table's markdown source, with no trailing newline
+ *
+ * @example
+ * ```ts
+ * renderMarkdownTable({
+ * 	element: 'table',
+ * 	header: [[{ element: 'text', value: 'Name' }], [{ element: 'text', value: 'Summary' }]],
+ * 	rows: [[[{ element: 'codeSpan', value: 'walk' }], [{ element: 'text', value: 'Walks.' }]]],
+ * 	align: [null, null],
+ * })
+ * // '| Name   | Summary |\n| ------ | ------- |\n| `walk` | Walks.  |'
+ * ```
+ */
+export function renderMarkdownTable(table: TableNode): string {
+	const [header = '', , ...body] = renderMarkdown(table).split('\n')
+	const rows = [header, ...body].map((line) => line.slice(2, -2).split(' | '))
+	const widths = table.header.map((_, column) =>
+		Math.max(3, ...rows.map((cells) => computeCellWidth(cells[column] ?? ''))),
+	)
+	const lines = rows.map(
+		(cells) =>
+			`| ${widths
+				.map((width, column) => {
+					const cell = cells[column] ?? ''
+					const spare = width - computeCellWidth(cell)
+					const align = table.align[column]
+					const before = align === 'right' ? spare : align === 'center' ? Math.floor(spare / 2) : 0
+					return `${' '.repeat(before)}${cell}${' '.repeat(spare - before)}`
+				})
+				.join(' | ')} |`,
+	)
+	const delimiter = widths.map((width, column) => {
+		const align = table.align[column]
+		const left = align === 'left' || align === 'center' ? ':' : '-'
+		const right = align === 'right' || align === 'center' ? ':' : '-'
+		return `${left}${'-'.repeat(width - 2)}${right}`
+	})
+	return [lines[0], `| ${delimiter.join(' | ')} |`, ...lines.slice(1)].join('\n')
+}
+
+/**
  * Builds the fenced code block one `@example` block renders as — its code inside a fence
  * carrying its language, and an untagged fence when the block names none.
  *
@@ -3226,9 +3317,10 @@ export function renderExample(example: SourceExample): string {
  * a rewrite would re-pad the whole table for no change; that identity reads both cells through
  * {@link extractCellText} and {@link normalizeSummary}, so a caller passing text the compared form
  * still moves is a fixed point on the second run rather than a row rewritten forever. The
- * rewritten table renders one-space padded whatever padding it carried, so the checkout's
- * formatter re-aligns it, and a code span renders with every `|` written `\|` and a longer
- * backtick fence when its text holds a backtick.
+ * rewritten table renders through {@link renderMarkdownTable}, so every row of it is padded as the
+ * checkout's formatter pads a table whatever padding it carried and the formatter's check passes
+ * on the result, and a code span renders with every `|` written `\|` and a longer backtick fence
+ * when its text holds a backtick.
  *
  * @param guide - The guide's markdown source
  * @param key - The compared key naming the row
@@ -3239,7 +3331,7 @@ export function renderExample(example: SourceExample): string {
  * @example
  * ```ts
  * replaceCell('## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks. |', 'function walk', SUMMARY, buildCell('Walks a tree.'))
- * // '## Surface\n\n| Name | Kind | Signature | Summary |\n| --- | --- | --- | --- |\n| `walk` | function | `() => void` | Walks a tree. |'
+ * // '## Surface\n\n| Name   | Kind     | Signature    | Summary       |\n| ------ | -------- | ------------ | ------------- |\n| `walk` | function | `() => void` | Walks a tree. |'
  * ```
  */
 export function replaceCell(
@@ -3277,7 +3369,7 @@ export function replaceCell(
 	if (current === normalizeSummary(extractCellText(cell))) return guide
 	const span = markdown.span(table)
 	if (span === undefined) return undefined
-	return spliceSpan(guide, span, renderMarkdown(buildTable(table, index, position, cell)))
+	return spliceSpan(guide, span, renderMarkdownTable(buildTable(table, index, position, cell)))
 }
 
 /**
